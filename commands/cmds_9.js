@@ -499,7 +499,7 @@ function wrap(ctx, text, x, y, maxWidth, lineHeight) {
 }
 
 /** A 0-100 score with a label, for every meter in the module. */
-function meter(pct, label, rows) {
+function meter(pct, label) {
   const filled = Math.max(0, Math.min(10, Math.round(clamp(pct) / 10)));
   const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
   return `${label}\n\`${bar}\` ${Math.max(0, Math.min(100, Math.round(clamp(pct))))}%`;
@@ -554,4 +554,427 @@ const FEES = {
 const commands = [];
 
 // ───────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────
+// CONTACT — the reason anyone adds this bot to a group
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'hugultra',
+    aliases: ['hug2', 'hugx'],
+    category: 'fun',
+    description: '🤗 Hug somebody and pay them 50. Bringing your pet adds 25',
+    usage: '!hugultra @user',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'hugultra', async () => {
+      await react('🤗');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'hugultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.hugultra, 'fun:hugultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // Bringing a pet is worth 25 more. It is the only mechanical reason to
+      // have one in this module, and it costs the hugger nothing to try.
+      const pet = await petOf(userDoc);
+      const petBonus = pet ? 25 : 0;
+      const gift = 50 + petBonus;
+      const got = await give(who, gift, 'fun:hug_gift', { from: userDoc.name });
+
+      f(userDoc).hugs += 1;
+      f(who).giftsIn += 1;
+      f(userDoc).giftsOut += 1;
+      await save(userDoc);
+      await save(who);
+
+      const group = await groupOf(event);
+      if (group) {
+        group.fun.hugs = clamp(group.fun.hugs) + 1;
+        try { await group.save(); } catch { /* cosmetic */ }
+      }
+
+      await react('💚');
+      await reply(
+        `🤗 **${userDoc.name} HUGGED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💚 +${kc(got)}${petBonus ? ` (includes +${petBonus} pet bonus${pet && pet.name ? ` — ${pet.name}` : ''})` : ''}\n`
+        + `👛 Their wallet: ${kc(who.coins)}\n`
+        + `📖 _This is a message and a transfer. Nobody was hugged._`,
+        event.messageID,
+      );
+
+      const art = await card({
+        title: '🤗 HUG',
+        subtitle: `${userDoc.name} ➜ ${who.name}`,
+        body: pet
+          ? `${pet.emoji || '🐾'} ${pet.name} came along and enjoyed it more than either of you.`
+          : 'No pet. It was still acceptable.',
+        footer: 'A MESSAGE AND A TRANSFER — NOT A HUG',
+        accent: canvasKit.theme.gold,
+      });
+      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'slapultra',
+    aliases: ['slap2'],
+    category: 'fun',
+    description: '👋 Slap somebody — they lose 100, you keep 50, the other 50 evaporates',
+    usage: '!slapultra @user',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'slapultra', async () => {
+      await react('👋');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'slapultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.slapultra, 'fun:slapultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // The target loses up to 100 and you take half of what was actually taken.
+      // Deriving the take from the real balance is what stops this printing a
+      // negative wallet on somebody who is already broke.
+      const lost = await take(who, 100, 'fun:slap_victim', { from: userDoc.name });
+      const stole = await give(userDoc, lost.took / 2, 'fun:slap_steal', { from: who.name });
+
+      f(userDoc).slaps += 1;
+      await save(userDoc);
+      await save(who);
+
+      const group = await groupOf(event);
+      if (group) {
+        group.fun.slaps = clamp(group.fun.slaps) + 1;
+        try { await group.save(); } catch { /* cosmetic */ }
+      }
+
+      await react('💢');
+      await reply(
+        `👋 **${userDoc.name} SLAPPED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 They lost ${kc(lost.took)}${lost.short ? ' (that is everything they had)' : ''}\n`
+        + `💰 You took ${kc(stole)}\n`
+        + `👛 Their wallet: ${kc(who.coins)}\n`
+        + `📖 _A message and a transfer. Everybody is fine._`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'kissultra',
+    aliases: ['kiss2'],
+    category: 'fun',
+    description: '💋 Kiss somebody — a love meter, and pets get a breeding chance out of it',
+    usage: '!kissultra @user',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kissultra', async () => {
+      await react('💋');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'kissultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.kissultra, 'fun:kissultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      f(userDoc).kisses += 1;
+      await save(userDoc);
+
+      // Both pets SAFE means there is no risk of the fight that pet breeding
+      // usually turns into. An unsafe pet refuses the whole thing.
+      const myPet = await petOf(userDoc);
+      const theirPet = await petOf(who);
+      const unsafe = [myPet, theirPet].filter((p) => p && p.isSafe === false);
+      let petLine = '🐾 No pets involved. Purely theoretical.';
+      if (unsafe.length && myPet && theirPet) {
+        const names = unsafe.map((p) => p.name);
+        petLine = `⚠️ **Unsafe pets.** ${names.join(' and ')} ${names.length > 1 ? 'are' : 'is'} in unsafe mode. `;
+        petLine += 'Nothing is happening near them.';
+      } else if (myPet && theirPet) {
+        petLine = `🐾 **Both pets are safe** — ${myPet.name} and ${theirPet.name}. `
+          + `There is a breeding chance in this, in the same way there is in a photograph.`;
+      } else if (myPet || theirPet) {
+        petLine = `🐾 One pet. It watched, unimpressed. (${(myPet || theirPet).name})`;
+      }
+
+      await react('❤️');
+      await reply(
+        `💋 **${userDoc.name} KISSED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(rand(10, 95), '❤️ LOVE METER')}\n`
+        + `${petLine}\n`
+        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+        + `📖 _Nothing about this changes your status._`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'shipultra',
+    aliases: ['ship2'],
+    category: 'fun',
+    description: '💘 Ship two people — permanent score on this chat. No take-backs',
+    usage: '!shipultra @a @b',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'shipultra', async () => {
+      await react('💘');
+      if (args.length < 2) {
+        await reply('❌ Usage: `!shipultra @a @b` — tag both of them.', event.messageID);
+        return;
+      }
+      const a = await resolve(args[0], event);
+      const b = await resolve(args[1], event);
+      if (!a || !b) {
+        await reply('❌ Both people have to be real. Check your tags.', event.messageID);
+        return;
+      }
+      if (String(a.uid) === String(b.uid)) {
+        await reply('💘 You cannot ship somebody to themselves. The chart would collapse.', event.messageID);
+        return;
+      }
+      if (String(a.uid) === String(userDoc.uid) || String(b.uid) === String(userDoc.uid)) {
+        await reply('💘 Shipping yourself is banned by the shipping act of this group.', event.messageID);
+        return;
+      }
+
+      const paid = await fee(userDoc, FEES.shipultra, 'fun:shipultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const group = await groupOf(event);
+      if (!group) {
+        await reply('💘 Ships need a group chat and a database. None of that here.', event.messageID);
+        return;
+      }
+
+      const added = rand(5, 25);
+      const scored = await score(group, 'ships', a.uid, b.uid, added, userDoc.uid);
+      f(userDoc).shipped += 1;
+      await save(userDoc);
+      await react('💘');
+
+      const pct = Math.min(100, scored.score);
+      await reply(
+        `💘 **${a.name} x ${b.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(pct, '💘 SHIP SCORE')}\n`
+        + `➕ +${added} from ${userDoc.name}\n`
+        + `📈 Total: ${num(scored.score)}\n`
+        + `📖 _Permanent. There is no unship command._`,
+        event.messageID,
+      );
+
+      const art = await card({
+        title: '💘 SHIPPED',
+        subtitle: `${a.name} x ${b.name}`,
+        body: `${pct}% of this chat agrees. The other ${100 - pct}% are not invited to the wedding.`,
+        footer: `${OWNER} · SHIPS NEVER UNSHIP`,
+        accent: canvasKit.theme.accent2,
+      });
+      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'patultra',
+    aliases: ['pat2', 'headpat'],
+    category: 'fun',
+    description: '🫶 Pat somebody on the head. Costs 50, lifts them by 5',
+    usage: '!patultra @user',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'patultra', async () => {
+      await react('🫶');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'patultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.patultra, 'fun:patultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const lift = await give(who, 5, 'fun:pat_gift', { from: userDoc.name });
+      f(userDoc).pats += 1;
+      await save(userDoc);
+
+      await react('🙌');
+      await reply(
+        `🫶 **${userDoc.name} PATTED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💚 +${kc(lift)}\n`
+        + `👛 Their wallet: ${kc(who.coins)}\n`
+        + `📖 _A gentle message. Genuinely harmless._`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'cuddleultra',
+    aliases: ['cuddle2'],
+    category: 'fun',
+    description: '🧸 Cuddle somebody up. Costs 50, and pets get involved somehow',
+    usage: '!cuddleultra @user',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cuddleultra', async () => {
+      await react('🧸');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'cuddleultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.cuddleultra, 'fun:cuddleultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const pet = await petOf(userDoc) || await petOf(who);
+      const shared = clamp(rand(10, 80));
+      f(userDoc).cuddles += 1;
+      await save(userDoc);
+
+      await react('☁️');
+      await reply(
+        `🧸 **${userDoc.name} CUDDLED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(shared, '☁️ COZY METER')}\n`
+        + (pet
+          ? `🐾 ${pet.name} got involved immediately and ruined it.`
+          : '🐾 No pets. It stayed civilised.')
+        + `\n👛 Your wallet: ${kc(userDoc.coins)}\n`
+        + '📖 _A message. Mostly._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'punchultra',
+    aliases: ['punch2'],
+    category: 'fun',
+    description: '👊 Punch somebody — they lose 150 and you walk away with nothing',
+    usage: '!punchultra @user',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'punchultra', async () => {
+      await react('👊');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'punchultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.punchultra, 'fun:punchultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // Unlike a slap, a punch costs the victim more than the attacker gains.
+      // That asymmetry is deliberate: punching is a worse deal than slapping and
+      // the economy should say so.
+      const lost = await take(who, 150, 'fun:punch_victim', { from: userDoc.name });
+      const back = rand(20, 60);
+      const youGot = await take(userDoc, back, 'fun:punch_rebound', { from: who.name });
+
+      await react('💥');
+      await reply(
+        `👊 **${userDoc.name} PUNCHED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 They lost ${kc(lost.took)}\n`
+        + `🤕 You lost ${kc(youGot.took)} in the rebound\n`
+        + `👛 Their wallet: ${kc(who.coins)}\n`
+        + `📖 _Punching is a bad deal. Slapping is better. That is the lesson._`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'bonkultra',
+    aliases: ['bonk2'],
+    category: 'fun',
+    description: '💫 Bonk somebody into horny jail. Costs 100, no way out for 3 minutes',
+    usage: '!bonkultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'bonkultra', async () => {
+      await react('💫');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'bonkultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.bonkultra, 'fun:bonkultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // Horny jail is 3 minutes in cache, thread-scoped. It is cosmetic: it
+      // hides commands for a bit and costs nothing, so it can never be used to
+      // grief anybody for long.
+      cache.setGameState(`${who.uid}:${event.threadID}`, 'hornyjail', { by: userDoc.name }, 3 * 60 * 1000);
+      f(userDoc).bonks += 1;
+      await save(userDoc);
+
+      await react('🔒');
+      await reply(
+        `💫 **BONK!**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${userDoc.name} bonked ${who.name} into horny jail.\n`
+        + `🔒 3 minutes. No appeals.\n`
+        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+        + '📖 _Horny jail stops the fun commands for three minutes. Nothing else._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'stabultra',
+    aliases: ['stab2'],
+    category: 'fun',
+    description: '🔪 Stab somebody — 100 coins of damage, described in detail but harmlessly',
+    usage: '!stabultra @user',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'stabultra', async () => {
+      await react('🔪');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'stabultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.stabultra, 'fun:stabultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const weapon = pick1(STAB_WAYS);
+      const lost = await take(who, 100, 'fun:stab_victim', { from: userDoc.name });
+      f(userDoc).stabs += 1;
+      await save(userDoc);
+
+      await react('🩸');
+      await reply(
+        `🔪 **${userDoc.name} STABBED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🔪 With ${weapon}.\n`
+        + `💸 They lost ${kc(lost.took)}\n`
+        + `👛 Their wallet: ${kc(who.coins)}\n`
+        + `📖 _Nobody was stabbed. This is a message about a knife._`,
+        event.messageID,
+      );
+    }),
+  });
+
 module.exports = commands;
