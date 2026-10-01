@@ -259,6 +259,129 @@ async function threadAdmins(api, event) {
   }
 }
 
+/**
+ * Paint the group banner. Returns a data URL, or null when the native canvas
+ * binary is missing so the caller can fall back to text.
+ */
+async function renderBanner(tid, level, msgs, dominated) {
+  const made = canvasKit.create(900, 480);
+  if (!made) return null;
+  const { ctx } = made;
+
+  const bg = ctx.createLinearGradient(0, 0, 900, 480);
+  bg.addColorStop(0, canvasKit.theme.bg1);
+  bg.addColorStop(1, canvasKit.theme.bg2);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 900, 480);
+
+  ctx.fillStyle = canvasKit.theme.accent;
+  ctx.fillRect(0, 0, 900, 6);
+  ctx.fillStyle = canvasKit.theme.accent2;
+  ctx.fillRect(0, 474, 900, 6);
+
+  ctx.fillStyle = canvasKit.theme.text;
+  ctx.font = 'bold 54px iKonSans';
+  ctx.fillText('iKON CITY', 48, 110);
+
+  ctx.fillStyle = canvasKit.theme.muted;
+  ctx.font = '26px iKonSans';
+  ctx.fillText(`CHAT ${String(tid).slice(-6)}`, 48, 156);
+
+  ctx.fillStyle = canvasKit.theme.gold;
+  ctx.font = 'bold 40px iKonSans';
+  ctx.fillText(`LEVEL ${level}`, 48, 250);
+
+  ctx.fillStyle = canvasKit.theme.text;
+  ctx.font = '30px iKonSans';
+  ctx.fillText(`${num(msgs)} lifetime messages`, 48, 302);
+
+  // Level bar, clamped so a maxed chat cannot draw past the panel.
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  ctx.fillRect(48, 340, 804, 22);
+  const pct = Math.max(0, Math.min(1, clamp(level) / 100));
+  ctx.fillStyle = canvasKit.theme.accent;
+  ctx.fillRect(48, 340, Math.round(804 * pct), 22);
+
+  if (dominated) {
+    ctx.fillStyle = canvasKit.theme.accent2;
+    ctx.font = 'bold 28px iKonSans';
+    ctx.fillText('DOMINATED BY THE HOUSE', 48, 420);
+  }
+
+  const buffer = await canvasKit.toBuffer(made.canvas);
+  return buffer ? `data:image/png;base64,${buffer.toString('base64')}` : null;
+}
+
+/** Paint a welcome card for one hunter. */
+async function renderWelcome(name, uid, message) {
+  const made = canvasKit.create(700, 340);
+  if (!made) return null;
+  const { ctx } = made;
+
+  const bg = ctx.createLinearGradient(0, 0, 700, 340);
+  bg.addColorStop(0, canvasKit.theme.bg2);
+  bg.addColorStop(1, canvasKit.theme.bg1);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 700, 340);
+
+  ctx.fillStyle = canvasKit.theme.accent;
+  ctx.fillRect(0, 0, 700, 5);
+
+  ctx.fillStyle = canvasKit.theme.muted;
+  ctx.font = '22px iKonSans';
+  ctx.fillText('WELCOME TO THE iKON ARCADE', 40, 70);
+
+  ctx.fillStyle = canvasKit.theme.text;
+  ctx.font = 'bold 44px iKonSans';
+  ctx.fillText(String(name).slice(0, 22), 40, 140);
+
+  ctx.fillStyle = canvasKit.theme.accent2;
+  ctx.font = '22px iKonSans';
+  ctx.fillText(`ID ${uid}`, 40, 180);
+
+  // Word-wrap the configured welcome text by measuring it.
+  ctx.fillStyle = canvasKit.theme.muted;
+  ctx.font = '20px iKonSans';
+  const words = String(message).split(' ');
+  let line = '';
+  let y = 226;
+  for (const w of words) {
+    const test = line ? `${line} ${w}` : w;
+    if (ctx.measureText(test).width > 620 && line) {
+      ctx.fillText(line, 40, y);
+      line = w;
+      y += 28;
+      if (y > 320) break;
+    } else {
+      line = test;
+    }
+  }
+  if (line && y <= 320) ctx.fillText(line, 40, y);
+
+  const buffer = await canvasKit.toBuffer(made.canvas);
+  return buffer ? `data:image/png;base64,${buffer.toString('base64')}` : null;
+}
+
+/** Paint a square icon preview. */
+async function renderIcon(emoji, tid) {
+  const made = canvasKit.create(256, 256);
+  if (!made) return null;
+  const { ctx } = made;
+
+  ctx.fillStyle = canvasKit.theme.bg1;
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 120px iKonSans';
+  ctx.fillText(String(emoji).slice(0, 2), 128, 118);
+  ctx.fillStyle = canvasKit.theme.muted;
+  ctx.font = '16px iKonSans';
+  ctx.fillText(`CHAT ${String(tid).slice(-6)}`, 128, 220);
+
+  const buffer = await canvasKit.toBuffer(made.canvas);
+  return buffer ? `data:image/png;base64,${buffer.toString('base64')}` : null;
+}
+
 /** Take coins from a hunter for a group offence. Returns what was taken. */
 async function fine(userDoc, amount, action) {
   const take = Math.min(clamp(userDoc.coins), clamp(amount));
@@ -852,63 +975,6 @@ const commands = [];
   }
 
   commands.push({
-    name: 'gcban',
-    aliases: ['gcbanuser'],
-    category: 'group',
-    description: '🚫 Ban somebody from this chat entirely',
-    usage: '!gcban @user [reason]',
-    cooldown: 20,
-    permission: 'groupAdmin',
-    execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'gcban', async () => {
-      await react('🚫');
-      const group = await liveGroup(event);
-      if (!group) {
-        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
-        return;
-      }
-      const cfg = gcfg(group);
-
-      const target = await targetOr(reply, event.messageID, args[0], event, 'gcban');
-      if (!target) return;
-      if (String(target.uid) === String(event.senderID)) {
-        await reply('❌ Banning yourself would just be a very slow logout.', event.messageID);
-        return;
-      }
-      if (punished(cfg, 'bans', target.uid)) {
-        await reply(`🚫 ${target.name} is already banned here.`, event.messageID);
-        return;
-      }
-
-      const reason = args.slice(1).join(' ').trim() || 'no reason given';
-      cfg.bans.push({
-        uid: String(target.uid),
-        name: target.name,
-        reason,
-        by: String(event.senderID),
-        expires: null,
-      });
-      await save(group);
-
-      let kicked = false;
-      if (api.removeUserFromGroup) {
-        try {
-          await api.removeUserFromGroup({ threadID: event.threadID, userID: target.uid });
-          kicked = true;
-        } catch { /* the ban list still stands even if the kick failed */ }
-      }
-
-      await reply(
-        `🚫 **${target.name} IS BANNED.**\n`
-        + '━━━━━━━━━━━━━━━\n'
-        + `📖 ${reason}\n`
-        + (kicked ? '🚪 Removed from the chat.\n' : '📋 On the ban list. This build could not remove them.\n')
-        + `📖 ${story()}`,
-        event.messageID,
-      );
-    }),
-  });
-
-  commands.push({
     name: 'gcmute',
     aliases: ['gcmuteuser'],
     category: 'group',
@@ -1369,6 +1435,499 @@ const commands = [];
         event.messageID,
       );
       void api;
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// CANVAS — welcome cards, banners, icons
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'gcbanner',
+    aliases: ['gcbannersign'],
+    category: 'group',
+    description: '🖼️ Render this chat as an iKON banner image',
+    usage: '!gcbanner',
+    cooldown: 30,
+    permission: 'groupAdmin',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'gcbanner', async () => {
+      await react('🖼️');
+      const group = await liveGroup(event);
+      const cfg = group ? gcfg(group) : null;
+      const level = cfg ? levelFor(cfg.msgs) : 1;
+      const msgs = cfg ? clamp(cfg.msgs) : 0;
+      const tid = String(event.threadID || 'unknown');
+
+      const made = await canvasKit.available()
+        ? await renderBanner(tid, level, msgs, cfg && cfg.dominated)
+        : null;
+
+      if (!made) {
+        // A missing native canvas binary is not an error worth failing over.
+        // The banner degrades to text so the admin still gets their artefact.
+        await reply(
+          `🖼️ **BANNER (text mode — no canvas binary here)**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `🏙️ iKON CITY · CHAT ${tid.slice(-6)}\n`
+          + `📈 LEVEL ${level}\n💬 ${num(msgs)} MESSAGES\n`
+          + (cfg && cfg.dominated ? '👑 DOMINATED BY THE HOUSE\n' : '')
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+      await reply({ attachment: { type: 'image', data: { url: made } } });
+    }),
+  });
+
+  commands.push({
+    name: 'gcicon',
+    aliases: ['gcavatar'],
+    category: 'group',
+    description: '🖼️ Set the chat icon, or preview the new one when the build cannot',
+    usage: '!gcicon <emoji>',
+    cooldown: 20,
+    permission: 'groupAdmin',
+    execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'gcicon', async () => {
+      await react('🖼️');
+      const icon = String(args[0] || '').trim();
+      if (!icon) {
+        await reply('❌ Usage: `!gcicon <emoji>` — one emoji becomes the chat icon.', event.messageID);
+        return;
+      }
+
+      if (typeof api.setThreadIcon === 'function') {
+        try {
+          await api.setThreadIcon({ threadID: event.threadID, iconEmoji: icon });
+          await reply(`🖼️ Chat icon set to ${icon}.`, event.messageID);
+          return;
+        } catch (err) {
+          await reply(`🖼️ ${icon} it is — but Messenger refused the change (${err.message}).`, event.messageID);
+          return;
+        }
+      }
+
+      // ws3-fca cannot set an icon on most builds. Saying so plainly beats
+      // reporting a success the group would never see.
+      const made = canvasKit.available() ? await renderIcon(icon, String(event.threadID || '')) : null;
+      if (made) {
+        await reply({ attachment: { type: 'image', data: { url: made } } });
+        return;
+      }
+      await reply(
+        `🖼️ **${icon}** would be the icon for this chat.\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + '⚠️ This build of ws3-fca cannot change a chat icon, so nothing was applied.',
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// GROUP INFO
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'groupinfo',
+    aliases: ['ginfo', 'gcinfo'],
+    category: 'group',
+    description: '📋 Thread id, level, member count, approval and every toggle',
+    usage: '!groupinfo',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'groupinfo', async () => {
+      await react('📋');
+      const group = await liveGroup(event);
+      const members = (await safeMembers(api, event)).length;
+      const admins = (await threadAdmins(api, event)).length;
+      const tid = String(event.threadID || 'private chat');
+
+      if (!group) {
+        await reply(
+          `📋 **CHAT RECORD**\n━━━━━━━━━━━━━━━\n`
+          + `🆔 ${tid}\n`
+          + `👥 ${num(members)} members · 🛡️ ${num(admins)} admins\n`
+          + '❌ No database record, and the city grid is offline.',
+          event.messageID,
+        );
+        return;
+      }
+      const cfg = gcfg(group);
+
+      await reply(
+        `📋 **CHAT RECORD**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🆔 ${tid}\n`
+        + `👥 ${num(members)} members · 🛡️ ${num(admins)} admins\n`
+        + `📈 Level ${cfg.level} · 💬 ${num(cfg.msgs)} messages\n`
+        + `✅ Enabled: ${yesNo(!!group.isEnabled)}\n`
+        + `🎖️ Approved: ${yesNo(!!group.isApproved)}\n`
+        + `⏳ Pending approval: ${yesNo(!!group.pendingApproval)}\n`
+        + `🔧 Maintenance: ${yesNo(!!group.maintenance)}\n`
+        + `⬇️ Prefix: ${group.prefix ? `\`${group.prefix}\`` : 'default'}\n\n`
+        + `👋 Welcome ${yesNo(!!group.settings.welcome)} · 🚪 Goodbye ${yesNo(!!group.settings.goodbye)}\n`
+        + `🔗 Ant-link ${yesNo(!!cfg.antiLink.on)} · 🛡️ Anti-raid ${yesNo(!!cfg.antiRaid.on)}\n`
+        + `⚔️ Warzone ${yesNo(!!cfg.warzone.on)} · 🔒 Lockdown ${yesNo(!!cfg.lockdown.on)}\n`
+        + `👑 Dominated: ${yesNo(!!cfg.dominated)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gcmembers',
+    aliases: ['gcmemberlist'],
+    category: 'group',
+    description: '👥 Member count and the busiest hunters recorded in this chat',
+    usage: '!gcmembers',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'gcmembers', async () => {
+      await react('👥');
+      const members = await safeMembers(api, event);
+      const admins = await threadAdmins(api, event);
+      const group = await liveGroup(event);
+      const cfg = group ? gcfg(group) : null;
+
+      const hunters = await User.find({ 'gc.lastGroup': String(event.threadID) }).limit(50).lean().catch(() => []);
+      const val = (e, path) => path.split('.').reduce((o, k) => (o == null ? 0 : o[k]), e) || 0;
+      const busiest = [...(hunters || [])].sort((a, b) => val(b, 'gc.msgs') - val(a, 'gc.msgs')).slice(0, 5);
+      const board = busiest.length
+        ? busiest.map((e, i) => `${i + 1}. ${e.name} — ${num(val(e, 'gc.msgs'))} msgs`).join('\n')
+        : 'No hunter activity recorded yet.';
+
+      await reply(
+        `👥 **THE ROSTER**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `👤 ${num(members.length)} members${members.length ? ' (this build can count them)' : ' (this build cannot list them)'}\n`
+        + `🛡️ ${num(admins.length)} admins\n`
+        + `📈 Level ${cfg ? cfg.level : '?'} · 💬 ${cfg ? num(cfg.msgs) : '?'} messages\n\n`
+        + `📢 **Busiest here**\n${board}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gcadmins',
+    aliases: ['gcadminslist'],
+    category: 'group',
+    description: '🛡️ Everyone who can run the moderator commands in this chat',
+    usage: '!gcadmins',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'gcadmins', async () => {
+      await react('🛡️');
+      const admins = await threadAdmins(api, event);
+      if (!admins.length) {
+        await reply('🛡️ Messenger returned no admins for this chat, so nobody can run the moderator commands.', event.messageID);
+        return;
+      }
+
+      const docs = await User.find({ uid: { $in: admins } }).lean().catch(() => []);
+      const nameOf = (uid) => {
+        const d = (docs || []).find((x) => String(x.uid) === String(uid));
+        return d ? d.name : uid;
+      };
+      const rows = admins.map((uid, i) => `${i + 1}. ${nameOf(uid)}`).join('\n');
+
+      await reply(
+        `🛡️ **THE ADMIN BENCH**\n━━━━━━━━━━━━━━━\n${rows}\n`
+        + `📖 ${OWNER} outranks all of them.`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// SOCIAL CHAOS — truth or dare, confessions, quote bomb
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'truthordaregc',
+    aliases: ['truthordare', 'gctod'],
+    category: 'group',
+    description: '🎭 Truth or dare for the whole chat — the bot picks, somebody answers',
+    usage: '!truthordaregc [truth|dare]',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'truthordaregc', async () => {
+      await react('🎭');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const want = String(args[0] || '').toLowerCase();
+      const truth = want === 'truth' || (want !== 'dare' && Math.random() < 0.5);
+      const question = truth ? pick(TRUTHS) : pick(DARES);
+      cfg.tod = { question, dare: truth ? 'truth' : 'dare', at: new Date() };
+      await save(group);
+
+      await reply(
+        `🎭 **${truth ? 'TRUTH' : 'DARE'}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${question}\n\n`
+        + `${userDoc.name}, you were handed it. There is no appeal.\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'confessionwall',
+    aliases: ['gcconfess'],
+    category: 'group',
+    description: '🕯️ Post a confession to the chat wall, anonymously',
+    usage: '!confessionwall <confession>',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'confessionwall', async () => {
+      await react('🕯️');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Your confession is safe for now.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const text = args.join(' ').trim() || pick(CONFESSIONS);
+      if (text.length > 280) {
+        await reply('❌ Too long. Confessions cap at 280 characters.', event.messageID);
+        return;
+      }
+
+      // The uid is stored but never shown. Keeping it server-side is what lets
+      // the wall stay anonymous in the chat while still being rate limitable.
+      cfg.confessions.push({ uid: String(event.senderID), text, at: new Date() });
+      if (cfg.confessions.length > 50) cfg.confessions.splice(0, cfg.confessions.length - 50);
+      await save(group);
+
+      await reply(
+        `🕯️ **A CONFESSION**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `> ${text}\n\n`
+        + `— anonymous, ${cfg.confessions.length} on the wall\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'quotebomb',
+    aliases: ['gcquotebomb'],
+    category: 'group',
+    description: '💣 Ten quotes attributed to random members, none of which they said',
+    usage: '!quotebomb',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'quotebomb', async () => {
+      await react('💣');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. The bomb is defused.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const hunters = await User.find({ 'gc.lastGroup': String(event.threadID) }).limit(60).lean().catch(() => []);
+      if (!hunters || hunters.length < 3) {
+        await reply('💣 Not enough hunters here to quote. Come back when the chat has a memory.', event.messageID);
+        return;
+      }
+
+      const SAYINGS = [
+        'I would never do that for money.',
+        'The vault was already empty when I got there.',
+        'This is my house now.',
+        'I read the rules after breaking them.',
+        'Somebody owes me a K-Cash.',
+        'I have never muted a notification in my life.',
+        'The bot said it would be fine.',
+        'I ranked this whole chat by coins.',
+      ];
+
+      const pool = [...hunters];
+      const lines = [];
+      for (let i = 0; i < 10 && pool.length; i += 1) {
+        const who = pool.splice(rand(0, pool.length - 1), 1)[0];
+        lines.push(`${i + 1}. "${pick(SAYINGS)}" — ${who.name}`);
+      }
+
+      cfg.msgs = clamp(cfg.msgs) + 10;
+      cfg.level = levelFor(cfg.msgs);
+      await save(group);
+
+      await reply(
+        `💣 **QUOTE BOMB**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${lines.join('\n')}\n\n`
+        + `⚠️ None of them said any of this. That is the joke.\n`
+        + `📈 Chat level ${cfg.level} · ${num(cfg.msgs)} messages\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// PREFIX, RESET AND OWNER APPROVAL
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'setprefixgc',
+    aliases: ['gcprefix', 'setgcprefix'],
+    category: 'group',
+    description: '⬇️ Give this chat its own command prefix',
+    usage: '!setprefixgc <prefix|none>',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, config, event, reply, react }) => guard(reply, event.messageID, 'setprefixgc', async () => {
+      await react('⬇️');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+
+      const raw = String(args[0] || '').trim();
+      if (!raw) {
+        await reply(
+          `⬇️ This chat uses \`${group.prefix || config.PREFIX}\`.\n`
+          + 'Use `!setprefixgc none` to fall back to the global prefix.',
+          event.messageID,
+        );
+        return;
+      }
+      if (['none', 'default', 'reset'].includes(raw.toLowerCase())) {
+        group.prefix = null;
+        await save(group);
+        await reply(`⬇️ Back to the global prefix \`${config.PREFIX}\`.`, event.messageID);
+        return;
+      }
+      if (raw.length > 4) {
+        await reply('❌ Keep the prefix to 4 characters or fewer. Somebody has to type it.', event.messageID);
+        return;
+      }
+
+      group.prefix = raw;
+      await save(group);
+      await reply(`⬇️ This chat now answers to \`${raw}\` instead of \`${config.PREFIX}\`.\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'resetgroup',
+    aliases: ['gcreset'],
+    category: 'group',
+    description: '💥 Wipe every module 6 setting this chat has accumulated',
+    usage: '!resetgroup',
+    cooldown: 60,
+    permission: 'owner',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'resetgroup', async () => {
+      await react('💥');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Nothing was reset.', event.messageID);
+        return;
+      }
+
+      group.gc = {};
+      group.settings.welcome = false;
+      group.settings.goodbye = false;
+      group.settings.welcomeMsg = '';
+      group.settings.goodbyeMsg = '';
+      group.prefix = null;
+      gcfg(group);
+      await save(group);
+
+      await reply(
+        `💥 **THIS CHAT HAS BEEN RESET.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + '👋 Welcome · 🚪 Goodbye · 📜 Policy\n'
+        + '🔗 Ant-link · 🛡️ Anti-raid · ⚔️ Warzone · 🔒 Lockdown\n'
+        + '🚫 Bans · 👻 Ghostbans · 🔇 Mutes · 📈 Level · 👑 Domination\n\n'
+        + 'All cleared. `!unlockgc` would not have done all of this.\n'
+        + `📖 ${OWNER} did not need to be asked twice.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'approveGC',
+    aliases: ['approvegroup', 'gcapprove'],
+    category: 'group',
+    description: '🎖️ Approve a chat and switch the bot on there',
+    usage: '!approveGC [tid]',
+    cooldown: 20,
+    permission: 'owner',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'approveGC', async () => {
+      await react('🎖️');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Nothing was approved.', event.messageID);
+        return;
+      }
+
+      const tid = String(args[0] || group.tid);
+      if (tid !== String(group.tid)) {
+        await reply(`❌ This command approves the chat it is run in. That is tid ${group.tid}, not ${tid}.`, event.messageID);
+        return;
+      }
+
+      group.isApproved = true;
+      group.pendingApproval = false;
+      group.isEnabled = true;
+      await save(group);
+
+      await reply(
+        `🎖️ **CHAT APPROVED.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🆔 ${group.tid}\n`
+        + `✅ Enabled\n🎖️ Approved\n⏳ Pending: no\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'disapproveGC',
+    aliases: ['disapprovegroup', 'gcdisapprove'],
+    category: 'group',
+    description: '🚫 Pull approval from a chat and pause the bot there',
+    usage: '!disapproveGC [reason]',
+    cooldown: 20,
+    permission: 'owner',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'disapproveGC', async () => {
+      await react('🚫');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Nothing changed.', event.messageID);
+        return;
+      }
+
+      const reason = args.join(' ').trim() || 'no reason given';
+      group.isApproved = false;
+      group.pendingApproval = true;
+      group.isEnabled = false;
+      await save(group);
+
+      await reply(
+        `🚫 **APPROVAL PULLED.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🆔 ${group.tid}\n`
+        + `⏸️ The bot is paused here.\n📖 ${reason}\n`
+        + `📖 ${OWNER} revoked it. That is the whole appeal process.`,
+        event.messageID,
+      );
     }),
   });
 
