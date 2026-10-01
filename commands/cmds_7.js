@@ -1346,7 +1346,7 @@ const commands = [];
 
   commands.push({
     name: 'gtashoot',
-    aliases: ['gtashoot', 'gtashootgun'],
+    aliases: ['gtashootgun', 'gtapistol'],
     category: 'gta',
     description: '💥 Fire the equipped gun. Ammo runs out. Someone usually runs',
     usage: '!gtashoot [@user]',
@@ -1704,6 +1704,235 @@ const commands = [];
         + `🎖️ XP +600${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + (pet.note ? `${pet.note}\n` : '')
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// HONEST WORK AND THE BIG ONE
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'gtaheist',
+    aliases: ['gtajob', 'gtathejob'],
+    category: 'gta',
+    description: '🎩 The big heist — once a day, 40% bust rate, huge payout',
+    usage: '!gtaheist',
+    cooldown: 600,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaheist', async () => {
+      await react('🎩');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (jailed(userDoc)) {
+        await reply(`🔒 **Still in the cell.** ${jailLeft(userDoc)} minutes left.`, event.messageID);
+        return;
+      }
+      // Once a day, and the stamp is only written on completion. Otherwise a
+      // busted player is locked out until the cooldown expires anyway, which is
+      // a confusing way to discover the rule.
+      if (t.lastHeist && Date.now() - new Date(t.lastHeist).getTime() < 86400000) {
+        const hrs = Math.ceil((86400000 - (Date.now() - new Date(t.lastHeist).getTime())) / 3600000);
+        await reply(`🎩 **You have already done this one today.** Come back in ${hrs} hour(s).`, event.messageID);
+        return;
+      }
+
+      const pwr = carPower(userDoc);
+      const risk = Math.max(0.20, Math.min(0.80, 0.40 - pwr / 6000));
+      await reply(`🎩 **THE BIG JOB**\n━━━━━━━━━━━━━━━\n📍 Risk ${Math.round(risk * 100)}%\n📖 Everyone gets one good idea a year.`, event.messageID);
+      for (const step of ['The plan takes four minutes...', 'The van is loaded...', 'The whole job is on one minute...', 'And it is now that minute.']) {
+        await sleep(700);
+        await reply(`▸ ${step}`);
+      }
+
+      t.lastHeist = new Date();
+      await save(userDoc);
+
+      if (Math.random() < risk) {
+        await jail(userDoc, 15, 'gta:jail_heist');
+        await addWanted(userDoc, 3);
+        await reply(
+          `🚔 **THE JOB WAS A SETUP.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `🔒 15 minutes in the cell.\n`
+          + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const pet = await petBonus(userDoc);
+      let reward = rand(150000, 400000);
+      reward = Math.floor(reward * pet.mult);
+      const tax = await cartelTax(userDoc, event, reward);
+      const net = Math.max(0, reward - tax);
+
+      await earn(userDoc, net, 'gta:heist', { reward: net });
+      await bank(userDoc, net);
+      const ups = await grantXp(userDoc, 1500);
+
+      await reply(
+        `🎩 **CLEAN.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💰 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
+        + `🎖️ XP +1500${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `📅 The van is a write-off. Another one will do.\n`
+        + (pet.note ? `${pet.note}\n` : '')
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtarobstore',
+    aliases: ['gtashop', 'gtashoplift'],
+    category: 'gta',
+    description: '🏪 Rob a corner store — small money, small risk, always available',
+    usage: '!gtarobstore',
+    cooldown: 300,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtarobstore', async () => {
+      await react('🏪');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (jailed(userDoc)) {
+        await reply(`🔒 **Still in the cell.** ${jailLeft(userDoc)} minutes left.`, event.messageID);
+        return;
+      }
+
+      await reply('🏪 **CORNER STORE**\n━━━━━━━━━━━━━━━\n📍 The alarm is wired to nothing.', event.messageID);
+      for (const step of ['In through the side door...', 'The till. Then the second till...', 'The kid behind the counter just watches...']) {
+        await sleep(650);
+        await reply(`▸ ${step}`);
+      }
+
+      if (Math.random() < 0.20) {
+        await jail(userDoc, 3, 'gta:jail_store');
+        await addWanted(userDoc, 1);
+        await reply(
+          `🚔 **SOMEONE IN THE BACK CALLED IT IN.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `🔒 3 minutes in the cell.\n`
+          + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const pet = await petBonus(userDoc);
+      let reward = rand(3000, 9000);
+      reward = Math.floor(reward * pet.mult);
+      const tax = await cartelTax(userDoc, event, reward);
+      const net = Math.max(0, reward - tax);
+
+      await earn(userDoc, net, 'gta:robstore', { reward: net });
+      await bank(userDoc, net);
+      await grantXp(userDoc, 200);
+      await giveAmmo(userDoc, 5);
+
+      await reply(
+        `💵 **TWO TILLS, ONE SHELF.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💰 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
+        + `🔫 +5 rounds\n`
+        + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + (pet.note ? `${pet.note}\n` : '')
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtawork',
+    aliases: ['gtajobshift', 'gtashift'],
+    category: 'gta',
+    description: '🔧 A legal shift at the chop shop. Small money, zero heat',
+    usage: '!gtawork',
+    cooldown: 900,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtawork', async () => {
+      await react('🔧');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+
+      // The shift pays a flat 2,000 and does nothing else. It exists so that a
+      // player who has blown everything on cars is never completely stuck, and
+      // it is deliberately worth less than one store robbery.
+      const pay = 2000;
+      await earn(userDoc, pay, 'gta:work', { pay });
+      await bank(userDoc, pay);
+      await grantXp(userDoc, 100);
+      await giveAmmo(userDoc, 10);
+
+      await reply(
+        `🔧 **SHIFT DONE.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💼 +${kc(pay)} for a full shift\n`
+        + `🔫 +10 rounds\n`
+        + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5) — unchanged\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `📖 The foreman asks why you smell like petrol. You tell him it is the shop.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtadaily',
+    aliases: ['gtaclaim', 'gtabonus'],
+    category: 'gta',
+    description: '🎁 Daily payout. Scales with your level, so it matters later',
+    usage: '!gtadaily',
+    cooldown: 300,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtadaily', async () => {
+      await react('🎁');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+
+      const readyAt = t.dailyAt ? new Date(t.dailyAt).getTime() + 86400000 : 0;
+      if (readyAt > Date.now()) {
+        const hrs = Math.ceil((readyAt - Date.now()) / 3600000);
+        await reply(`🎁 **Already claimed.** Next one in ${hrs} hour(s).`, event.messageID);
+        return;
+      }
+
+      // 2000 + 500 per level. At level 10 that is a thousand more than the
+      // legal shift, which is the reason to keep levelling.
+      const reward = 2000 + clamp(t.level) * 500;
+      t.dailyAt = new Date();
+      await save(userDoc);
+
+      await earn(userDoc, reward, 'gta:daily', { reward });
+      await bank(userDoc, reward);
+      const ups = await grantXp(userDoc, 200);
+
+      await reply(
+        `🎁 **DAILY.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💰 +${kc(reward)} (level ${t.level})\n`
+        + `🎖️ XP +200${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + `📖 ${story()}`,
         event.messageID,
       );
