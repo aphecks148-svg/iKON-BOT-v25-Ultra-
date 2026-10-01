@@ -399,6 +399,66 @@ async function cartelTax(userDoc, event, amount) {
   return cut;
 }
 
+/**
+ * Settle a war whose clock has run out, and pay the vault to the winner.
+ *
+ * Called from gtacartel, which is where a player looks to find out how the war
+ * went. Returns a line describing the result, or '' when there was nothing to
+ * settle. Idempotent: warWinner is cleared once the vault has been paid.
+ */
+async function resolveWar(group) {
+  const cartel = group && group.cartel;
+  if (!cartel || !cartel.warEnds) return '';
+  if (new Date(cartel.warEnds).getTime() > Date.now()) return '';
+  if (cartel.warWinner) return '';
+
+  const rows = (cartel.warScores || []).filter((r) => r && clamp(r.score) > 0);
+  if (!rows.length) {
+    cartel.warEnds = null;
+    cartel.warScores = [];
+    try { await group.save(); } catch { /* reported below regardless */ }
+    return '⚔️ The war ended with nobody scoring. The vault is untouched.';
+  }
+
+  // Highest score wins; name breaks a tie so the result is deterministic.
+  rows.sort((a, b) => clamp(b.score) - clamp(a.score) || String(a.name).localeCompare(String(b.name)));
+  const win = rows[0];
+  const payout = clamp(cartel.vault);
+  cartel.warWinner = String(win.uid);
+  cartel.warWinnerName = String(win.name);
+  cartel.warEnds = null;
+  cartel.vault = 0;
+  try { await group.save(); } catch { /* the reply still states the result */ }
+
+  return `🏆 **WAR OVER.** ${win.name} won with ${kc(win.score)} and took ${kc(payout)} out of the vault.`
+    + (rows.length > 1 ? ` Runner-up: ${rows[1].name} on ${kc(rows[1].score)}.` : '');
+}
+
+/**
+ * Score a payout toward the running cartel war, if this chat has one.
+ *
+ * Best effort throughout: a failed war write must never cost the player the
+ * money they just earned, so every failure path returns quietly.
+ */
+async function warScore(userDoc, event, amount) {
+  if (!event || !event.isGroup) return;
+  if (!mongo.isReady()) return;
+  const win = clamp(amount);
+  if (win <= 0) return;
+  try {
+    const group = await Group.findOne({ tid: String(event.threadID) });
+    if (!group || !group.cartel || !group.cartel.name) return;
+    if (!group.cartel.warEnds) return;
+    if (new Date(group.cartel.warEnds).getTime() <= Date.now()) return;
+    if (!Array.isArray(group.cartel.warScores)) group.cartel.warScores = [];
+    const uid = String(userDoc.uid);
+    const row = group.cartel.warScores.find((r) => r && String(r.uid) === uid);
+    if (row) row.score = clamp(row.score) + win;
+    else group.cartel.warScores.push({ uid, name: userDoc.name, score: win });
+    await group.save();
+  } catch { /* the war is not worth failing a payout over */ }
+}
+
 /** Resolve @tag, raw uid, or exact name to a User document. */
 async function resolveTarget(ref, event) {
   const clean = String(ref || '').replace(/^@/, '').trim();
@@ -832,7 +892,7 @@ const commands = [];
 
   commands.push({
     name: 'gtagarage',
-    aliases: ['gtacars'],
+    aliases: ['gtakeys', 'gtagarageview'],
     category: 'gta',
     description: '🔑 Your garage — pick which car is active',
     usage: '!gtagarage [car]',
@@ -1695,6 +1755,7 @@ const commands = [];
 
       await earn(userDoc, net, 'gta:bankrob', { reward: net });
       await bank(userDoc, net);
+      await warScore(userDoc, event, net);
       const ups = await grantXp(userDoc, 600);
 
       await reply(
@@ -1776,6 +1837,7 @@ const commands = [];
 
       await earn(userDoc, net, 'gta:heist', { reward: net });
       await bank(userDoc, net);
+      await warScore(userDoc, event, net);
       const ups = await grantXp(userDoc, 1500);
 
       await reply(
@@ -1996,6 +2058,7 @@ const commands = [];
         await save(userDoc);
         await earn(userDoc, stake, 'gta:race_win', { stake });
         await bank(userDoc, stake);
+        await warScore(userDoc, event, stake);
         await grantXp(userDoc, 150);
         await reply(
           `🏆 **YOU TOOK THE RACE.**\n`
@@ -2196,6 +2259,283 @@ const commands = [];
         + `⭐ You are wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
         + `🔫 ${num(rec.ammo)} rounds left\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// CARTEL AND WAR
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'gtacartel',
+    aliases: ['gtacrew', 'gtagang'],
+    category: 'gta',
+    description: '💀 The cartel in this chat — vault, members, and the 10% tax',
+    usage: '!gtacartel',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacartel', async () => {
+      await react('💀');
+      if (!event.isGroup) {
+        await reply('💀 There is no cartel in a DM. Run this in the group chat.', event.messageID);
+        return;
+      }
+      const group = await Group.findOne({ tid: String(event.threadID) }).catch(() => null);
+      const cartel = group && group.cartel;
+      if (!cartel || !cartel.name) {
+        await reply('💀 **No cartel here.** This chat has not set one up.', event.messageID);
+        return;
+      }
+
+      const outcome = await resolveWar(group);
+      if (outcome) {
+        await reply(`${outcome}\n📖 ${story()}`, event.messageID);
+      }
+
+      const mine = g(userDoc);
+      const member = String(cartel.founder) === String(userDoc.uid);
+      const war = cartel.warEnds ? new Date(cartel.warEnds).getTime() - Date.now() : 0;
+      const taxPaid = (mine.cartel && String(mine.cartel) === String(cartel.name)) ? ' — you pay the 10%' : '';
+
+      await reply(
+        `💀 **CARTEL: ${String(cartel.name).toUpperCase()}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🏦 Vault: ${kc(cartel.vault)}\n`
+        + `👥 Members: ${num((cartel.members || []).length)}\n`
+        + `👑 Founder: ${member ? 'you' : String(cartel.founder)}\n`
+        + `⚔️ War: ${war > 0 ? `running, ${Math.ceil(war / 60000)} min left` : 'none running'}\n`
+        + `💸 Tax: 10% of every mission payout goes here${taxPaid}.\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtawar',
+    aliases: ['gtacartelwar', 'gtagangwar'],
+    category: 'gta',
+    description: '⚔️ Declare a cartel war on another group — 30 minutes, first to the score',
+    usage: '!gtawar',
+    cooldown: 300,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'gtawar', async () => {
+      await react('⚔️');
+      if (!event.isGroup) {
+        await reply('⚔️ Wars need a group chat to happen in.', event.messageID);
+        return;
+      }
+      const t = g(userDoc);
+
+      // Admin only, and only for the group founder. A war is expensive for
+      // everyone in the chat, so it is not a thing any member can start.
+      let info = null;
+      try { info = await api.getThreadInfo(event.threadID); } catch { info = null; }
+      const admins = (info && (info.adminIDs || [])) || [];
+      const isAdmin = String(event.senderID) === String(userDoc.uid)
+        ? true
+        : admins.map(String).includes(String(event.senderID));
+      if (!isAdmin) {
+        await reply('⚔️ **Only an admin can start a war.**', event.messageID);
+        return;
+      }
+
+      const group = await Group.findOne({ tid: String(event.threadID) }).catch(() => null);
+      if (!group) {
+        await reply('💀 I cannot read this chat.', event.messageID);
+        return;
+      }
+      if (!group.cartel || !group.cartel.name) {
+        await reply('💀 **There is no cartel here to fight for.**', event.messageID);
+        return;
+      }
+      if (group.cartel.warEnds && new Date(group.cartel.warEnds).getTime() > Date.now()) {
+        const mins = Math.ceil((new Date(group.cartel.warEnds).getTime() - Date.now()) / 60000);
+        await reply(`⚔️ **A war is already running.** ${mins} min left.`, event.messageID);
+        return;
+      }
+
+      // Count the members to see if anybody is actually home to fight.
+      let members = [];
+      try {
+        const m = await api.getThreadMembers(event.threadID);
+        members = m || [];
+      } catch { members = []; }
+      if (members.length < 2) {
+        await reply('⚔️ **Not enough people here to fight.** Two members minimum.', event.messageID);
+        return;
+      }
+
+      const war = 30 * 60 * 1000;
+      group.cartel.warEnds = new Date(Date.now() + war);
+      group.cartel.warScores = [];
+      group.cartel.warWinner = '';
+      group.cartel.warWinnerName = '';
+      try { await group.save(); } catch { /* reply still reports */ }
+
+      await reply(
+        `⚔️ **WAR DECLARED.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💀 ${String(group.cartel.name).toUpperCase()} against everyone.\n`
+        + `⏱️ 30 minutes on the clock.\n`
+        + `👥 ${members.length} people are in this chat.\n`
+        + `🎯 Any member can score with \`!gtarace\` or \`!gtabankrob\`. First side to the higher score takes the vault.\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// THE BOARD
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'gtaleaderboard',
+    aliases: ['gtatop', 'gtarb'],
+    category: 'gta',
+    description: '🏆 The top criminals in the city, ranked by level and then winnings',
+    usage: '!gtaleaderboard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaleaderboard', async () => {
+      await react('🏆');
+      if (!mongo.isReady()) {
+        await reply('🏆 The books are closed. The database is asleep.', event.messageID);
+        return;
+      }
+
+      let docs = [];
+      try {
+        // Sorted in the query, not after it: pulling the whole gta collection
+        // to sort in JS would be the single most expensive thing in the module.
+        docs = await User.find({ 'gta.started': true })
+          .sort({ 'gta.level': -1, 'gta.money': -1 })
+          .limit(10);
+      } catch {
+        await reply('🏆 The books are closed. Try again shortly.', event.messageID);
+        return;
+      }
+
+      if (!docs || !docs.length) {
+        await reply('🏆 **Nobody is on the board yet.** \`!gtastart\` and go make some money.', event.messageID);
+        return;
+      }
+
+      const medals = ['🥇', '🥈', '🥉'];
+      const rows = docs.map((d, i) => {
+        const t = g(d);
+        const place = medals[i] || `${i + 1}.`;
+        return `${place} **${d.name}** — Lv ${t.level} · ${kc(t.money)} · ${stars(t.wanted)}`;
+      });
+
+      await reply(
+        `🏆 **THE CITY BOARD**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${rows.join('\n')}\n\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtarank',
+    aliases: ['gtamyrank', 'gtaposition'],
+    category: 'gta',
+    description: '📍 Where you sit on the board, against everyone',
+    usage: '!gtarank',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtarank', async () => {
+      await react('📍');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (!mongo.isReady()) {
+        await reply('📍 No rank without the database. Try again shortly.', event.messageID);
+        return;
+      }
+
+      // Count everyone strictly ahead of the player on the same ordering the
+      // board uses, so the position agrees with the listing above it.
+      let ahead = 0;
+      let total = 0;
+      try {
+        total = (await User.countDocuments({ 'gta.started': true })) || 0;
+        ahead = (await User.countDocuments({
+          'gta.started': true,
+          $or: [
+            { 'gta.level': { $gt: clamp(t.level) } },
+            { 'gta.level': clamp(t.level), 'gta.money': { $gt: clamp(t.money) } },
+          ],
+        })) || 0;
+      } catch {
+        await reply('📍 The books are closed. Try again shortly.', event.messageID);
+        return;
+      }
+
+      const place = ahead + 1;
+      const pct = total ? Math.round(((total - ahead) / total) * 100) : 100;
+      const car = ownedCar(userDoc);
+
+      await reply(
+        `📍 **YOUR POSITION**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🏆 Rank **#${place}** of ${num(total)}\n`
+        + `📈 Top ${Math.max(1, 100 - pct)}%\n`
+        + `🎖️ Level ${t.level} · ${kc(t.money)} won\n`
+        + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
+        + `🚙 ${car ? CAR_BY_ID.get(car.id).name : 'no car'} · ${num(carPower(userDoc))} pwr\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtapaint',
+    aliases: ['gtarespray'],
+    category: 'gta',
+    description: '🎨 Let the bodyshop pick — 2,000 and a random colour from the swatch book',
+    usage: '!gtapaint',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtapaint', async () => {
+      await react('🎨');
+      const t = g(userDoc);
+      const rec = ownedCar(userDoc);
+      if (!rec) {
+        await reply('🔑 No active car. `!gtagarage <name>` to pick one.', event.messageID);
+        return;
+      }
+      const base = CAR_BY_ID.get(rec.id);
+
+      // Not the current colour, so a respray is never a no-op the player has
+      // to notice themselves.
+      const options = COLORS.filter((c) => c.hex !== rec.color);
+      const colour = pick(options);
+      const paid = await spend(userDoc, 2000, 'gta:respray', { car: rec.id, color: colour.name });
+      if (!paid.ok) {
+        await reply(`${paid.reason}\n🎨 \`!gtacustomize <colour>\` costs 1,000 if you know what you want.`, event.messageID);
+        return;
+      }
+      rec.color = colour.hex;
+      await save(userDoc);
+
+      const painted = { ...base, color: colour.hex };
+      const card = await carCard(painted, carPower(userDoc), t.wanted, colour.name.toUpperCase());
+      if (card) await reply({ attachment: { type: 'image', data: { url: card } } });
+      await reply(
+        `🎨 **THE BODYSHOP PICKED ${colour.name.toUpperCase()}.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🚙 ${base.name}\n`
+        + `💸 -2,000\n`
         + `📖 ${story()}`,
         event.messageID,
       );
