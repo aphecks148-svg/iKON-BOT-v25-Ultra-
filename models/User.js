@@ -85,6 +85,54 @@ const UserSchema = new mongoose.Schema(
       giftsOut: { type: Number, default: 0, min: 0 },
     },
 
+    // module 10 — the grind. Four loops that feed each other: farm food heals the
+    // pets in module 4, mine drops the stones evolution wants, fish pays coins,
+    // hunt drops skins nobody needs. Tools carry durability so none of it is
+    // free. The item buckets are Mixed, not Map: the commands index them with
+    // plain bracket assignment, which a MongooseMap would silently ignore.
+    farm: {
+      level: { type: Number, default: 1, min: 1 },
+      xp: { type: Number, default: 0, min: 0 },
+      plots: { type: Number, default: 3, min: 1, max: 10 },
+      // One row per plot: { crop, plantedAt, readyAt, watered }.
+      land: { type: [Object], default: [] },
+      crops: { type: Object, default: {} },   // cropId -> units in the barn
+      seeds: { type: Object, default: {} },   // wheat_seed -> units
+      totalHarvest: { type: Number, default: 0, min: 0 },
+      prestige: { type: Number, default: 0, min: 0 },  // +10% yield each
+      food: { type: Number, default: 0, min: 0 },      // feeds !petheal
+      stones: { type: Number, default: 0, min: 0 },    // evolution currency
+      stolen: { type: Number, default: 0, min: 0 },
+      taxAt: { type: Date, default: null },
+      dailyAt: { type: Date, default: null },
+    },
+
+    mine: {
+      level: { type: Number, default: 1, min: 1 },
+      xp: { type: Number, default: 0, min: 0 },
+      ores: { type: Object, default: {} },   // oreId -> units in the pack
+      pick: { type: Object, default: () => ({ id: '', dur: 0 }) },
+    },
+
+    fish: {
+      level: { type: Number, default: 1, min: 1 },
+      xp: { type: Number, default: 0, min: 0 },
+      catch: { type: Object, default: {} },  // fishId -> units in the cooler
+      rod: { type: Object, default: () => ({ id: '', dur: 0 }) },
+    },
+
+    hunt: {
+      level: { type: Number, default: 1, min: 1 },
+      xp: { type: Number, default: 0, min: 0 },
+      meat: { type: Object, default: {} },
+      skins: { type: Object, default: {} },
+      kills: { type: Number, default: 0, min: 0 },
+      licensed: { type: Boolean, default: false },
+      gun: { type: Object, default: () => ({ id: '', dur: 0 }) },
+      injuredUntil: { type: Date, default: null },
+      rarest: { type: String, default: '' },
+    },
+
     // iKON Hunter Academy (module 3).
     rpg: {
       className: { type: String, default: '' },
