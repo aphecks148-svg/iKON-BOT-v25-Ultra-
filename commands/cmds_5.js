@@ -300,6 +300,481 @@ function chessBoard(board) {
 const commands = [];
 
 // ───────────────────────────────────────────────────────────
+// WORD GAMES
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'hangmanbet',
+    aliases: [],
+    category: 'games',
+    description: '🔤 Hangman — guess the word one letter at a time, ropes included',
+    usage: '!hangmanbet [amount]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'hangmanbet', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🔤');
+
+      const bet = betArg(args, 200);
+      const staked = await wager(userDoc, bet, 'game:hangman');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      const WORDS = ['arcade', 'klerk', 'vault', 'neon', 'casino', 'factory', 'courier', 'alchemy',
+        'monopoly', 'lantern', 'obsidian', 'paradox', 'quartz', 'reverie', 'spectrum', 'threshold'];
+      const word = pick(WORDS);
+      cache.setGameState(event.senderID, 'hangman', {
+        word, bet, guessed: [], lives: 6,
+      }, 5 * 60 * 1000);
+
+      await reply(
+        `🔤 **HANGMAN** — ${kc(bet)} on the line\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `📝 ${word.split('').map(() => '_').join(' ')}\n`
+        + `${'❤️'.repeat(6)}\n`
+        + `💡 Guess a letter: \`!hangletter <a-z>\`\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'hangletter',
+    aliases: [],
+    category: 'games',
+    description: '🔤 Guess one letter of your open hangman word',
+    usage: '!hangletter <a-z>',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'hangletter', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🔤');
+
+      const state = cache.getGameState(event.senderID);
+      if (!state || state.game !== 'hangman') {
+        await reply('📭 No hangman game open. Start one with `!hangmanbet`.', event.messageID);
+        return;
+      }
+
+      const guess = String(args[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+      if (guess.length !== 1) {
+        await reply('❌ One letter at a time, a-z only.', event.messageID);
+        return;
+      }
+
+      const { word, bet } = state.payload;
+      const guessed = state.payload.guessed;
+      if (guessed.includes(guess)) {
+        await reply(`🔤 You already guessed **${guess}**.`, event.messageID);
+        return;
+      }
+
+      guessed.push(guess);
+      const board = word.split('').map((ch) => (guessed.includes(ch) ? ch : '_')).join(' ');
+      const lives = clamp(state.payload.lives);
+
+      if (word.includes(guess)) {
+        // Every letter revealed is a win. Without this the game could only be
+        // lost: the board filled up and nothing ever paid out.
+        const solved = word.split('').every((ch) => guessed.includes(ch));
+        if (solved) {
+          cache.clearGameState(event.senderID);
+          await payout(userDoc, bet * 2, 'game:hangman_win', { word, bet });
+          await reply(
+            `🔤 🏆 **SOLVED** — ${word}\n`
+            + '━━━━━━━━━━━━━━━\n'
+            + `📝 ${board}\n${'❤️'.repeat(lives)}\n`
+            + `💰 +${kc(bet * 2)}\n`
+            + `👛 Wallet: ${kc(userDoc.coins)}\n`
+            + `📖 ${story()}`,
+            event.messageID,
+          );
+          return;
+        }
+
+        cache.setGameState(event.senderID, 'hangman', state.payload, 5 * 60 * 1000);
+        await reply(
+          `🔤 ✅ **${guess}** is in the word.\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `📝 ${board}\n${'❤️'.repeat(lives)}\n`
+          + `💡 Keep going: \`!hangletter <a-z>\``,
+          event.messageID,
+        );
+        return;
+      }
+
+      const left = lives - 1;
+      if (left <= 0) {
+        cache.clearGameState(event.senderID);
+        await recordLoss(userDoc, 'game:hangman_loss');
+        await reply(
+          `🔤 💀 **The rope takes you.** The word was **${word}**.\n`
+          + `💸 -${kc(bet)}\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      state.payload.lives = left;
+      cache.setGameState(event.senderID, 'hangman', state.payload, 5 * 60 * 1000);
+      await reply(
+        `🔤 ❌ No **${guess}** in there.\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `📝 ${board}\n${'❤️'.repeat(left)}\n`
+        + `💡 Keep going: \`!hangletter <a-z>\``,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'mathduel',
+    aliases: [],
+    category: 'games',
+    description: '🧮 Math duel @user — first correct answer takes the pot',
+    usage: '!mathduel <user> <amount>',
+    cooldown: 120,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'mathduel', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🧮');
+
+      const bet = betArg(args.slice(1), 1000);
+      const target = await targetOr(reply, event.messageID, args[0], event, 'mathduel');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ Doing sums with yourself is not a duel.', event.messageID);
+        return;
+      }
+      if ((target.coins || 0) < bet) {
+        await reply(`💸 ${target.name} only has ${kc(target.coins)}.`, event.messageID);
+        return;
+      }
+
+      const parked = cache.setPendingGame('mathduel', event.threadID, String(target.uid), {
+        fromUid: String(event.senderID), fromName: userDoc.name, bet,
+      });
+      if (!parked) {
+        await reply(`⏳ ${target.name} already has a math duel.`, event.messageID);
+        return;
+      }
+      await reply(
+        `🧮 **MATH DUEL**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💵 Pot: ${kc(bet)}\n`
+        + `⏳ ${target.name}: \`!mathaccept\` — add \`no\` to duck.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'mathaccept',
+    aliases: [],
+    category: 'games',
+    description: '🧮 Take a math duel — solve with !mathsolve before 60 seconds',
+    usage: '!mathaccept',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'mathaccept', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🧮');
+
+      if (await duck('mathduel', args, userDoc, reply, event)) return;
+      const challenge = cache.takePendingGame('mathduel', event.threadID, String(event.senderID));
+      if (!challenge) {
+        await reply('📭 No math duel waiting.', event.messageID);
+        return;
+      }
+      const challenger = await User.findOne({ uid: challenge.fromUid });
+      if (!challenger) {
+        await reply('❌ Challenger left the city.', event.messageID);
+        return;
+      }
+
+      const bet = challenge.bet;
+      if ((userDoc.coins || 0) < bet || (challenger.coins || 0) < bet) {
+        await reply('❌ Pot uncovered. Void.', event.messageID);
+        return;
+      }
+
+      // Both sides stake before the question is asked. Without this a correct
+      // answer paid out 2x the bet that had never been collected from either
+      // side, which printed coins the arcade never held.
+      const a = await wager(challenger, bet, 'game:mathduel_challenger');
+      if (!a.ok) { await reply(a.reason, event.messageID); return; }
+      const b = await wager(userDoc, bet, 'game:mathduel_accept');
+      if (!b.ok) {
+        await wager(challenger, bet, 'game:mathduel_refund');
+        await reply(b.reason, event.messageID);
+        return;
+      }
+
+      const n = rand(12, 60) + rand(12, 60);
+      cache.setGameState(event.senderID, 'mathduel', { question: n, bet }, 60 * 1000);
+
+      await reply(
+        `🧮 **YOUR QUESTION**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `❓ What is ${n} + ${n}?\n`
+        + `💵 Pot: ${kc(bet * 2)}\n`
+        + `⏱️ 60 seconds. \`!mathsolve <number>\`\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'mathsolve',
+    aliases: [],
+    category: 'games',
+    description: '✅ Answer your open math duel question',
+    usage: '!mathsolve <number>',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'mathsolve', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('✅');
+
+      const state = cache.getGameState(event.senderID);
+      if (!state || state.game !== 'mathduel') {
+        await reply('📭 No math question open. Take a duel with `!mathaccept`.', event.messageID);
+        return;
+      }
+
+      const guess = Number.parseInt(args[0], 10);
+      // Cleared up front so a wrong guess cannot be retried against the same
+      // question, whatever the clock says afterwards.
+      cache.clearGameState(event.senderID);
+      const q = state.payload.question;
+      const answer = q * 2;
+      const bet = state.payload.bet;
+
+      if (guess === answer) {
+        await payout(userDoc, bet * 2, 'game:mathduel_win', { answer, bet });
+        await reply(
+          `✅ **${answer} — CORRECT**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `💰 +${kc(bet * 2)}\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await recordLoss(userDoc, 'game:mathduel_loss');
+      await reply(
+        `❌ **WRONG** — ${q} + ${q} = ${answer}\n`
+        + `💸 -${kc(bet)}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'chainword',
+    aliases: [],
+    category: 'games',
+    description: '⛓️ Chain word — last letter starts the next, break it and pay 200',
+    usage: '!chainword <word>',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'chainword', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('⛓️');
+
+      const word = String(args[0] || '').toLowerCase().trim();
+      if (!/^[a-z]{3,20}$/.test(word)) {
+        await reply('❌ Usage: `!chainword <word>` — 3 to 20 letters, a-z only.', event.messageID);
+        return;
+      }
+
+      const chain = cache.getGameState(`chain:${event.threadID}`);
+      const open = chain && chain.payload && chain.payload.open;
+
+      // Starting a chain, or continuing one the hunter opened themselves.
+      if (!open || open.ownerUid === String(event.senderID)) {
+        if (!open) {
+          const staked = await wager(userDoc, 200, 'game:chainword');
+          if (!staked.ok) {
+            await reply(staked.reason, event.messageID);
+            return;
+          }
+        }
+        cache.setGameState(`chain:${event.threadID}`, 'chain', {
+          open: { ownerUid: String(event.senderID), last: word.slice(-1), words: [word] },
+        }, 10 * 60 * 1000);
+        await reply(
+          `⛓️ **CHAIN STARTED**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `📝 ${word}\n`
+          + `▶️ Next word must start with **${word.slice(-1)}**. Break it and pay 200.\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // Somebody else's chain: this hunter must supply a matching word or pay.
+      if (word[0] !== open.last) {
+        const staked = await wager(userDoc, 200, 'game:chainword_break');
+        if (!staked.ok) {
+          await reply(staked.reason, event.messageID);
+          return;
+        }
+        cache.clearGameState(`chain:${event.threadID}`);
+        await recordLoss(userDoc, 'game:chainword_break');
+        await reply(
+          `⛓️ 💥 **CHAIN BROKEN** — "${word}" starts with ${word[0]}, not ${open.last}.\n`
+          + `💸 -${kc(200)}\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      open.last = word.slice(-1);
+      open.words.push(word);
+      cache.setGameState(`chain:${event.threadID}`, 'chain', { open }, 10 * 60 * 1000);
+      await reply(
+        `⛓️ **${open.words.length} IN THE CHAIN**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `📝 ${open.words.join(' → ')}\n`
+        + `▶️ Next word must start with **${open.last}**.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'bombgame',
+    aliases: ['bomb'],
+    category: 'games',
+    description: '💣 Light the group bomb — it ticks, then somebody is holding it',
+    usage: '!bombgame <amount>',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'bombgame', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('💣');
+
+      if (!mongo.isReady()) {
+        await reply('❌ The bomb needs the city grid online. Try again shortly.', event.messageID);
+        return;
+      }
+      const group = await Group.findOne({ gid: String(event.threadID) });
+      if (!group) {
+        await reply('❌ No arcade record for this chat yet.', event.messageID);
+        return;
+      }
+
+      const bet = betArg(args, 1000);
+      const staked = await wager(userDoc, bet, 'game:bomb');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      const holds = Number.isFinite(group.gameBomb && group.gameBomb.passes) ? group.gameBomb.passes : 0;
+      const passes = holds + 1;
+      const ticks = rand(2, 5);
+      group.gameBomb = {
+        holderUid: String(event.senderID),
+        holderName: userDoc.name,
+        amount: (group.gameBomb && group.gameBomb.amount) || bet,
+        passes,
+        expires: new Date(Date.now() + 10 * 60 * 1000),
+      };
+      try {
+        await group.save();
+      } catch {
+        await reply('❌ The bomb would not light. Your stake is back.', event.messageID);
+        await payout(userDoc, bet, 'game:bomb_refund', { bet });
+        return;
+      }
+
+      await reply(
+        `💣 **THE BOMB IS LIT**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `⏱️ It ticks down from ${ticks}. Nobody can defuse it — only pass it.\n`
+        + `📮 ${userDoc.name}, you are holding it. Pass it with \`!passbomb\`.\n`
+        + `🔁 Times lit in this chat: ${passes}\n`
+        + `💵 It carries ${kc(group.gameBomb.amount)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'passbomb',
+    aliases: [],
+    category: 'games',
+    description: '💣 Pass the lit bomb to somebody else in this chat',
+    usage: '!passbomb @user',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'passbomb', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('💣');
+
+      if (!mongo.isReady()) {
+        await reply('❌ The bomb needs the city grid online. Try again shortly.', event.messageID);
+        return;
+      }
+      const group = await Group.findOne({ gid: String(event.threadID) });
+      if (!group || !group.gameBomb || !group.gameBomb.holderUid) {
+        await reply('💣 Nothing is ticking. Light it with `!bombgame`.', event.messageID);
+        return;
+      }
+      if (String(group.gameBomb.holderUid) !== String(event.senderID)) {
+        await reply(`💣 ${group.gameBomb.holderName} is holding it. Not you.`, event.messageID);
+        return;
+      }
+      if (group.gameBomb.expires && new Date(group.gameBomb.expires).getTime() < Date.now()) {
+        group.gameBomb = undefined;
+        await reply('💣 It cooled off and rolled under the seats. Nobody pays.', event.messageID);
+        return;
+      }
+
+      const target = await targetOr(reply, event.messageID, args[0], event, 'passbomb');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ You cannot pass the bomb to yourself.', event.messageID);
+        return;
+      }
+
+      group.gameBomb.holderUid = String(target.uid);
+      group.gameBomb.holderName = target.name;
+      try {
+        await group.save();
+      } catch {
+        await reply('❌ The pass failed. The bomb is still yours.', event.messageID);
+        return;
+      }
+
+      await reply(
+        `💣 **PASSED**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `📮 ${target.name}, it is yours now. Pass it with \`!passbomb\`.\n`
+        + `💵 It carries ${kc(group.gameBomb.amount)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
 // BOARD GAMES — tic-tac-toe and 4x4 mini chess
 // ───────────────────────────────────────────────────────────
 
