@@ -49,9 +49,11 @@ async function reply(api, threadID, msg, messageID = null) {
   const replyTo = messageID === undefined || messageID === null ? null : String(messageID);
 
   try {
+    lastSendError = '';
     return await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID));
   } catch (err) {
-    error(`[HELPER] sendMessage failed on thread ${threadID}: ${err.message}`);
+    lastSendError = String((err && err.message) || err).slice(0, 300);
+    error(`[HELPER] sendMessage failed on thread ${threadID}: ${lastSendError}`);
     return null;
   }
 }
@@ -122,6 +124,22 @@ function isGroupThread(threadID) {
 }
 
 /** Small formatting helpers shared by commands. */
+
+/**
+ * Why the most recent reply() failed, or '' when it succeeded.
+ *
+ * reply() swallows the error and returns null so one dead send cannot take down
+ * a command handler. That is right for the chat but leaves "reacts but never
+ * replies" with no explanation anywhere: from inside the process the only trace
+ * was a log line. The engine reads this to fill /health's lastSendError, which
+ * is what makes the failure visible from outside the deploy.
+ */
+let lastSendError = '';
+
+/** Clear the recorded send error. */
+function clearSendError() {
+  lastSendError = '';
+}
 const fmt = {
   n: (v) => (Number.isFinite(Number(v)) ? Number(v).toLocaleString('en-US') : String(v)),
   dur: (sec) => {
@@ -136,4 +154,4 @@ const fmt = {
   },
 };
 
-module.exports = { log, error, reply, react, safe, isGroupThread, fmt };
+module.exports = { log, error, reply, react, safe, isGroupThread, fmt, clearSendError, lastSendError: () => lastSendError };

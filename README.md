@@ -158,6 +158,24 @@ the native `generativelanguage.googleapis.com` endpoint directly.
   missing, and each command then sends its original text reply. A command that
   only ever sent an image would be silent on a platform without the binding.
 
+## Diagnosing "the bot is not replying"
+
+Hit `/health` on the deployed service. Each field rules causes in or out:
+
+| Field | Meaning |
+|---|---|
+| `loggedIn` | `false` means the Facebook session never connected. Nothing is parsed, so nothing can be replied to. |
+| `messagesSeen` | Rises only when MQTT delivers a message. If it stays `0` while people are typing in the chat, the account is not receiving — the app is not connected. |
+| `commandsRun` | Rises when a command actually executed. Rising `messagesSeen` with flat `commandsRun` means the prefix does not match (the prefix in use is in `prefix`). |
+| `sentOk` / `sentFailures` | The send path. `sentFailures` climbing with `commandsRun` rising is exactly "reacts but never replies", and `lastSendError` carries the reason. |
+| `lastCommands` | The last dozen commands that ran, so a typo'd or blocked command is visible. |
+| `adminsConfigured` | `0` means every owner-only command refuses everyone. |
+
+`reactions` succeed where `replies` fail because `setMessageReaction` and
+`sendMessage` are different methods with different signatures — so a working
+reaction proves nothing about the send path. That is what made the last two
+rounds of this bug look identical from the chat.
+
 ## Current progress
 
 | Module | Commands |

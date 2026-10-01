@@ -34,7 +34,35 @@ const STATE = {
   commandsRun: 0,
   messagesSeen: 0,
   errors: 0,
+  // Send bookkeeping. "Reacts but never replies" is the symptom of every
+  // sendMessage failing, and from inside the chat that is indistinguishable
+  // from being offline. /health exposes these so the cause can be read off the
+  // deploy instead of guessed at.
+  sentOk: 0,
+  sentFailures: 0,
+  lastSendError: '',
+  lastCommands: [],
 };
+
+/** Record a successful send. */
+function noteSendOk(name) {
+  STATE.sentOk += 1;
+  STATE.lastCommands.push(name);
+  // Keep a short tail: enough to see the last few commands, not unbounded.
+  if (STATE.lastCommands.length > 12) STATE.lastCommands.shift();
+}
+
+/**
+ * Record a failed send with the reason. helpers.reply already swallows the
+ * error so one dead reply cannot take down a handler; without this the only
+ * trace is a log line nobody reads, which is how the last two rounds of this
+ * bug went unnoticed.
+ */
+function noteSendFailure(name, reason) {
+  STATE.sentFailures += 1;
+  STATE.lastSendError = `${name || 'reply'}: ${reason || 'unknown error'}`.slice(0, 300);
+  error(`[SEND] ${STATE.lastSendError}`);
+}
 
 let client = null; // ws3-fca client (set by attachClient)
 let registry = new Map();
@@ -91,13 +119,33 @@ function startServer() {
   // even while the bot is still logging in: a 503 during a slow Facebook login
   // makes Render mark the deploy failed and restart it, which restarts the
   // login that was about to finish.
+  //
+  // The counters matter when "the bot is not replying". Without them there is no
+  // way to tell the three causes apart from outside the process:
+  //
+  //   loggedIn=false, messagesSeen=0  -> never received anything. The account is
+  //                                      not connected; nothing was ever parsed.
+  //   messagesSeen rising, cmdsRun 0  -> messages arrive but the prefix is wrong,
+  //                                      so router.parse() returns null.
+  //   cmdsRun rising, sentFailures up  -> commands run but every sendMessage is
+  //                                      rejected. This is the state that looks
+  //                                      exactly like "reacts but never replies".
   app.get('/health', (req, res) => {
     res.json({
       ok: true,
       cmds: registry.size,
       aliases: aliases.size,
       loggedIn: STATE.loggedIn,
+      userID: STATE.userID || null,
       db: mongo.status().readyState === 1,
+      prefix: config.PREFIX,
+      adminsConfigured: permissions.ownerIds().length,
+      messagesSeen: STATE.messagesSeen,
+      commandsRun: STATE.commandsRun,
+      sentOk: STATE.sentOk,
+      sentFailures: STATE.sentFailures,
+      lastSendError: STATE.lastSendError || null,
+      lastCommands: STATE.lastCommands || [],
       uptime: Math.floor((Date.now() - STATE.startedAt) / 1000),
     });
   });
@@ -158,7 +206,20 @@ async function handleMessage(api, event) {
   cache.rememberMessage(messageID, senderID);
 
   // Helper bound to this thread — commands call reply(text) / react(emoji).
-  const say = async (text, replyTo = messageID) => reply(api, threadID, text, replyTo ?? messageID);
+  //
+  // reply() resolves null on failure by design, so this wraps it to keep the
+  // send counters honest: without that, a null return would be indistinguishable
+  // from a successful send and /health would report all green while nothing
+  // reached Facebook. The command name is filled in once parsed below, so an
+  // early "unknown command" is still attributed.
+  let commandName = 'incoming';
+  const say = async (text, replyTo = messageID, label = commandName) => {
+    helpers.clearSendError();
+    const res = await reply(api, threadID, text, replyTo ?? messageID);
+    if (res) noteSendOk(label);
+    else noteSendFailure(label, helpers.lastSendError() || 'sendMessage returned nothing');
+    return res;
+  };
   const reactTo = (emoji) => react(api, messageID, emoji || config.REACT_EMOJI);
 
   // ── PARSER ────────────────────────────────────────────────
@@ -172,6 +233,7 @@ async function handleMessage(api, event) {
 
   // ── COMMAND LOOKUP ────────────────────────────────────────
   const cmd = loader.findCommand(parsed.name, registry, aliases);
+  commandName = (cmd && cmd.name) || parsed.commandName || parsed.name;
   if (!cmd) {
     await say(`❌ Unknown command: ${parsed.commandName || parsed.name}`);
     return;
