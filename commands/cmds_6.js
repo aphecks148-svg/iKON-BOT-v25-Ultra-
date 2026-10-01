@@ -281,4 +281,275 @@ async function pay(userDoc, amount, action, metadata = {}) {
 /** Every command in this module, in registration order. */
 const commands = [];
 
+// ───────────────────────────────────────────────────────────
+// WELCOME / GOODBYE / POLICY
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'welcome',
+    aliases: [],
+    category: 'group',
+    description: '👋 Toggle the welcome message for this chat',
+    usage: '!welcome on|off',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'welcome', async () => {
+      await react('👋');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+
+      const on = onOff(args);
+      if (on === null) {
+        const cfg = gcfg(group);
+        await reply(`👋 Welcome messages are **${yesNo(!!group.settings.welcome)}** here.\nUse \`!welcome on\` or \`!welcome off\`.`, event.messageID);
+        void cfg;
+        return;
+      }
+
+      group.settings.welcome = on;
+      if (on && !group.settings.welcomeMsg) group.settings.welcomeMsg = DEFAULT_WELCOME;
+      await save(group);
+      await reply(
+        on
+          ? `👋 **WELCOME IS ON.**\nNew arrivals get: "${group.settings.welcomeMsg}"`
+          : '👋 Welcome messages are off. The door stays quiet.',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'goodbye',
+    aliases: [],
+    category: 'group',
+    description: '🚪 Toggle the goodbye message for this chat',
+    usage: '!goodbye on|off',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'goodbye', async () => {
+      await react('🚪');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+
+      const on = onOff(args);
+      if (on === null) {
+        await reply(`🚪 Goodbye messages are **${yesNo(!!group.settings.goodbye)}** here.\nUse \`!goodbye on\` or \`!goodbye off\`.`, event.messageID);
+        return;
+      }
+
+      group.settings.goodbye = on;
+      if (on && !group.settings.goodbyeMsg) group.settings.goodbyeMsg = DEFAULT_GOODBYE;
+      await save(group);
+      await reply(
+        on
+          ? `🚪 **GOODBYE IS ON.**\nDepartures get: "${group.settings.goodbyeMsg}"`
+          : '🚪 Goodbye messages are off. Nobody is mourned now.',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'setwelcome',
+    aliases: ['setwelcomemsg'],
+    category: 'group',
+    description: '✍️ Set the welcome text — {user}, {mention} and {group} all work',
+    usage: '!setwelcome <message>',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'setwelcome', async () => {
+      await react('✍️');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+
+      const msg = args.join(' ').trim();
+      if (!msg) {
+        await reply(`❌ Usage: \`!setwelcome <message>\`\nCurrent: "${group.settings.welcomeMsg || DEFAULT_WELCOME}"`, event.messageID);
+        return;
+      }
+      if (msg.length > 400) {
+        await reply('❌ Too long. Keep it under 400 characters.', event.messageID);
+        return;
+      }
+
+      group.settings.welcomeMsg = msg;
+      group.settings.welcome = true;
+      await save(group);
+      await reply(`✍️ **WELCOME SET**\n━━━━━━━━━━━━━━━\nPreview: ${fill(msg, { name: 'Newcomer' }, event)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'setgoodbye',
+    aliases: ['setgoodbyemsg'],
+    category: 'group',
+    description: '✍️ Set the goodbye text — {user}, {mention} and {group} all work',
+    usage: '!setgoodbye <message>',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'setgoodbye', async () => {
+      await react('✍️');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+
+      const msg = args.join(' ').trim();
+      if (!msg) {
+        await reply(`❌ Usage: \`!setgoodbye <message>\`\nCurrent: "${group.settings.goodbyeMsg || DEFAULT_GOODBYE}"`, event.messageID);
+        return;
+      }
+      if (msg.length > 400) {
+        await reply('❌ Too long. Keep it under 400 characters.', event.messageID);
+        return;
+      }
+
+      group.settings.goodbyeMsg = msg;
+      group.settings.goodbye = true;
+      await save(group);
+      await reply(`✍️ **GOODBYE SET**\n━━━━━━━━━━━━━━━\nPreview: ${fill(msg, { name: 'Leaver' }, event)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gcpolicy',
+    aliases: ['gcrules', 'setpolicy'],
+    category: 'group',
+    description: '📜 Set or show the rules of this chat',
+    usage: '!gcpolicy [rules]',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gcpolicy', async () => {
+      await react('📜');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const msg = args.join(' ').trim();
+      if (!msg) {
+        await reply(
+          cfg.policy
+            ? `📜 **RULES OF THIS CHAT**\n━━━━━━━━━━━━━━━\n${cfg.policy}`
+            : '📜 No rules are posted. Use `!gcpolicy <rules>` to write some.',
+          event.messageID,
+        );
+        return;
+      }
+      if (msg.length > 900) {
+        await reply('❌ Too long. Keep the policy under 900 characters.', event.messageID);
+        return;
+      }
+
+      cfg.policy = msg;
+      await save(group);
+      await reply(`📜 **POLICY POSTED**\n━━━━━━━━━━━━━━━\n${cfg.policy}\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// MEMBER MODERATION
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'kick',
+    aliases: ['gckick'],
+    category: 'group',
+    description: '👢 Remove somebody from this chat and say why',
+    usage: '!kick @user [reason]',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'kick', async () => {
+      await react('👢');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'kick');
+      if (!target) return;
+
+      const admins = await threadAdmins(api, event);
+      if (admins.includes(String(target.uid))) {
+        await reply('❌ That person is an admin here. Demote them first.', event.messageID);
+        return;
+      }
+      if (!api.removeUserFromGroup) {
+        await reply('❌ This build cannot remove members. Nothing happened.', event.messageID);
+        return;
+      }
+
+      try {
+        await api.removeUserFromGroup({ threadID: event.threadID, userID: target.uid });
+      } catch (err) {
+        await reply(`❌ Could not remove them: ${err.message}`, event.messageID);
+        return;
+      }
+
+      const reason = args.slice(1).join(' ').trim() || 'no reason given';
+      await reply(`👢 **${target.name}** has been removed.\n📖 ${reason}\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'promote',
+    aliases: ['gcpromote'],
+    category: 'group',
+    description: '⬆️ Make somebody an admin of this chat',
+    usage: '!promote @user',
+    cooldown: 15,
+    permission: 'groupAdmin',
+    execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'promote', async () => {
+      await react('⬆️');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'promote');
+      if (!target) return;
+      if (!api.setThreadAdmin) {
+        await reply('❌ This build cannot change admins. Nothing happened.', event.messageID);
+        return;
+      }
+
+      try {
+        await api.setThreadAdmin({ threadID: event.threadID, userID: target.uid, admin: true });
+      } catch (err) {
+        await reply(`❌ Could not promote them: ${err.message}`, event.messageID);
+        return;
+      }
+      await reply(`⬆️ **${target.name}** is now an admin here.\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'demote',
+    aliases: ['gcdemote'],
+    category: 'group',
+    description: '⬇️ Remove somebody\'s admin rights in this chat',
+    usage: '!demote @user',
+    cooldown: 15,
+    permission: 'groupAdmin',
+    execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'demote', async () => {
+      await react('⬇️');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'demote');
+      if (!target) return;
+      if (!api.setThreadAdmin) {
+        await reply('❌ This build cannot change admins. Nothing happened.', event.messageID);
+        return;
+      }
+
+      try {
+        await api.setThreadAdmin({ threadID: event.threadID, userID: target.uid, admin: false });
+      } catch (err) {
+        await reply(`❌ Could not demote them: ${err.message}`, event.messageID);
+        return;
+      }
+      await reply(`⬇️ **${target.name}** is no longer an admin here.\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
 module.exports = commands;
