@@ -283,6 +283,138 @@ async function loadImage(url) {
   }
 }
 
+/** Named CSS colours Gemini can pick from for the knock-out. */
+const BGCOLOURS = {
+  white: '#ffffff', black: '#000000', grey: '#808080', gray: '#808080',
+  blue: '#2a52c4', green: '#2e8b57', red: '#c42a2a', yellow: '#f2e629',
+  sky: '#7fc4e8', beige: '#e6d8b8', pink: '#f2a3c0', purple: '#7a3fa0',
+  brown: '#6b4423', orange: '#e07b2a',
+};
+
+/**
+ * Draw an image onto a fresh canvas, scaled.
+ *
+ * `imageSmoothingQuality` is the whole point of an upscale: without it canvas
+ * gives nearest-neighbour and a 4x looks like a broken zoom. The canvas is
+ * capped at 4096 per side because anything larger is rejected by the renderer
+ * and wasted memory.
+ *
+ * @returns {Promise<{canvas:object, url:string, width:number, height:number}|null>}
+ */
+async function drawScaled(url, factor, filter = null) {
+  const buf = await fetchBuffer(url);
+  if (!buf || !buf.length) return null;
+  const lib = canvasKit.lib();
+  if (!lib) return null;
+  const { Image } = lib;
+
+  try {
+    const img = new Image();
+    img.src = buf;
+    const w = Math.min(4096, Math.max(1, Math.round((img.width || 512) * factor)));
+    const h = Math.min(4096, Math.max(1, Math.round((img.height || 512) * factor)));
+    const made = canvasKit.create(w, h);
+    if (!made) return null;
+    const { ctx } = made;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    if (filter) ctx.filter = filter;
+    ctx.drawImage(img, 0, 0, w, h);
+    const dataUrl = await pngUrl(made);
+    return dataUrl ? { canvas: made.canvas, url: dataUrl, width: w, height: h } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Upscale a URL by `factor` (2 or 4).
+ * @returns {Promise<{url:string,width:number,height:number}|null>}
+ */
+async function upscale(url, factor) {
+  const shot = await drawScaled(url, factor);
+  return shot ? { url: shot.url, width: shot.width, height: shot.height } : null;
+}
+
+/**
+ * Apply a Gemini-chosen treatment. `fix` is a canvas filter keyword, `strength`
+ * is the multiplier, and it is clamped here rather than trusted from the model.
+ * @returns {Promise<string|null>} data URL
+ */
+async function enhanceImage(url, fix, strength) {
+  const amount = Number.isFinite(strength) ? Math.max(0.5, Math.min(2, strength)) : 1.2;
+  const filters = {
+    contrast: `contrast(${amount}) brightness(${(1 + (amount - 1) * 0.5).toFixed(2)})`,
+    saturation: `saturate(${amount})`,
+    sharpen: 'grayscale(0) contrast(1.1)',
+    brightness: `brightness(${amount})`,
+    grayscale: 'grayscale(1) contrast(1.15)',
+  };
+  const shot = await drawScaled(url, 1, filters[String(fix || '').toLowerCase()] || filters.contrast);
+  return shot ? shot.url : null;
+}
+
+/**
+ * Knock a flat background out by colour-keying it transparent.
+ *
+ * This is a canvas approximation, not a segmentation model, and the command says
+ * so in its reply. It works well on a person against a plain wall and badly on
+ * a busy scene, which is exactly what the caveat promises.
+ *
+ * @param {string} url source image
+ * @param {string} colour a word Gemini named, or a hex value
+ * @returns {Promise<{url:string, keyed:boolean}|null>} keyed is false when no
+ *   colour was understood, so the caller can say so instead of claiming a cut
+ *   it did not perform.
+ */
+async function knockOut(url, colour) {
+  const shot = await drawScaled(url, 1);
+  if (!shot) return null;
+
+  let hex = BGCOLOURS[String(colour || '').toLowerCase().trim()];
+  if (!hex && /^#[0-9a-f]{3,8}$/i.test(String(colour).trim())) hex = String(colour).trim();
+  if (!hex) return { url: shot.url, keyed: false };
+
+  const made = canvasKit.create(shot.width, shot.height);
+  if (!made) return { url: shot.url, keyed: false };
+  const { ctx } = made;
+  ctx.drawImage(shot.canvas, 0, 0);
+
+  let pixels;
+  try {
+    pixels = ctx.getImageData(0, 0, shot.width, shot.height);
+  } catch {
+    return { url: shot.url, keyed: false };
+  }
+
+  const tr = parseInt(hex.slice(1, 3), 16);
+  const tg = parseInt(hex.slice(3, 5), 16);
+  const tb = parseInt(hex.slice(5, 7), 16);
+  const data = pixels.data;
+  // Tolerance scaled by how dark the key colour is: a near-black background
+  // needs a tighter window than a cream one or the subject goes with it.
+  const tol = 60 + (Math.max(tr, tg, tb) < 90 ? 20 : 0);
+
+  let cleared = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (Math.abs(data[i] - tr) < tol
+      && Math.abs(data[i + 1] - tg) < tol
+      && Math.abs(data[i + 2] - tb) < tol) {
+      data[i] = 0;
+      data[i + 1] = 0;
+      data[i + 2] = 0;
+      data[i + 3] = 0;
+      cleared += 1;
+    }
+  }
+  // Keying a colour that is not in the picture would otherwise report success
+  // while doing nothing, which is worse than saying so.
+  if (!cleared) return { url: shot.url, keyed: false };
+  ctx.putImageData(pixels, 0, 0);
+  const out = await pngUrl(made);
+  return { url: out || shot.url, keyed: true };
+}
+
 /** A canvas to a data URL, or null when canvas is unavailable. */
 async function pngUrl(canvasObj) {
   const buffer = await canvasKit.toBuffer(canvasObj && canvasObj.canvas);
@@ -1093,6 +1225,338 @@ const commands = [];
         return;
       }
       await reply(`🌐 **${lang.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${out}`, event.messageID);
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// IMAGE AI
+//
+// generate and imagine render a pollinations image. 4k, upscale, enhance and
+// bgremove all read the replied photo, so they share one pipeline: fetch the
+// bytes, Gemini describes what it sees and what it changed, canvas does the
+// pixel work. They differ only in scale factor and filter.
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'generate',
+    aliases: ['gen', 'genimg'],
+    category: 'downloader',
+    description: '🎨 Gemini upgrades your prompt, pollinations renders it. 4K ready',
+    usage: '!generate <prompt>',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'generate', async () => {
+      await react('🎨');
+      const want = args.join(' ').trim();
+      if (!want) {
+        await reply('❌ Usage: `!generate <what you want to see>`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.generate, 'downloader:generate');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // Gemini's job here is to turn "cool car" into something a renderer can
+      // actually draw. That upgrade is the whole reason to charge 200.
+      await reply('🎨 Upgrading the prompt...', event.messageID);
+      const enhanced = await askGemini(
+        `Rewrite this into a single detailed image-generation prompt. Add lighting, camera angle, `
+        + `colour palette and mood. Output ONLY the prompt, no preamble, under 60 words. `
+        + `Original: ${want}`,
+        'Style: cinematic, specific, no text in the image.',
+      );
+
+      // Strip anything that would break the URL, and fall back to the raw ask
+      // if Gemini handed back an essay with a "here is your prompt" intro.
+      const clean = (enhanced.replace(/[*_#`]/g, '').match(/^[\s\S]{0,400}?(?:\n|$)/) || [want])[0]
+        .replace(/\s+/g, ' ').trim() || want;
+      const url = `${POLLINATIONS}${encodeURIComponent(clean)}&width=1024&height=1024&nologo=true`;
+
+      const art = await fetchBuffer(url);
+      if (!art || !art.length) {
+        await reply(
+          `⚠️ **The image renderer did not answer.**\n\n`
+          + `📝 Prompt I sent:\n${clean}\n\n`
+          + `_(Your ${kc(FEES.generate)} fee was already charged.)_`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await reply(
+        {
+          body: `🎨 **GENERATED**\n━━━━━━━━━━━━━━━\n📝 ${clean}\n\n🖼️ ${url}`,
+          attachment: { type: 'image', data: { url: `data:image/png;base64,${art.toString('base64')}` } },
+        },
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'imagine',
+    aliases: ['imagineultra', 'dream'],
+    category: 'downloader',
+    description: '🖼️ Same generator, framed on an iKON card with the Gemini commentary',
+    usage: '!imagine <prompt>',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'imagine', async () => {
+      await react('🖼️');
+      const want = args.join(' ').trim();
+      if (!want) {
+        await reply('❌ Usage: `!imagine <what you want to see>`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.imagine, 'downloader:imagine');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      await reply('🖼️ Rendering...', event.messageID);
+      const enhanced = await askGemini(
+        `Turn this into one vivid image-generation prompt and then, on a new line after "---", `
+        + `write one line on what this picture would feel like to stand in front of. `
+        + `Idea: ${want}`,
+        'Style: poetic but brief.',
+      );
+
+      const [promptPart, ...rest] = enhanced.split('---');
+      const clean = String(promptPart || enhanced).replace(/[*_#`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 400) || want;
+      const thought = rest.join(' ').trim() || `Generated from: ${want}`;
+      const url = `${POLLINATIONS}${encodeURIComponent(clean)}&width=1024&height=1024&nologo=true`;
+
+      const art = await fetchBuffer(url);
+      const border = await captionCard({
+        title: 'iKON IMAGINE',
+        subtitle: clean.slice(0, 60),
+        body: thought,
+        footer: `${OWNER} · Gemini`,
+        accent: canvasKit.theme.accent2,
+      });
+
+      if (art && art.length && border) {
+        // Art first, then the card: Messenger renders both in order and the
+        // commentary reads better underneath the thing it is about.
+        await reply({ attachment: { type: 'image', data: { url: `data:image/png;base64,${art.toString('base64')}` } } }, event.messageID);
+        await reply({ attachment: { type: 'image', data: { url: border } } }, event.messageID);
+        await reply(`🖼️ **IMAGINED.**\n📝 ${clean}\n\n🖼️ ${url}`, event.messageID);
+        return;
+      }
+
+      await reply(`🖼️ **IMAGINED**\n━━━━━━━━━━━━━━━\n📝 ${clean}\n\n${thought}\n\n🖼️ ${url}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: '4k',
+    aliases: ['4kup', 'hd'],
+    category: 'downloader',
+    description: '🔍 Reply to a photo — 2x canvas upscale, Gemini explains what it sharpened',
+    usage: '!4k (reply to an image)',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, '4k', async () => {
+      await react('🔍');
+      const src = await repliedImage(api, event);
+      if (!src) {
+        await reply('🖼️ Reply to a photo with `!4k` and I will sharpen it.', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES['4k'], 'downloader:4k');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      await reply('🔍 Upscaling 2x...', event.messageID);
+      const shot = await upscale(src.url, 2);
+      const read = await askGemini(
+        `Describe what is in this photo and what an upscale pass improves on it. `
+        + `Be specific about detail, edges and any text. If it is low quality, say so.`,
+        'Style: a photo technician who is honest about the source.',
+      );
+
+      if (!shot) {
+        await reply(
+          `⚠️ **That image would not load**, so there was nothing to upscale.\n\n${read}\n\n`
+          + `_(Your ${kc(FEES['4k'])} fee was already charged.)_`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await reply(
+        {
+          body: `🔍 **UPSCALED 2x**\n━━━━━━━━━━━━━━━\n${read}\n\n📐 ${shot.width}x${shot.height}`,
+          attachment: { type: 'image', data: { url: shot.url } },
+        },
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'upscale',
+    aliases: ['upscaleultra', 'bigimage'],
+    category: 'downloader',
+    description: '🔬 Reply to a photo — 4x canvas upscale for the real 4K people',
+    usage: '!upscale (reply to an image)',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, 'upscale', async () => {
+      await react('🔬');
+      const src = await repliedImage(api, event);
+      if (!src) {
+        await reply('🖼️ Reply to a photo with `!upscale` and I will blow it up to 4x.', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.upscale, 'downloader:upscale');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      await reply('🔬 Upscaling 4x...', event.messageID);
+      const shot = await upscale(src.url, 4);
+      const read = await askGemini(
+        `Describe this photo and say honestly whether a 4x upscale will make it look better `
+        + `or just bigger. Mention anything a viewer would notice.`,
+        'Style: blunt technical opinion.',
+      );
+
+      if (!shot) {
+        await reply(
+          `⚠️ **That image would not load**, so there was nothing to upscale.\n\n${read}\n\n`
+          + `_(Your ${kc(FEES.upscale)} fee was already charged.)_`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await reply(
+        {
+          body: `🔬 **UPSCALED 4x**\n━━━━━━━━━━━━━━━\n${read}\n\n📐 ${shot.width}x${shot.height}`,
+          attachment: { type: 'image', data: { url: shot.url } },
+        },
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'enhance',
+    aliases: ['enhanceultra', 'sharpen'],
+    category: 'downloader',
+    description: '✨ Reply to a photo — Gemini picks the fix, canvas applies contrast and saturation',
+    usage: '!enhance (reply to an image)',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, 'enhance', async () => {
+      await react('✨');
+      const src = await repliedImage(api, event);
+      if (!src) {
+        await reply('🖼️ Reply to a photo with `!enhance`.', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.enhance, 'downloader:enhance');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      await reply('✨ Enhancing...', event.messageID);
+      // Gemini picks the treatment rather than us guessing: it can see that the
+      // photo is flat and dark while our filters cannot.
+      const plan = await askGemini(
+        `This photo needs enhancing. Answer with exactly two lines and nothing else: `
+        + `first "WHY: <one sentence>", second "FIX: <contrast|saturation|sharpen|brightness|grayscale> <number 0.5 to 2>". `
+        + `Say what is wrong with the image and what would fix it.`,
+        'Style: terse technician.',
+      );
+      const fix = (plan.match(/FIX:\s*([a-z]+)\s*([\d.]+)/i) || [])[1] || 'contrast';
+      const amount = parseFloat((plan.match(/FIX:\s*[a-z]+\s*([\d.]+)/i) || [])[1] || '1.2');
+      const strength = Number.isFinite(amount) ? Math.max(0.5, Math.min(2, amount)) : 1.2;
+
+      const shot = await enhanceImage(src.url, fix, strength);
+      if (!shot) {
+        await reply(
+          `⚠️ **That image would not load.**\n\n${plan}\n\n_(Your ${kc(FEES.enhance)} fee was already charged.)_`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await reply(
+        {
+          body: `✨ **ENHANCED**\n━━━━━━━━━━━━━━━\n🎛️ ${fix} x${strength}\n\n${plan}`,
+          attachment: { type: 'image', data: { url: shot.url } },
+        },
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'bgremove',
+    aliases: ['nobg', 'cutout'],
+    category: 'downloader',
+    description: '✂️ Reply to a photo — canvas background knock-out, Gemini names the subject',
+    usage: '!bgremove (reply to an image)',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, 'bgremove', async () => {
+      await react('✂️');
+      const src = await repliedImage(api, event);
+      if (!src) {
+        await reply('🖼️ Reply to a photo with `!bgremove`.', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.bgremove, 'downloader:bgremove');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      await reply('✂️ Cutting the subject out...', event.messageID);
+      const subject = await askGemini(
+        `What is the main subject of this photo, in one word, and what colour is the background `
+        + `it sits on? Answer as "SUBJECT: x / BG: y" and nothing else.`,
+        'Style: one line, no prose.',
+      );
+      const colour = ((subject.match(/BG:\s*([a-z ]{3,20})/i) || [])[1] || '').trim();
+
+      const shot = await knockOut(src.url, colour);
+      if (!shot) {
+        await reply(
+          `⚠️ **That image would not load.**\n\n${subject}\n\n_(Your ${kc(FEES.bgremove)} fee was already charged.)_`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const honest = shot.keyed
+        ? '_(Canvas colour-key only — edges will be rough on busy backgrounds.)_'
+        : `_(Could not key that colour out of the photo, so it is untouched. `
+          + 'Try a plain wall or a solid backdrop.)_';
+
+      await reply(
+        {
+          body: `✂️ **${shot.keyed ? 'BACKGROUND REMOVED' : 'BACKGROUND LEFT ALONE'}**\n`
+            + `━━━━━━━━━━━━━━━\n${subject}\n\n${honest}`,
+          attachment: { type: 'image', data: { url: shot.url } },
+        },
+        event.messageID,
+      );
     }),
   });
 
