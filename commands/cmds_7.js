@@ -299,10 +299,14 @@ async function jail(userDoc, minutes, action) {
   await ledger(userDoc.uid, action, 0, userDoc.coins, { jailMinutes: minutes });
 }
 
-/** The player's car record, or null when the garage is empty. */
+/**
+ * The player's car record, or null when the garage is empty.
+ * `id` accepts an id or a name, so `!gtatune Phantom Prime` works.
+ */
 function ownedCar(userDoc, id) {
   const t = g(userDoc);
-  const want = String(id || t.activeCar || '');
+  const ref = id ? findCar(id) : null;
+  const want = ref ? ref.id : String(id || t.activeCar || '');
   return t.cars.find((c) => c && String(c.id) === want) || null;
 }
 
@@ -318,7 +322,8 @@ function carPower(userDoc) {
 /** The player's weapon record, or null when the armoury is empty. */
 function ownedWeapon(userDoc, id) {
   const t = g(userDoc);
-  const want = String(id || t.activeWeapon || '');
+  const ref = id ? findWeapon(id) : null;
+  const want = ref ? ref.id : String(id || t.activeWeapon || '');
   return t.weapons.find((w) => w && String(w.id) === want) || null;
 }
 
@@ -579,7 +584,7 @@ const commands = [];
       const m = pick(MISSIONS);
       const risk = power > 0 ? Math.min(0.85, m.risk + (power < 200 ? 0.10 : 0)) : m.risk + 0.15;
 
-      await reply(`🎯 **${m.name.toUpperCase()}**\n━━━━━━━━━━━━━━━\n📍 Risk ${Math.round(risk * 100)}% · Reward ${kc(m.reward[0])}-${kc(m.reward[1])}\n📖 ${story()}`, event.messageID);
+      await reply(`🎯 **${m.name.toUpperCase()}**\n━━━━━━━━━━━━━━━\n📍 Risk ${Math.round(risk * 100)}% · Reward ${num(m.reward[0])} - ${num(m.reward[1])} ${CASH}\n📖 ${story()}`, event.messageID);
 
       for (const step of m.steps) {
         await sleep(700);
@@ -708,6 +713,483 @@ const commands = [];
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + (pet.note ? `${pet.note}\n` : '')
         + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// THE GARAGE ECONOMY
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'gtacarshop',
+    aliases: ['carshop', 'gtacars'],
+    category: 'gta',
+    description: '🏎️ The garage — twelve cars and the one you should not buy',
+    usage: '!gtacarshop',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacarshop', async () => {
+      await react('🏎️');
+      const t = g(userDoc);
+      const lines = CARS.map((c) => {
+        const owned = t.cars.some((x) => x && x.id === c.id);
+        return `${owned ? '✅' : '🔒'} **${c.name}** — ${kc(c.price)} · ${num(c.power)} pwr`;
+      });
+      const prime = CARS[CARS.length - 1];
+
+      await reply(
+        `🏎️ **THE GARAGE**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${lines.slice(0, -1).join('\n')}\n\n`
+        + `👑 **${prime.name}** — ${kc(prime.price)} · ${num(prime.power)} pwr\n`
+        + `📖 One exists. The man who sold it will not say where it came from.\n\n`
+        + `💼 You have ${kc(userDoc.coins)}.\n`
+        + `🛒 Buy with \`!gtabuycar <name>\``,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtabuycar',
+    aliases: ['gtacargobuy'],
+    category: 'gta',
+    description: '🛒 Buy a car. This is where the money goes',
+    usage: '!gtabuycar <name>',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtabuycar', async () => {
+      await react('🛒');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+
+      const car = findCar(args[0]);
+      if (!car) {
+        await reply(`❌ No such car. \`!gtacarshop\` lists the lot.`, event.messageID);
+        return;
+      }
+      if (t.cars.some((c) => c && c.id === car.id)) {
+        await reply(`🚗 You already own the ${car.name}. \`!gtagarage\` to switch to it.`, event.messageID);
+        return;
+      }
+
+      const paid = await spend(userDoc, car.price, 'gta:buyCar', { car: car.id });
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      t.cars.push({ id: car.id, fuel: 100, nitro: false, tuned: false, crashed: false, color: car.color });
+      t.activeCar = car.id;
+      await save(userDoc);
+
+      const card = await carCard(car, car.power, t.wanted, 'NEW');
+      const text = `🛒 **${car.name} IS PARKED OUTSIDE.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 -${kc(car.price)}\n`
+        + `⚡ ${num(car.power)} power\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `📖 ${story()}`;
+
+      if (card) await reply({ attachment: { type: 'image', data: { url: card } } });
+      await reply(text, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gtagarage',
+    aliases: ['gtacars'],
+    category: 'gta',
+    description: '🔑 Your garage — pick which car is active',
+    usage: '!gtagarage [car]',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtagarage', async () => {
+      await react('🔑');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (!t.cars.length) {
+        await reply('🔑 Empty garage. `!gtabuycar <name>` first.', event.messageID);
+        return;
+      }
+
+      const want = String(args[0] || '').toLowerCase();
+      if (!want) {
+        const rows = t.cars.map((c) => {
+          const base = CAR_BY_ID.get(c.id);
+          if (!base) return `• ??? (${c.id})`;
+          const flags = [
+            c.id === t.activeCar ? '▶ active' : '',
+            c.tuned ? '+20 tuned' : '',
+            c.crashed ? '💥 crashed' : '',
+            `⛽ ${clamp(c.fuel)}%`,
+          ].filter(Boolean).join(' · ');
+          return `• **${base.name}** — ${num(base.power)} pwr — ${flags}`;
+        });
+        await reply(
+          `🔑 **YOUR GARAGE (${t.cars.length})**\n━━━━━━━━━━━━━━━\n${rows.join('\n')}\n\n`
+          + `Switch with \`!gtagarage <name>\``,
+          event.messageID,
+        );
+        return;
+      }
+
+      const car = findCar(want);
+      const rec = car && t.cars.find((c) => c && c.id === car.id);
+      if (!rec) {
+        await reply(`❌ You do not own that car.`, event.messageID);
+        return;
+      }
+      if (rec.crashed) {
+        await reply(`💥 The ${car.name} is on a lift. \`!gtarepair\` first.`, event.messageID);
+        return;
+      }
+      if (clamp(rec.fuel) <= 0) {
+        await reply(`⛽ The ${car.name} is dry. \`!gtafuel\` first.`, event.messageID);
+        return;
+      }
+
+      t.activeCar = rec.id;
+      await save(userDoc);
+      await reply(`▶ **${car.name}** is the one you take out.\n⚡ ${num(carPower(userDoc))} power\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gtadrive',
+    aliases: ['gtadrivecar'],
+    category: 'gta',
+    description: '🚙 Take the car out. Fuel burns, things crash, occasionally you find money',
+    usage: '!gtadrive',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtadrive', async () => {
+      await react('🚙');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (jailed(userDoc)) {
+        await reply(`🔒 **Still in the cell.** ${jailLeft(userDoc)} minutes left. No driving.`, event.messageID);
+        return;
+      }
+
+      const rec = ownedCar(userDoc);
+      if (!rec) {
+        await reply('🔑 No active car. `!gtagarage <name>` to pick one.', event.messageID);
+        return;
+      }
+      const base = CAR_BY_ID.get(rec.id);
+      if (rec.crashed) {
+        await reply(`💥 The ${base.name} is on a lift and will not start. \`!gtarepair\` first.`, event.messageID);
+        return;
+      }
+      if (clamp(rec.fuel) <= 0) {
+        await reply(`⛽ **Out of fuel.** \`!gtafuel\` costs 500 and this is why.`, event.messageID);
+        return;
+      }
+
+      await reply(`🚙 Taking the ${base.name} out...`, event.messageID);
+      await sleep(700);
+
+      // Power buys safety: a Phantom Prime is not the same 5% crash risk.
+      const pwr = carPower(userDoc);
+      const crashChance = Math.max(0.01, 0.05 - pwr / 40000);
+      const drained = clamp(rec.fuel) - rand(8, 20);
+      rec.fuel = Math.max(0, drained);
+      await save(userDoc);
+
+      const roll = Math.random();
+      if (roll < crashChance) {
+        rec.crashed = true;
+        await save(userDoc);
+        const bill = clamp(Math.floor(500 + pwr * 0.4));
+        const paid = await spend(userDoc, bill, 'gta:crash_bill', { car: rec.id });
+        await reply(
+          `💥 **YOU CRASHED.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `🚙 The ${base.name} is on a lift.\n`
+          + `🔧 Repair bill: ${kc(bill)}${paid.ok ? ' — paid' : ' — you cannot pay it'}\n`
+          + `⛽ Fuel left: ${num(rec.fuel)}%\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (roll < crashChance + 0.10) {
+        const loot = rand(200, 900);
+        await earn(userDoc, loot, 'gta:drive_loot', { car: rec.id });
+        await bank(userDoc, loot);
+        await reply(
+          `💵 **SOMETHING WAS IN THE GLOVEBOX.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `+${kc(loot)}\n⛽ Fuel left: ${num(rec.fuel)}%\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await reply(
+        `🚙 **A CLEAN HOUR.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `⛽ Fuel left: ${num(rec.fuel)}%\n`
+        + `💼 Wallet: ${kc(userDoc.coins)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtafuel',
+    aliases: ['gtagas'],
+    category: 'gta',
+    description: '⛽ Fill the tank — 500 coins, and it is never enough',
+    usage: '!gtafuel',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtafuel', async () => {
+      await react('⛽');
+      const t = g(userDoc);
+      const rec = ownedCar(userDoc);
+      if (!rec) {
+        await reply('🔑 No active car. `!gtagarage <name>` to pick one.', event.messageID);
+        return;
+      }
+      const base = CAR_BY_ID.get(rec.id);
+      if (clamp(rec.fuel) >= 100) {
+        await reply(`⛽ The ${base.name} tank is already full.`, event.messageID);
+        return;
+      }
+
+      const paid = await spend(userDoc, 500, 'gta:fuel', { car: rec.id });
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+      rec.fuel = 100;
+      await save(userDoc);
+
+      await reply(`⛽ **TANK FULL.**\n━━━━━━━━━━━━━━━\n💸 -500\n🚙 ${base.name}\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gtarepair',
+    aliases: [],
+    category: 'gta',
+    description: '🔧 Get the car off the lift. Cost scales with how fast it is',
+    usage: '!gtarepair',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtarepair', async () => {
+      await react('🔧');
+      const rec = ownedCar(userDoc);
+      if (!rec) {
+        await reply('🔑 No active car. `!gtagarage <name>` to pick one.', event.messageID);
+        return;
+      }
+      const base = CAR_BY_ID.get(rec.id);
+      if (!rec.crashed) {
+        await reply(`🔧 The ${base.name} is fine. Nothing to fix.`, event.messageID);
+        return;
+      }
+
+      // Repair scales with power so a Phantom Prime is a real financial event
+      // and the starter Sultan RS is not a wall.
+      const bill = clamp(Math.floor(500 + (base.power + (rec.tuned ? 20 : 0)) * 0.4));
+      const paid = await spend(userDoc, bill, 'gta:repair', { car: rec.id });
+      if (!paid.ok) {
+        await reply(`${paid.reason}\n💵 The bill is ${kc(bill)}.`, event.messageID);
+        return;
+      }
+
+      rec.crashed = false;
+      rec.fuel = Math.max(clamp(rec.fuel), 50);
+      await save(userDoc);
+
+      await reply(
+        `🔧 **BACK ON THE ROAD.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 -${kc(bill)}\n`
+        + `🚙 ${base.name}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtacrash',
+    aliases: ['gtacrashed'],
+    category: 'gta',
+    description: '💥 How wrecked the car is, and what the mechanic says about it',
+    usage: '!gtacrash',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacrash', async () => {
+      await react('💥');
+      const t = g(userDoc);
+      const rec = ownedCar(userDoc);
+      if (!rec) {
+        await reply('🔑 No active car. `!gtagarage <name>` to pick one.', event.messageID);
+        return;
+      }
+      const base = CAR_BY_ID.get(rec.id);
+
+      if (t.cars.filter((c) => c && c.crashed).length) {
+        const wrecked = t.cars.filter((c) => c && c.crashed)
+          .map((c) => `• ${(CAR_BY_ID.get(c.id) || {}).name || c.id}`).join('\n');
+        await reply(`💥 **ON THE LIFT**\n━━━━━━━━━━━━━━━\n${wrecked}\n🔧 \`!gtarepair\``, event.messageID);
+        return;
+      }
+
+      await reply(
+        `💥 **NOTHING IS ON THE LIFT.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🚙 ${base.name} is running.\n⛽ Fuel ${num(rec.fuel)}%\n`
+        + `📖 The mechanic charges 500 an hour to look at it and find nothing.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtatune',
+    aliases: ['gtatuning'],
+    category: 'gta',
+    description: '🔧 +20 permanent power, once per car, for 10,000',
+    usage: '!gtatune [car]',
+    cooldown: 120,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtatune', async () => {
+      await react('🔧');
+      const t = g(userDoc);
+      const rec = ownedCar(userDoc, args[0]);
+      if (!rec) {
+        await reply('🔑 You do not own that car, or you have not started.', event.messageID);
+        return;
+      }
+      const base = CAR_BY_ID.get(rec.id);
+      if (rec.tuned) {
+        await reply(`🔧 The ${base.name} is already tuned. You do not tune it twice.`, event.messageID);
+        return;
+      }
+
+      const paid = await spend(userDoc, 10000, 'gta:tune', { car: rec.id });
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+      rec.tuned = true;
+      await save(userDoc);
+
+      await reply(
+        `🔧 **TUNED.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🚙 ${base.name}: ${num(base.power)} → **${num(base.power + 20)} pwr**\n`
+        + `💸 -10,000\n`
+        + `📖 It sounds wrong and it is faster.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtacustomize',
+    aliases: ['gtapaintjob'],
+    category: 'gta',
+    description: '🎨 Repaint the car — 1,000 and a card showing the new colour',
+    usage: '!gtacustomize <colour>',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacustomize', async () => {
+      await react('🎨');
+      const t = g(userDoc);
+      const rec = ownedCar(userDoc);
+      if (!rec) {
+        await reply('🔑 No active car. `!gtagarage <name>` to pick one.', event.messageID);
+        return;
+      }
+      const base = CAR_BY_ID.get(rec.id);
+      const want = String(args[0] || '').toLowerCase();
+      if (!want) {
+        await reply(
+          `🎨 **THE SWATCH BOOK**\n━━━━━━━━━━━━━━━\n${COLORS.map((c) => `• ${c.name} (\`${c.hex}\`)`).join('\n')}\n\n`
+          + `Repaint costs 1,000. \`!gtacustomize gold\``,
+          event.messageID,
+        );
+        return;
+      }
+
+      const colour = COLORS.find((c) => c.name.toLowerCase() === want || c.hex === want)
+        || COLORS.find((c) => c.name.toLowerCase().includes(want));
+      if (!colour) {
+        await reply(`❌ No such colour. \`!gtacustomize\` lists the swatches.`, event.messageID);
+        return;
+      }
+
+      const paid = await spend(userDoc, 1000, 'gta:paint', { car: rec.id, color: colour.name });
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+      rec.color = colour.hex;
+      await save(userDoc);
+
+      const painted = { ...base, color: colour.hex };
+      const card = await carCard(painted, carPower(userDoc), t.wanted, colour.name.toUpperCase());
+      if (card) await reply({ attachment: { type: 'image', data: { url: card } } });
+      await reply(`🎨 **${base.name} is now ${colour.name}.**\n💸 -1,000\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gtanitro',
+    aliases: ['gtanitrous'],
+    category: 'gta',
+    description: '💨 Nitro, once per car — the difference between winning and not',
+    usage: '!gtanitro [car]',
+    cooldown: 120,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtanitro', async () => {
+      await react('💨');
+      const rec = ownedCar(userDoc, args[0]);
+      if (!rec) {
+        await reply('🔑 You do not own that car, or you have not started.', event.messageID);
+        return;
+      }
+      const base = CAR_BY_ID.get(rec.id);
+      if (rec.nitro) {
+        await reply(`💨 The ${base.name} already has the bottle. One per car.`, event.messageID);
+        return;
+      }
+
+      const paid = await spend(userDoc, 5000, 'gta:nitro', { car: rec.id });
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+      rec.nitro = true;
+      await save(userDoc);
+
+      await reply(
+        `💨 **NITRO ARMED.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🚙 ${base.name}\n`
+        + `💸 -5,000\n`
+        + `📖 One burst. You will want it.`,
         event.messageID,
       );
     }),
