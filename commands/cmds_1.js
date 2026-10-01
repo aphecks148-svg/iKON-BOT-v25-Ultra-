@@ -1188,7 +1188,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'echo',
-    aliases: ['say', 'repeat'],
+    aliases: ['repeat', 'sayit'],
     category: 'system',
     description: 'Echo your message back',
     usage: '!echo <text>',
