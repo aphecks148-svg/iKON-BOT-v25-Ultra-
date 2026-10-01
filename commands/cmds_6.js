@@ -115,6 +115,9 @@ function onOff(args) {
 
 const yesNo = (on) => (on ? 'ON' : 'OFF');
 
+/** "1 link" but "2 links". Small, but "1 links" reads like a bug report. */
+const plural = (n, word) => `${num(n)} ${word}${Number(n) === 1 ? '' : 's'}`;
+
 /** Substitute {user}, {group}, {count} into a configured message. */
 function fill(tpl, userDoc, event, extra = {}) {
   return String(tpl || '')
@@ -1192,7 +1195,7 @@ const commands = [];
     usage: '!invitewar start|join|status|end',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'invitewar', async () => {
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'invitewar', async () => {
       await react('🚪');
       const group = await liveGroup(event);
       if (!group) {
@@ -1361,21 +1364,25 @@ const commands = [];
       // for every hunter, which would rank them all equal and print an
       // arbitrary three names as though they were the loudest.
       const val = (e, path) => path.split('.').reduce((o, k) => (o == null ? 0 : o[k]), e) || 0;
-      const top = (path, unit = '') => [...hunters]
+      // `word` is either a noun to pluralise ('msg' -> "4 msgs") or a
+      // formatter for anything that is not a bare count, such as coins.
+      const top = (path, word) => [...hunters]
         .sort((a, b) => val(b, path) - val(a, path))
         .slice(0, 3)
-        .map((e) => `• ${e.name} — ${num(val(e, path))}${unit}`)
+        .map((e) => `• ${e.name} — ${typeof word === 'function'
+          ? word(val(e, path))
+          : plural(val(e, path), word)}`)
         .join('\n');
 
       await reply(
         `🏆 **THIS CHAT, JUDGED**\n`
         + '━━━━━━━━━━━━━━━\n'
-        + `💰 Richest\n${top('coins', ` ${CASH}`)}\n\n`
-        + `📢 Loudest\n${top('gc.msgs', ' msgs')}\n\n`
-        + `☠️ Most toxic\n${top('gc.toxicity', ' commands')}\n\n`
-        + `👻 Most ghosted\n${top('gc.ghosted', ' times')}\n\n`
-        + `🔗 Link offenders\n${top('gc.links', ' links')}\n\n`
-        + `💸 Fines paid\n${top('gc.fines', ' fines')}\n\n`
+        + `💰 Richest\n${top('coins', (n) => kc(n))}\n\n`
+        + `📢 Loudest\n${top('gc.msgs', 'msg')}\n\n`
+        + `☠️ Most toxic\n${top('gc.toxicity', 'command')}\n\n`
+        + `👻 Most ghosted\n${top('gc.ghosted', 'time')}\n\n`
+        + `🔗 Link offenders\n${top('gc.links', 'link')}\n\n`
+        + `💸 Fines paid\n${top('gc.fines', 'fine')}\n\n`
         + `📈 Chat level ${cfg.level} · ${num(cfg.msgs)} messages\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1653,7 +1660,7 @@ const commands = [];
     usage: '!truthordaregc [truth|dare]',
     cooldown: 20,
     permission: 'all',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'truthordaregc', async () => {
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'truthordaregc', async () => {
       await react('🎭');
       const group = await liveGroup(event);
       if (!group) {
@@ -1838,7 +1845,7 @@ const commands = [];
         return;
       }
 
-      group.gc = {};
+      group.gc = { dominated: false, msgs: 0, level: 1 };
       group.settings.welcome = false;
       group.settings.goodbye = false;
       group.settings.welcomeMsg = '';

@@ -147,7 +147,7 @@ async function handleMessage(api, event) {
   const parsed = router.parse(body, prefix);
   if (!parsed) {
     // Not a command. Count the message for the RPG profile and stop.
-    await recordActivity(senderID, false);
+    await recordActivity(senderID, false, isGroupThread(threadID) ? threadID : null);
     return;
   }
 
@@ -218,7 +218,7 @@ async function handleMessage(api, event) {
     });
     STATE.commandsRun += 1;
     cooldown.set(senderID, cmd.name, cd);
-    await recordActivity(senderID, true);
+    await recordActivity(senderID, true, isGroupThread(threadID) ? threadID : null);
   } catch (err) {
     STATE.errors += 1;
     error(`[COMMAND] ${cmd.name} threw: ${err.message}`);
@@ -227,8 +227,31 @@ async function handleMessage(api, event) {
   }
 }
 
-/** Bump the user profile counters for RPG stats. Best effort, never fatal. */
-async function recordActivity(senderID, isCommand) {
+/**
+ * True when a thread id is a group chat rather than a private message.
+ *
+ * Messenger thread ids are always prefixed: `t_` for a conversation, and a
+ * bare numeric uid for a one-to-one chat. Counting a DM as a group would file
+ * every hunter's private chatter under a fake chat record and pollute the
+ * group standings the module ranks on.
+ */
+function isGroupThread(threadID) {
+  return typeof threadID === 'string' && threadID.startsWith('t_');
+}
+
+/**
+ * Bump the user profile counters. Best effort, never fatal.
+ *
+ * Also records where this hunter was last active, which is what the group
+ * module ranks on: !gcstatsultra, !gcmembers and !quotebomb all select on
+ * `gc.lastGroup`. Without this hook those three commands would find nobody
+ * forever, because nothing else in the engine knows which chat a user spoke in.
+ *
+ * @param {string} senderID
+ * @param {boolean} isCommand  true when the message actually ran a command
+ * @param {string} [threadID]  the chat the message came from, when it was a group
+ */
+async function recordActivity(senderID, isCommand, threadID) {
   if (!senderID) return;
   try {
     const user = await cache.getUser(senderID, client);
@@ -236,6 +259,17 @@ async function recordActivity(senderID, isCommand) {
     if (isCommand) user.stats.commandsUsed += 1;
     user.stats.messages += 1;
     user.lastSeen = new Date();
+
+    if (threadID) {
+      if (!user.gc || typeof user.gc !== 'object') user.gc = {};
+      if (!Number.isFinite(user.gc.msgs)) user.gc.msgs = 0;
+      if (!Number.isFinite(user.gc.toxicity)) user.gc.toxicity = 0;
+      user.gc.msgs += 1;
+      if (isCommand) user.gc.toxicity += 1;
+      user.gc.lastGroup = String(threadID);
+      user.gc.lastMsgAt = new Date();
+    }
+
     await user.save();
     cache.touch(senderID, user);
   } catch (err) {
