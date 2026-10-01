@@ -36,9 +36,11 @@ function error(...parts) {
  * @param {string|number} threadID conversation id
  * @param {object|string} msg body (string, or attachment descriptor)
  * @param {string} [messageID] message being replied to
+ * @param {boolean} [isGroup] the event's isGroup flag — required for groups whose
+ *   id has no `t_` prefix, see isGroupThread
  * @returns {Promise<object|null>}
  */
-async function reply(api, threadID, msg, messageID = null) {
+async function reply(api, threadID, msg, messageID = null, isGroup = undefined) {
   if (!api || typeof api.sendMessage !== 'function') return null;
   if (threadID === undefined || threadID === null) return null;
 
@@ -50,7 +52,7 @@ async function reply(api, threadID, msg, messageID = null) {
 
   try {
     lastSendError = '';
-    const res = await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID));
+    const res = await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID, isGroup));
     // Remember what we just sent so !unsend has a target. Facebook only lets a
     // bot unsend its own messages, and the id of the user's command (which is
     // what event.messageID holds) is not one of them.
@@ -205,7 +207,7 @@ async function react(api, messageID, emoji = '✅') {
  * @param {string} [label] name used in log/error output
  * @returns {Promise<{ok:boolean,result?:any,error?:string}>}
  */
-async function safe(fn, api, threadID, messageID, label = 'handler') {
+async function safe(fn, api, threadID, messageID, label = 'handler', isGroup = undefined) {
   try {
     if (typeof fn !== 'function') throw new TypeError('safe() needs a function');
     const result = await fn(api, threadID, messageID);
@@ -213,20 +215,32 @@ async function safe(fn, api, threadID, messageID, label = 'handler') {
   } catch (err) {
     error(`[ERROR] ${label}: ${err && err.message ? err.message : err}`);
     if (err && err.stack) console.error(err.stack);
-    // Best-effort user feedback; never let this throw either.
-    await reply(api, threadID, `⚠️ ${label} failed: ${err && err.message ? err.message : 'unknown error'}`, messageID);
+    // Best-effort user feedback; never let this throw either. isGroup is
+    // forwarded so this error notice is not itself lost to the same mistake.
+    await reply(api, threadID, `⚠️ ${label} failed: ${err && err.message ? err.message : 'unknown error'}`, messageID, isGroup);
     return { ok: false, error: err && err.message ? err.message : String(err) };
   }
 }
 
 /**
- * True when a thread id is a group chat rather than a private message.
- * Messenger group threads are prefixed `t_`; a one-to-one chat is a bare uid.
+ * True when a thread is a group chat rather than a private message.
+ *
+ * The `t_` prefix is only a heuristic and it is NOT reliable: production showed
+ * a group arriving with `isGroup: true` and threadID `1451777763453670`, with
+ * no prefix at all. Guessing from the id then marks a group as a DM, and
+ * ws3-fca answers that by addressing a private message to the group id — which
+ * Facebook rejects with error 1545012, "not part of conversation". Every reply
+ * in that group failed while reactions kept working.
+ *
+ * So an explicit `isGroup` from the event always wins. The prefix is only a
+ * fallback for callers that have no event to ask.
  *
  * @param {string|number} threadID
+ * @param {boolean} [isGroup] the event's own isGroup flag, when known
  * @returns {boolean}
  */
-function isGroupThread(threadID) {
+function isGroupThread(threadID, isGroup) {
+  if (typeof isGroup === 'boolean') return isGroup;
   return String(threadID || '').startsWith('t_');
 }
 

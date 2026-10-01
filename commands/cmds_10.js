@@ -566,12 +566,12 @@ function wrap(ctx, text, x, y, maxWidth, lineHeight) {
  * properties, so putting it on the payload throws "Dissallowed props" and the
  * image never leaves the process.
  */
-async function send(api, threadID, dataUrl, messageID) {
+async function send(api, threadID, dataUrl, messageID, isGroup = undefined) {
   if (!dataUrl || !api || !threadID) return false;
   const payload = { attachment: { type: 'image', data: { url: dataUrl } } };
   const replyTo = messageID === undefined || messageID === null ? null : String(messageID);
   try {
-    await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID));
+    await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID, isGroup));
     return true;
   } catch {
     return false;
@@ -781,7 +781,7 @@ commands.push({
       await save(userDoc);
     }
 
-    await send(api, event.threadID, await farmCard(fm, userDoc.name), event.messageID);
+    await send(api, event.threadID, await farmCard(fm, userDoc.name), event.messageID, event.isGroup);
 
     const plots = Array.from({ length: clamp(fm.plots) }, (_, i) => {
       const p = (Array.isArray(fm.land) ? fm.land[i] : null) || {};
@@ -1411,7 +1411,7 @@ commands.push({
       body: `Worth ${kc(ore[2])} on its own. You are carrying ${num(clamp(mi.ores[ore[0]]))} ${ore[1]}.`,
       footer: state === 'broke' ? 'THE PICKAXE BROKE ON THAT ONE' : '!minesell to cash in',
       accent: canvasKit.theme.accent2,
-    }), event.messageID);
+    }), event.messageID, event.isGroup);
 
     await reply(
       `⛏️ You break into the rock and pull out **${ore[4]} ${ore[1]}**.\n`
@@ -1661,7 +1661,7 @@ commands.push({
         body: `You came up with ${kc(worth)} of ore, but the ${pick.label} is now a bent piece of scrap.`,
         footer: `REPLACE IT WITH !minebuy ${pick.id}`,
         accent: '#ff4444',
-      }), event.messageID);
+      }), event.messageID, event.isGroup);
 
       await reply(
         '🕳️ You went deep and the roof came down.\n'
@@ -1683,7 +1683,7 @@ commands.push({
       body: haul.map((h) => `${h.icon} ${h.label} x${h.qty}`).join(' · '),
       footer: `WORTH ${kc(worth)}`,
       accent: canvasKit.theme.accent,
-    }), event.messageID);
+    }), event.messageID, event.isGroup);
 
     await reply(
       `🕳️ **Deep dig.** ${haul.map((h) => `${h.icon} ${h.label} x${h.qty}`).join(' · ')}\n`
@@ -1775,7 +1775,7 @@ commands.push({
         + `Your cooler now holds ${num(clamp(fi.catch[catchOne[0]]))} ${catchOne[1]}.`,
       footer: state === 'broke' ? 'THE ROD BROKE ON THAT CAST' : '!fishsell when the cooler is full',
       accent: '#3aa0ff',
-    }), event.messageID);
+    }), event.messageID, event.isGroup);
 
     const big = rarityOf(FISH, catchOne[0]) >= 7;
     await reply(
@@ -2142,7 +2142,7 @@ commands.push({
           + (billed ? `The hospital took ${kc(HOSPITAL)}.` : 'The hospital waived the bill because you had nothing.'),
         footer: billed ? 'TEN MINUTES ON A STRETCHER' : 'FOUR MINUTES — POORER, BUT HEALED',
         accent: '#ff4444',
-      }), event.messageID);
+      }), event.messageID, event.isGroup);
 
       await reply(
         `🏹 You dropped the **${shot[5]} ${shot[1]}** — and then it dropped you.\n`
@@ -2165,7 +2165,7 @@ commands.push({
       body: `Meat ${kc(shot[2])} · skin ${kc(shot[3])}. Rarest on your licence: ${best ? best[1] : '—'}.`,
       footer: state === 'broke' ? 'THE GUN BROKE ON THAT SHOT' : `${num(clamp(hu.kills))} KILLS`,
       accent: '#c0392b',
-    }), event.messageID);
+    }), event.messageID, event.isGroup);
 
     await reply(
       `🏹 Clean shot — **${shot[5]} ${shot[1]}**.\n`

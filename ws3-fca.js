@@ -219,7 +219,9 @@ async function handleMessage(api, event) {
   let commandName = 'incoming';
   const say = async (text, replyTo = messageID, label = commandName) => {
     helpers.clearSendError();
-    const res = await reply(api, threadID, text, replyTo ?? messageID);
+    // event.isGroup, not a threadID guess: a group can arrive with a bare
+    // numeric id, and treating it as a DM makes every reply fail with 1545012.
+    const res = await reply(api, threadID, text, replyTo ?? messageID, event.isGroup);
     if (res) noteSendOk(label);
     else noteSendFailure(label, helpers.lastSendError() || 'sendMessage returned nothing');
     return res;
@@ -236,7 +238,7 @@ async function handleMessage(api, event) {
   if (!parsed) {
     if (body) log(`[PARSE] no command for "${body.slice(0, 60)}" (prefix ${JSON.stringify(prefix)})`);
     // Not a command. Count the message for the RPG profile and stop.
-    await recordActivity(senderID, false, isGroupThread(threadID) ? threadID : null);
+    await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
     return;
   }
 
@@ -335,7 +337,7 @@ async function handleMessage(api, event) {
     });
     STATE.commandsRun += 1;
     cooldown.set(senderID, cmd.name, cd);
-    await recordActivity(senderID, true, isGroupThread(threadID) ? threadID : null);
+    await recordActivity(senderID, true, isGroupThread(threadID, event.isGroup) ? threadID : null);
   } catch (err) {
     STATE.errors += 1;
     error(`[COMMAND] ${cmd.name} threw: ${err.message}`);
@@ -431,7 +433,7 @@ async function handleGroupChange(api, event) {
         const text = String(group.settings.welcomeMsg)
           .replace(/{user}/g, String(who))
           .replace(/{group}/g, String(threadID));
-        await reply(api, threadID, text, null);
+        await reply(api, threadID, text, null, true);
       }
     }
 
@@ -461,7 +463,7 @@ async function handleGroupChange(api, event) {
       if (group?.settings?.goodbye && group.settings.goodbyeMsg) {
         const who = data.leftParticipantFbId || event.author;
         const text = String(group.settings.goodbyeMsg).replace(/{user}/g, String(who));
-        await reply(api, threadID, text, null);
+        await reply(api, threadID, text, null, true);
       }
     }
   } catch (err) {
@@ -542,13 +544,13 @@ function attachEvents(api, emitter) {
       const hasBody = typeof event.body === 'string' && event.body.length > 0;
       const hasAttachment = Array.isArray(event.attachments) && event.attachments.length > 0;
       if (!hasBody && !hasAttachment) return;
-      safe(() => handleMessage(api, event), api, event.threadID, event.messageID, 'message');
+      safe(() => handleMessage(api, event), api, event.threadID, event.messageID, 'message', event.isGroup);
       return;
     }
 
     // Group joins/leaves arrive as `type: 'event'` with a logMessageType.
     if (event.type === 'event' && /^log:(subscribe|unsubscribe)$/.test(event.logMessageType || '')) {
-      safe(() => handleGroupChange(api, event), api, event.threadID, null, event.logMessageType);
+      safe(() => handleGroupChange(api, event), api, event.threadID, null, event.logMessageType, true);
     }
   });
 

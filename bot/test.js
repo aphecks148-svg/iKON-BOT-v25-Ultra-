@@ -1009,6 +1009,66 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     return 'detected via the tap, appstate saved, process reboots';
   });
 
+  // ── 21. a group whose id has no `t_` prefix ───────────────
+  await step('a bare-numeric GROUP id is not mistaken for a DM', async () => {
+    // Straight from production: a real group logged
+    //   {type:'message', isGroup:true, threadID:'1451777763453670'}
+    // The old check inferred "group" from a `t_` prefix, so this looked like a
+    // DM and ws3-fca took its isSingleUser branch — messaging the group id as
+    // if it were a person. Facebook answered error 1545012, "not part of
+    // conversation", on every single command.
+    const PROD_GROUP = '1451777763453670';
+    assert.strictEqual(
+      helpers.isGroupThread(PROD_GROUP, true),
+      true,
+      'the event flag must win over the prefix heuristic',
+    );
+
+    const api = mockApi();
+    await helpers.reply(api, PROD_GROUP, 'hello', 'm1', /* isGroup */ true);
+    const rec = api.sent[api.sent.length - 1];
+    assert.strictEqual(
+      rec.isSingleUser,
+      false,
+      'a group must be addressed as a group, not as a private chat',
+    );
+
+    // And a real DM must still pass isSingleUser=true.
+    await helpers.reply(api, '555000222', 'dm', null, /* isGroup */ false);
+    assert.strictEqual(
+      api.sent[api.sent.length - 1].isSingleUser,
+      true,
+      'a private chat must still be addressed as a DM',
+    );
+    return 'production group id handled correctly';
+  });
+
+  await step('the engine sends a bare-numeric group as a group', async () => {
+    // End to end through handleMessage, which is where the wrong flag reached
+    // Facebook in production.
+    const ik = require('../ws3-fca');
+    const api = mockApi();
+    const before = api.sent.length;
+    await ik.handleMessage(api, {
+      type: 'message',
+      isSelf: false,
+      isGroup: true,
+      threadID: '1451777763453670',
+      messageID: 'prod_mid',
+      senderID: '100086783504073',
+      body: '!ping',
+      attachments: [],
+    });
+    const rec = api.sent[api.sent.length - 1] || api.sent[before];
+    assert.ok(rec, 'nothing was sent at all');
+    assert.strictEqual(
+      rec.isSingleUser,
+      false,
+      'the engine still addressed a group as a DM — this is the production bug',
+    );
+    return 'group reply addressed correctly';
+  });
+
   // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;

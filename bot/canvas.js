@@ -108,14 +108,17 @@ async function registerDefaultFont(dir = path.join(__dirname, 'fonts')) {
  * The reply-to id is sendMessage's THIRD argument, not a payload key: ws3-fca
  * whitelists payload properties and throws "Dissallowed props" otherwise, which
  * is why the text side of these commands used to go out while the image did not.
+ *
+ * @param {boolean} [isGroup] the event's isGroup flag. Required for groups whose
+ *   threadID has no `t_` prefix, which is how these images failed too.
  */
-async function sendImage(api, threadID, canvasObj, messageID) {
+async function sendImage(api, threadID, canvasObj, messageID, isGroup = undefined) {
   const buffer = await toBuffer(canvasObj);
   if (!buffer || !api) return null;
   const payload = { attachment: { type: 'image', data: { url: `data:image/png;base64,${buffer.toString('base64')}` } } };
   const replyTo = messageID === undefined || messageID === null ? null : String(messageID);
   try {
-    return await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID));
+    return await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID, isGroup));
   } catch (err) {
     console.warn(`[CANVAS] sendImage failed: ${err.message}`);
     return null;
