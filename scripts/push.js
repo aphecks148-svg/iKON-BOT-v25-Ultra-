@@ -139,6 +139,17 @@ function walk(dir, base = '') {
   const tree = await api('POST', `/repos/${owner}/${repo}/git/trees`, { base_tree: baseCommit, tree: entries });
   console.log(`tree: ${tree.sha.slice(0, 7)}`);
 
+  // Idempotency: if HEAD already points at this exact tree, the remote is
+  // already up to date. Creating a second, identical commit would just be noise.
+  if (baseCommit) {
+    const head = await api('GET', `/repos/${owner}/${repo}/git/commits/${baseCommit}`);
+    if (head.tree && head.tree.sha === tree.sha) {
+      console.log(`\n✅ already up to date — ${baseCommit.slice(0, 7)} has this exact tree. Nothing to push.`);
+      console.log(`   ${repoInfo.html_url}/tree/${branch}`);
+      return;
+    }
+  }
+
   const commit = await api('POST', `/repos/${owner}/${repo}/git/commits`, {
     message,
     tree: tree.sha,
