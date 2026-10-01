@@ -291,4 +291,550 @@ function chessBoard(board) {
     + grid.map((row, i) => `${i + 1} ${row.map((c) => c || '·').join(' ')}`).join('\n');
 }
 
-module.exports = [];
+/** Every command in this module, in registration order. */
+const commands = [];
+
+// ───────────────────────────────────────────────────────────
+// SOLO GAMES — the hunter plays the house
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'russianroulette',
+    aliases: ['rr', 'rrgame'],
+    category: 'games',
+    description: '💀 Six chambers, one bullet. Win the pot or get banned for an hour',
+    usage: '!russianroulette [amount]',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'russianroulette', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('💀');
+
+      const bet = betArg(args, 1000);
+      const staked = await wager(userDoc, bet, 'game:russianroulette');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      const bullet = rand(1, 6);
+      await reply(`💀 Cylinder open. One chamber. Spinning…`, event.messageID);
+      await sleep(1200);
+
+      if (bullet !== 1) {
+        await payout(userDoc, bet * 2, 'game:rr_win', { bet });
+        const rec = g(userDoc);
+        await reply(
+          `💀 **CLICK** — empty chamber.\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `🟢 You walked away with ${kc(bet * 2)}\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `🔥 Streak: ${rec.streak}\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      cache.banFromGames(userDoc.uid, 60 * 60 * 1000);
+      await recordLoss(userDoc, 'game:rr_loss');
+      await reply(
+        `💥 **CLICK.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 -${kc(bet)}\n`
+        + `🚫 The arcade has banned you for one hour.\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'blackjack',
+    aliases: ['bj'],
+    category: 'games',
+    description: '🎴 Blackjack against the house — beat 21 and double the bet',
+    usage: '!blackjack [amount]',
+    cooldown: 45,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'blackjack', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🎴');
+
+      const bet = betArg(args, 1000);
+      const staked = await wager(userDoc, bet, 'game:blackjack');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      const value = () => rand(1, 13);
+      const suit = () => pick(['♠', '♥', '♦', '♣']);
+      const card = () => ({ v: value(), s: suit() });
+      const label = (c) => (c.v === 1 ? 'A' : String(c.v - 1));
+      const totalOf = (hand) => hand.reduce((sum, c) => sum + Math.min(c.v === 1 ? 11 : c.v, 10), 0);
+
+      let hand = [card(), card()];
+      let dealer = [card(), card()];
+      const show = (h) => h.map(label).join(' ');
+
+      await reply(
+        `🎴 **BLACKJACK**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🃏 You: ${show(hand)} = ${totalOf(hand)}\n`
+        + `🃏 Dealer: ${label(dealer[0])} ?\n`
+        + `💵 Pot: ${kc(bet * 2)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+
+      while (totalOf(hand) < 17) {
+        hand.push(card());
+        await sleep(500);
+      }
+
+      const mine = totalOf(hand);
+      while (totalOf(dealer) < 17) dealer.push(card());
+      const theirs = totalOf(dealer);
+
+      const won = mine > theirs || (mine <= 21 && theirs > 21);
+      if (won) {
+        await payout(userDoc, bet * 2, 'game:bj_win', { bet, mine, theirs });
+        await reply(
+          `🎴 You: ${show(hand)} = ${mine}\n`
+          + `🃏 Dealer: ${show(dealer)} = ${theirs}\n`
+          + `━━━━━━━━━━━━━━━\n`
+          + `🏆 **YOU WIN** +${kc(bet * 2)}\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await recordLoss(userDoc, 'game:bj_loss');
+      await reply(
+        `🎴 You: ${show(hand)} = ${mine}\n`
+        + `🃏 Dealer: ${show(dealer)} = ${theirs}\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 -${kc(bet)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gambaall',
+    aliases: ['gamball'],
+    category: 'games',
+    description: '🎰 Gamble the entire wallet in one pull. No survivors',
+    usage: '!gambaall',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gambaall', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🎰');
+
+      const all = clamp(userDoc.coins);
+      if (all <= 0) {
+        await reply('💸 **Broke ass.** Farm `!daily` (10,000), `!hourly` (2,500) first.', event.messageID);
+        return;
+      }
+
+      const staked = await wager(userDoc, all, 'game:gambaall');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      const rec = g(userDoc);
+      rec.wagered = clamp(rec.wagered) + all;
+      await sleep(1500);
+
+      // Luck is a nudge, not a promise: at most 15% better than fair.
+      const edge = Math.random() * (1 - 2 * luck(userDoc));
+      if (edge < 0.3) {
+        await payout(userDoc, all * 2, 'game:gambaall_win', { all });
+        await reply(
+          `🎰 **JACKPOT**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `💰 ${kc(all * 2)} off a ${kc(all)} stake\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `📖 The house always smiles. That is the warning.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      rec.losses = clamp(rec.losses) + 1;
+      rec.streak = 0;
+      await save(userDoc);
+      await ledger(userDoc.uid, 'game:gambaall_loss', 0, userDoc.coins, { lost: true });
+      await reply(
+        `🎰 **Nothing.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 -${kc(all)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'anarchy',
+    aliases: ['ultranothing'],
+    category: 'games',
+    description: '🌀 Roll against the iKON algorithm. Usually nothing. Sometimes not',
+    usage: '!anarchy [amount]',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'anarchy', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🌀');
+
+      const bet = betArg(args, 1000);
+      const staked = await wager(userDoc, bet, 'game:anarchy');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      await sleep(1000);
+      const roll = rand(1, 100);
+      if (roll > 95) {
+        await payout(userDoc, bet * 3, 'game:anarchy_win', { bet, roll });
+        await reply(
+          `🌀 **THE ALGORITHM LIED.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `🎲 ${roll} — that should not have happened\n`
+          + `💰 +${kc(bet * 3)}\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (roll > 80) {
+        await payout(userDoc, bet, 'game:anarchy_refund', { bet, roll });
+        await reply(`🌀 ${roll}. Nothing happened. Your stake is returned.\n👛 Wallet: ${kc(userDoc.coins)}`, event.messageID);
+        return;
+      }
+
+      await recordLoss(userDoc, 'game:anarchy_loss');
+      await reply(`🌀 ${roll}. **NOTHING. NOT A THING.**\n💸 -${kc(bet)}\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'eightballultra',
+    aliases: ['8ball'],
+    category: 'games',
+    description: '🎱 Ask the 8-Ball a question. It costs you and it always answers',
+    usage: '!eightballultra <question>',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'eightballultra', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🎱');
+
+      const q = args.join(' ').trim();
+      if (!q) {
+        await reply('❌ Usage: `!eightballultra <question>` — ask it something.', event.messageID);
+        return;
+      }
+
+      const staked = await wager(userDoc, 50, 'game:eightball');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      await reply(`🎱 **THE 8-BALL ANSWERS**\n━━━━━━━━━━━━━━━\n💭 "${q}"\n⏳ ...`, event.messageID);
+      await sleep(1100);
+      await reply(`🔮 **${pick(EIGHT_BALL)}**\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'jokeultra',
+    aliases: [],
+    category: 'games',
+    description: '😂 Tell a joke for 10 coins. The house is always laughing',
+    usage: '!jokeultra',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'jokeultra', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('😂');
+
+      // The 10 coins are charged up front rather than conditionally: Messenger
+      // gives us no way to read reactions back off a message, so a "react to
+      // keep your coins" mechanic could never actually be checked and would
+      // just be a promise the bot cannot keep.
+      const staked = await wager(userDoc, 10, 'game:joke');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      await reply(`😂 **${pick(JOKES)}**\n━━━━━━━━━━━━━━━\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'quoteultra',
+    aliases: [],
+    category: 'games',
+    description: '💬 Guess the author of a quote — bet on your memory',
+    usage: '!quoteultra [amount]',
+    cooldown: 45,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'quoteultra', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('💬');
+
+      const bet = betArg(args, 2000);
+      const staked = await wager(userDoc, bet, 'game:quote');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      const q = pick(QUOTES);
+      cache.setGameState(event.senderID, 'quote', { author: q.author, bet }, 90 * 1000);
+      await reply(
+        `💬 **WHO SAID THIS?**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `"${q.text}"\n\n`
+        + `💵 Pot: ${kc(bet * 2)}\n`
+        + `⏱️ 90 seconds. \`!quoteanswer <name>\`\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'quoteanswer',
+    aliases: [],
+    category: 'games',
+    description: '✅ Name the author of an open quote',
+    usage: '!quoteanswer <author>',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'quoteanswer', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('✅');
+
+      const state = cache.getGameState(event.senderID);
+      if (!state || state.game !== 'quote') {
+        await reply('📭 No quote open. Start one with `!quoteultra`.', event.messageID);
+        return;
+      }
+
+      const guess = String(args.join(' ')).toLowerCase().trim();
+      cache.clearGameState(event.senderID);
+      const author = state.payload.author;
+      const bet = state.payload.bet;
+
+      if (guess && author.toLowerCase().includes(guess)) {
+        await payout(userDoc, bet * 2, 'game:quote_win', { author, bet });
+        await reply(
+          `✅ **CORRECT** — ${author}\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `💰 +${kc(bet * 2)}\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await recordLoss(userDoc, 'game:quote_loss');
+      await reply(
+        `❌ **WRONG** — it was ${author}\n`
+        + `💸 -${kc(bet)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'riddleultra',
+    aliases: [],
+    category: 'games',
+    description: '🧩 Solve a riddle for the pot',
+    usage: '!riddleultra [amount]',
+    cooldown: 45,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'riddleultra', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🧩');
+
+      const bet = betArg(args, 300);
+      const staked = await wager(userDoc, bet, 'game:riddle');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      const r = pick(RIDDLES);
+      cache.setGameState(event.senderID, 'riddle', { answer: r.a, bet }, 120 * 1000);
+      await reply(
+        `🧩 **RIDDLE**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${r.q}\n\n`
+        + `💵 Pot: ${kc(bet * 2)}\n`
+        + `⏱️ 2 minutes. \`!riddleanswer <answer>\`\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'riddleanswer',
+    aliases: [],
+    category: 'games',
+    description: '✅ Answer an open riddle',
+    usage: '!riddleanswer <answer>',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'riddleanswer', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('✅');
+
+      const state = cache.getGameState(event.senderID);
+      if (!state || state.game !== 'riddle') {
+        await reply('📭 No riddle open. Start one with `!riddleultra`.', event.messageID);
+        return;
+      }
+
+      const guess = String(args.join(' ')).toLowerCase().trim();
+      cache.clearGameState(event.senderID);
+      const bet = state.payload.bet;
+
+      const right = state.payload.answer.some((a) => a === guess);
+      if (right) {
+        await payout(userDoc, bet * 2, 'game:riddle_win', { bet });
+        await reply(
+          `✅ **CORRECT**\n`
+          + `💰 +${kc(bet * 2)}\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await recordLoss(userDoc, 'game:riddle_loss');
+      await reply(
+        `❌ **WRONG** — it was "${state.payload.answer[0]}"\n`
+        + `💸 -${kc(bet)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'triviaultra',
+    aliases: [],
+    category: 'games',
+    description: '🧠 Trivia sprint — answer before the clock runs out',
+    usage: '!triviaultra [amount]',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'triviaultra', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🧠');
+
+      const bet = betArg(args, 500);
+      const staked = await wager(userDoc, bet, 'game:trivia');
+      if (!staked.ok) {
+        await reply(staked.reason, event.messageID);
+        return;
+      }
+
+      const t = pick(TRIVIA);
+      cache.setGameState(event.senderID, 'trivia', { answer: t.a, bet }, 30 * 1000);
+      await reply(
+        `🧠 **TRIVIA SPRINT** — ${kc(bet)} on the line\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `❓ ${t.q}\n`
+        + `⏱️ 30 seconds. \`!triviaanswer <answer>\`\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'triviaanswer',
+    aliases: [],
+    category: 'games',
+    description: '✅ Answer an open trivia question',
+    usage: '!triviaanswer <answer>',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'triviaanswer', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('✅');
+
+      const state = cache.getGameState(event.senderID);
+      if (!state || state.game !== 'trivia') {
+        await reply('📭 No trivia question open. Start one with `!triviaultra`.', event.messageID);
+        return;
+      }
+
+      const guess = String(args.join(' ')).toLowerCase().trim();
+      cache.clearGameState(event.senderID);
+      const bet = state.payload.bet;
+      const right = state.payload.answer.includes(guess);
+
+      if (right) {
+        await payout(userDoc, bet * 2, 'game:trivia_win', { bet });
+        await reply(`✅ **CORRECT**\n💰 +${kc(bet * 2)}\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`, event.messageID);
+        return;
+      }
+
+      await recordLoss(userDoc, 'game:trivia_loss');
+      await reply(`❌ **WRONG**\n💸 -${kc(bet)}\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gstats',
+    aliases: ['arcadestats'],
+    category: 'games',
+    description: '📊 Your arcade record — wins, losses, wagered, biggest win',
+    usage: '!gstats',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gstats', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('📊');
+
+      const rec = g(userDoc);
+      const played = clamp(rec.wins) + clamp(rec.losses);
+      const rate = played ? Math.round((clamp(rec.wins) / played) * 100) : 0;
+
+      await reply(
+        `📊 **${userDoc.name} — ARCADE RECORD**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🎮 Games played: ${num(played)}\n`
+        + `🏆 Wins: ${num(rec.wins)} · 💀 Losses: ${num(rec.losses)}\n`
+        + `📉 Win rate: ${rate}%\n`
+        + `💸 Total wagered: ${kc(rec.wagered)}\n`
+        + `💰 Biggest win: ${kc(rec.bestWin)}\n`
+        + `🔥 Current streak: ${num(rec.streak)}\n`
+        + `🍀 Lucky charm: ${num(rec.luckyCharm)}%\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+module.exports = commands;
