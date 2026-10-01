@@ -1195,4 +1195,192 @@ const commands = [];
     }),
   });
 
+// ───────────────────────────────────────────────────────────
+// THE ARMOURY AND THE SHOOTING
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'gtaweaponshop',
+    aliases: ['gunshop'],
+    category: 'gta',
+    description: '🔫 The armoury — eight guns, from a pistol to a railgun',
+    usage: '!gtaweaponshop',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaweaponshop', async () => {
+      await react('🔫');
+      const t = g(userDoc);
+      const lines = WEAPONS.map((w) => {
+        const owned = t.weapons.some((x) => x && x.id === w.id);
+        return `${owned ? '✅' : '🔒'} **${w.name}** — ${kc(w.price)} · ${num(w.dmg)} dmg`;
+      });
+      await reply(
+        `🔫 **THE ARMOURY**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${lines.join('\n')}\n\n`
+        + `💼 You have ${kc(userDoc.coins)}.\n`
+        + `🛒 Buy with \`!gtabuyweapon <name>\``,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtabuyweapon',
+    aliases: ['gtagunbuy'],
+    category: 'gta',
+    description: '🛒 Buy a gun. The railgun costs more than your first three missions',
+    usage: '!gtabuyweapon <name>',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtabuyweapon', async () => {
+      await react('🛒');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+
+      const gun = findWeapon(args[0]);
+      if (!gun) {
+        await reply(`❌ No such weapon. \`!gtaweaponshop\` lists the stock.`, event.messageID);
+        return;
+      }
+      if (t.weapons.some((w) => w && w.id === gun.id)) {
+        await reply(`🔫 You already own the ${gun.name}. \`!gtaweapons\` to switch to it.`, event.messageID);
+        return;
+      }
+
+      const paid = await spend(userDoc, gun.price, 'gta:buyWeapon', { weapon: gun.id });
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      t.weapons.push({ id: gun.id, ammo: gun.ammo });
+      t.activeWeapon = gun.id;
+      await save(userDoc);
+
+      await reply(
+        `🛒 **${gun.name.toUpperCase()} ACQUIRED.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 -${kc(gun.price)}\n`
+        + `🎯 ${num(gun.dmg)} damage · ${num(gun.ammo)} rounds\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtaweapons',
+    aliases: ['gtaarmoury', 'gtaguns'],
+    category: 'gta',
+    description: '🔫 Your armoury — pick which gun is equipped',
+    usage: '!gtaweapons [gun]',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaweapons', async () => {
+      await react('🔫');
+      const t = g(userDoc);
+      if (!t.weapons.length) {
+        await reply('🔫 Empty armoury. `!gtabuyweapon <name>` first.', event.messageID);
+        return;
+      }
+
+      const want = String(args[0] || '').toLowerCase();
+      if (!want) {
+        const rows = t.weapons.map((w) => {
+          const base = WEAPON_BY_ID.get(w.id);
+          if (!base) return `• ??? (${w.id})`;
+          return `• **${base.name}** — ${num(base.dmg)} dmg — ${num(w.ammo)} rounds${w.id === t.activeWeapon ? ' — ▶ equipped' : ''}`;
+        });
+        await reply(
+          `🔫 **YOUR ARMOURY (${t.weapons.length})**\n━━━━━━━━━━━━━━━\n${rows.join('\n')}\n\n`
+          + `Equip with \`!gtaweapons <gun>\``,
+          event.messageID,
+        );
+        return;
+      }
+
+      const gun = findWeapon(want);
+      const rec = gun && t.weapons.find((w) => w && w.id === gun.id);
+      if (!rec) {
+        await reply(`❌ You do not own that gun.`, event.messageID);
+        return;
+      }
+
+      t.activeWeapon = rec.id;
+      await save(userDoc);
+      await reply(`▶ **${gun.name}** equipped — ${num(gun.dmg)} damage, ${num(rec.ammo)} rounds.`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gtashoot',
+    aliases: ['gtashoot', 'gtashootgun'],
+    category: 'gta',
+    description: '💥 Fire the equipped gun. Ammo runs out. Someone usually runs',
+    usage: '!gtashoot [@user]',
+    cooldown: 45,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtashoot', async () => {
+      await react('💥');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (jailed(userDoc)) {
+        await reply(`🔒 **Still in the cell.** ${jailLeft(userDoc)} minutes left.`, event.messageID);
+        return;
+      }
+
+      const rec = ownedWeapon(userDoc);
+      if (!rec) {
+        await reply('🔫 No gun equipped. `!gtabuyweapon pistol` first.', event.messageID);
+        return;
+      }
+      const base = WEAPON_BY_ID.get(rec.id);
+      if (clamp(rec.ammo) <= 0) {
+        await reply(`🈳 **EMPTY.** The ${base.name} is dry. \`!gtamission\` for ammo.`, event.messageID);
+        return;
+      }
+
+      rec.ammo = clamp(rec.ammo) - 1;
+      const stars2 = await addWanted(userDoc, 1);
+      const target = args[0] ? await targetOr(reply, event.messageID, args[0], event, 'gtashoot') : null;
+
+      await reply(`💥 **BANG.** ${base.name}, one round gone. ${num(rec.ammo)} left.`, event.messageID);
+      await sleep(500);
+
+      const hit = Math.random() < 0.65;
+      if (target && hit) {
+        // Nothing is deleted. A hit costs them the draft and raises their heat,
+        // which is enough of a consequence without touching anyone's account.
+        await addWanted(target, 2);
+        await save(target);
+        await reply(
+          `🎯 **YOU HIT ${target.name}.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `⭐ They are now wanted ${stars(target.gta.wanted)} (${target.gta.wanted}/5)\n`
+          + `⭐ You are wanted ${stars(stars2)} (${stars2}/5)\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (Math.random() < 0.25) {
+        const loot = rand(100, 600);
+        await earn(userDoc, loot, 'gta:shoot_loot', {});
+        await bank(userDoc, loot);
+        await reply(`💵 Dropped something worth ${kc(loot)}. ⭐ Wanted ${stars(stars2)} (${stars2}/5)`, event.messageID);
+        return;
+      }
+
+      await reply(`💨 **Nothing but noise.** ⭐ Wanted ${stars(stars2)} (${stars2}/5)\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
 module.exports = commands;
