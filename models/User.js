@@ -47,6 +47,18 @@ const UserSchema = new mongoose.Schema(
     // module 5 — daily streak claim marker for !streakgame.
     streakDay: { type: Date, default: null },
 
+    // module 6 — group standing. Feeds !gcstatsultra and drives the warzone tax.
+    gc: {
+      msgs: { type: Number, default: 0 },
+      lastGroup: { type: String, default: '' },
+      lastMsgAt: { type: Date, default: null },
+      links: { type: Number, default: 0 },   // links posted, the antilink scoreboard
+      fines: { type: Number, default: 0 },
+      toxicity: { type: Number, default: 0 }, // commands run, our proxy for noise
+      ghosted: { type: Number, default: 0 },
+      invites: { type: Number, default: 0 },
+    },
+
     // iKON Hunter Academy (module 3).
     rpg: {
       className: { type: String, default: '' },
