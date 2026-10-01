@@ -276,6 +276,11 @@ async function duck(game, args, userDoc, reply, event) {
   return true;
 }
 
+/** The other player's mark on a tic-tac-toe board. */
+function opposite(mark) {
+  return mark === '⭕' ? '❌' : '⭕';
+}
+
 /** Render the 4x4 mini-chess board. Shared so the two views cannot disagree. */
 function chessBoard(board) {
   const grid = [
@@ -293,6 +298,483 @@ function chessBoard(board) {
 
 /** Every command in this module, in registration order. */
 const commands = [];
+
+// ───────────────────────────────────────────────────────────
+// BOARD GAMES — tic-tac-toe and 4x4 mini chess
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'tictactoe',
+    aliases: ['ttt'],
+    category: 'games',
+    description: '⭕ Tic-tac-toe @user — first to a line takes the pot',
+    usage: '!tictactoe <user> <amount>',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'tictactoe', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('⭕');
+
+      const bet = betArg(args.slice(1), 1000);
+      const target = await targetOr(reply, event.messageID, args[0], event, 'tictactoe');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ Tic-tac-toe needs two hunters.', event.messageID);
+        return;
+      }
+      if ((target.coins || 0) < bet) {
+        await reply(`💸 ${target.name} only has ${kc(target.coins)}.`, event.messageID);
+        return;
+      }
+
+      const parked = cache.setPendingGame('ttt', event.threadID, String(target.uid), {
+        fromUid: String(event.senderID), fromName: userDoc.name, bet,
+      });
+      if (!parked) {
+        await reply(`⏳ ${target.name} already has a board waiting.`, event.messageID);
+        return;
+      }
+      await reply(
+        `⭕ **TIC-TAC-TOE**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💵 Pot: ${kc(bet)}\n`
+        + `⏳ ${target.name}: \`!tttaccept\` — add \`no\` to duck.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'tttaccept',
+    aliases: [],
+    category: 'games',
+    description: '⭕ Take a tic-tac-toe duel — pass a square to play first',
+    usage: '!tttaccept [1-9]',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'tttaccept', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('⭕');
+
+      if (await duck('ttt', args, userDoc, reply, event)) return;
+      const challenge = cache.takePendingGame('ttt', event.threadID, String(event.senderID));
+      if (!challenge) {
+        await reply('📭 No board waiting for you.', event.messageID);
+        return;
+      }
+      const challenger = await User.findOne({ uid: challenge.fromUid });
+      if (!challenger) {
+        await reply('❌ Challenger left the city.', event.messageID);
+        return;
+      }
+
+      const bet = challenge.bet;
+      if ((userDoc.coins || 0) < bet || (challenger.coins || 0) < bet) {
+        await reply('❌ Pot uncovered. Void.', event.messageID);
+        return;
+      }
+
+      // The acceptor may pass a square to play first, or accept bare and play
+      // via !tttplay. Both are advertised, so both have to work.
+      const square = Number.parseInt(args[0], 10);
+      const hasSquare = args[0] !== undefined && args[0] !== '';
+      if (hasSquare && (!Number.isFinite(square) || square < 1 || square > 9)) {
+        cache.setPendingGame('ttt', event.threadID, String(event.senderID), challenge);
+        await reply('❌ Pick a square from 1 to 9 — or `!tttaccept no` to duck.', event.messageID);
+        return;
+      }
+
+      const LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+      const board = new Array(9).fill(null);
+      const render = () => (
+        `${board[0] || '1️⃣'} ${board[1] || '2️⃣'} ${board[2] || '3️⃣'}\n`
+        + `${board[3] || '4️⃣'} ${board[4] || '5️⃣'} ${board[5] || '6️⃣'}\n`
+        + `${board[6] || '7️⃣'} ${board[7] || '8️⃣'} ${board[8] || '9️⃣'}`
+      );
+      const line = (mark) => LINES.some(([a, b, c]) => board[a] === mark && board[b] === mark && board[c] === mark);
+
+      const a = await wager(challenger, bet, 'game:ttt_challenger');
+      if (!a.ok) { await reply(a.reason, event.messageID); return; }
+      const b = await wager(userDoc, bet, 'game:ttt_accept');
+      if (!b.ok) {
+        await wager(challenger, bet, 'game:ttt_refund');
+        await reply(b.reason, event.messageID);
+        return;
+      }
+
+      await reply(
+        `⭕ **BOARD OPEN** — ${userDoc.name} takes ⭕, ${challenger.name} takes ❌.\n\n${render()}`,
+        event.messageID,
+      );
+
+      // Accepted without a square: open the board and let the acceptor move.
+      if (!hasSquare) {
+        cache.putPendingGame('tttplay', event.threadID, String(event.senderID), {
+          toUid: String(challenge.fromUid), toName: challenger.name, bet, board, mark: '⭕',
+        });
+        await reply(`⭕ ${userDoc.name}, your turn: \`!tttplay <1-9>\``, event.messageID);
+        return;
+      }
+
+      board[square - 1] = '⭕';
+      await reply(`⭕ ${userDoc.name} played ${square}.\n\n${render()}`, event.messageID);
+
+      if (line('⭕')) {
+        await payout(userDoc, bet * 2, 'game:ttt_win', { bet, square });
+        await reply(
+          `🏆 **YOU WIN** — ${square} completes the line!\n`
+          + `💰 +${kc(bet * 2)}\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (board.every((v) => v !== null)) {
+        await payout(userDoc, bet, 'game:ttt_draw', { bet });
+        await payout(challenger, bet, 'game:ttt_draw', { bet });
+        await reply(`🤝 **DRAW.** Stakes returned.\n📖 ${story()}`, event.messageID);
+        return;
+      }
+
+      // The house answers for the challenger: block a threat, else take a square.
+      const empty = board.map((v, i) => (v === null ? i : -1)).filter((i) => i >= 0);
+      const threat = (mark) => LINES.find(([x, y, z]) => (
+        (board[x] === mark && board[y] === mark && board[z] === null)
+        || (board[x] === mark && board[z] === mark && board[y] === null)
+        || (board[y] === mark && board[z] === mark && board[x] === null)
+      ));
+      const winAt = threat('❌');
+      const blockAt = threat('⭕');
+      const spot = winAt ? winAt.find((i) => board[i] === null)
+        : (blockAt ? blockAt.find((i) => board[i] === null) : pick(empty));
+
+      board[spot] = '❌';
+      await sleep(600);
+      await reply(`❌ ${challenger.name} plays ${spot + 1}.\n\n${render()}`, event.messageID);
+
+      if (line('❌')) {
+        await recordLoss(userDoc, 'game:ttt_loss');
+        await reply(
+          `🏆 **${challenger.name} WINS** — line complete.\n`
+          + `💸 -${kc(bet)}\n📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (board.every((v) => v !== null)) {
+        await payout(userDoc, bet, 'game:ttt_draw', { bet });
+        await payout(challenger, bet, 'game:ttt_draw', { bet });
+        await reply(`🤝 **FULL BOARD, DRAW.** Stakes returned.`, event.messageID);
+        return;
+      }
+
+      const parked = cache.setPendingGame('tttplay', event.threadID, String(challenge.fromUid), {
+        toUid: String(event.senderID), toName: userDoc.name, bet, board, mark: '❌',
+      });
+      if (parked) {
+        await reply(`⭕ Board open. ${challenger.name}, reply \`!tttplay <1-9>\`.`, event.messageID);
+      }
+    }),
+  });
+
+  commands.push({
+    name: 'tttplay',
+    aliases: [],
+    category: 'games',
+    description: '❌ Continue an open tic-tac-toe board with a square 1-9',
+    usage: '!tttplay <1-9>',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'tttplay', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+
+      const challenge = cache.takePendingGame('tttplay', event.threadID, String(event.senderID));
+      if (!challenge) {
+        await reply('📭 No open board for you.', event.messageID);
+        return;
+      }
+      // Each player owns one mark. Without this both sides would lay the same
+      // mark and could "win" a line the opponent actually built.
+      const mark = challenge.mark || '❌';
+      await react(mark);
+
+      const square = Number.parseInt(args[0], 10);
+      if (!Number.isFinite(square) || square < 1 || square > 9 || challenge.board[square - 1]) {
+        cache.setPendingGame('tttplay', event.threadID, String(event.senderID), challenge);
+        await reply('❌ Pick an empty square from 1 to 9.', event.messageID);
+        return;
+      }
+
+      const board = challenge.board;
+      const bet = challenge.bet;
+      const LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+      const line = (m) => LINES.some(([x, y, z]) => board[x] === m && board[y] === m && board[z] === m);
+      const render = () => (
+        `${board[0] || '1️⃣'} ${board[1] || '2️⃣'} ${board[2] || '3️⃣'}\n`
+        + `${board[3] || '4️⃣'} ${board[4] || '5️⃣'} ${board[5] || '6️⃣'}\n`
+        + `${board[6] || '7️⃣'} ${board[7] || '8️⃣'} ${board[8] || '9️⃣'}`
+      );
+
+      board[square - 1] = mark;
+      await reply(`${mark} ${userDoc.name} plays ${square}.\n\n${render()}`, event.messageID);
+
+      if (line(mark)) {
+        await payout(userDoc, bet * 2, 'game:ttt_win', { bet, square });
+        await reply(
+          `🏆 **YOU WIN** — ${square} completes the line!\n`
+          + `💰 +${kc(bet * 2)}\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (board.every((v) => v !== null)) {
+        await payout(userDoc, bet, 'game:ttt_draw', { bet });
+        const other = await User.findOne({ uid: challenge.toUid });
+        if (other) await payout(other, bet, 'game:ttt_draw', { bet });
+        await reply('🤝 **DRAW.** Stakes returned.', event.messageID);
+        return;
+      }
+
+      cache.setPendingGame('tttplay', event.threadID, challenge.toUid, {
+        toUid: String(event.senderID), toName: userDoc.name, bet, board, mark: opposite(mark),
+      });
+      await reply(`${challenge.toName}, your turn: \`!tttplay <1-9>\``, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'chessmini',
+    aliases: [],
+    category: 'games',
+    description: '♟️ Four-square chess duel @user — one message per move, no clock',
+    usage: '!chessmini <user> <amount>',
+    cooldown: 300,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'chessmini', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('♟️');
+
+      const bet = betArg(args.slice(1), 2000);
+      const target = await targetOr(reply, event.messageID, args[0], event, 'chessmini');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ Chess requires an opponent.', event.messageID);
+        return;
+      }
+      if ((target.coins || 0) < bet) {
+        await reply(`💸 ${target.name} only has ${kc(target.coins)}.`, event.messageID);
+        return;
+      }
+
+      const parked = cache.setPendingGame('chess', event.threadID, String(target.uid), {
+        fromUid: String(event.senderID), fromName: userDoc.name, bet,
+      });
+      if (!parked) {
+        await reply(`⏳ ${target.name} already has a chess board.`, event.messageID);
+        return;
+      }
+      await reply(
+        `♟️ **CHESS DUEL**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💵 Pot: ${kc(bet)}\n`
+        + `⏳ ${target.name}: \`!chessaccept\` — add \`no\` to duck.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'chessaccept',
+    aliases: [],
+    category: 'games',
+    description: '♟️ Take a chess duel — white moves first',
+    usage: '!chessaccept',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'chessaccept', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('♟️');
+
+      if (await duck('chess', args, userDoc, reply, event)) return;
+      const challenge = cache.takePendingGame('chess', event.threadID, String(event.senderID));
+      if (!challenge) {
+        await reply('📭 No chess challenge waiting.', event.messageID);
+        return;
+      }
+      const challenger = await User.findOne({ uid: challenge.fromUid });
+      if (!challenger) {
+        await reply('❌ Challenger left the city.', event.messageID);
+        return;
+      }
+
+      const bet = challenge.bet;
+      if ((userDoc.coins || 0) < bet || (challenger.coins || 0) < bet) {
+        await reply('❌ Pot uncovered. Void.', event.messageID);
+        return;
+      }
+      const a = await wager(challenger, bet, 'game:chess_challenger');
+      if (!a.ok) { await reply(a.reason, event.messageID); return; }
+      const b = await wager(userDoc, bet, 'game:chess_accept');
+      if (!b.ok) {
+        await wager(challenger, bet, 'game:chess_refund');
+        await reply(b.reason, event.messageID);
+        return;
+      }
+
+      // 4x4 board: each side has a king and a knight.
+      const board = { wK: [0, 0], wN: [1, 0], bK: [3, 3], bN: [2, 3] };
+      cache.putPendingGame('chessplay', event.threadID, String(challenge.fromUid), {
+        board, bet,
+        wUid: String(challenge.fromUid), wName: challenger.name,
+        bUid: String(event.senderID), bName: userDoc.name,
+        turn: 'w', moves: 0,
+      });
+
+      await reply(
+        `♟️ **WHITE MOVES FIRST**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${chessBoard(board)}\n`
+        + `♔ ${challenger.name} (white) vs ♚ ${userDoc.name} (black)\n`
+        + `💵 Pot: ${kc(bet * 2)}\n`
+        + `📋 Move format: \`!chessplay a1a2\` — capture the king to win.\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'chessplay',
+    aliases: [],
+    category: 'games',
+    description: '♟️ Move the chess board, e.g. !chessplay a1a2 — 8 moves max',
+    usage: '!chessplay <e.g. a1a2>',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'chessplay', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('♟️');
+
+      const state = cache.takePendingGame('chessplay', event.threadID, String(event.senderID));
+      if (!state) {
+        await reply('📭 No chess board is waiting for you.', event.messageID);
+        return;
+      }
+      // Every rejection path hands the board straight back, so a typo or an
+      // out-of-turn tap never costs the player their game.
+      const giveBack = () => cache.setPendingGame('chessplay', event.threadID, String(event.senderID), state);
+
+      const move = String(args[0] || '').toLowerCase();
+      const m = /^([a-d])([1-4])([a-d])([1-4])$/.exec(move);
+      if (!m) {
+        giveBack();
+        await reply('❌ Move format: `!chessplay a1a2` — file letter + rank + file + rank.', event.messageID);
+        return;
+      }
+
+      const [f1, r1, f2, r2] = [m[1], Number(m[2]), m[3], Number(m[4])];
+      const board = state.board;
+      const isWhite = state.turn === 'w';
+      const mine = isWhite
+        ? state.wUid === String(event.senderID)
+        : state.bUid === String(event.senderID);
+      if (!mine) {
+        giveBack();
+        await reply(`⏳ It is ${isWhite ? 'WHITE' : 'BLACK'} to move.`, event.messageID);
+        return;
+      }
+
+      const FILES = ['a', 'b', 'c', 'd'];
+      const side = isWhite ? 'w' : 'b';
+      // Address the pieces by their key on the board itself. Wrapping them in
+      // a fresh { K, N } object would silently break the alias back to the
+      // board, and the move would render as if it never happened.
+      const OWN = { K: `${side}K`, N: `${side}N` };
+      const FOE_KEYS = { K: `${side === 'w' ? 'b' : 'w'}K`, N: `${side === 'w' ? 'b' : 'w'}N` };
+      const pos = [FILES.indexOf(f1), r1 - 1];
+      const dest = [FILES.indexOf(f2), r2 - 1];
+
+      let moving = null;
+      for (const kind of ['K', 'N']) {
+        const p = board[OWN[kind]];
+        if (p && p[0] === pos[0] && p[1] === pos[1]) moving = kind;
+      }
+      if (!moving) {
+        giveBack();
+        await reply('❌ No piece of yours stands there.', event.messageID);
+        return;
+      }
+
+      const dx = Math.abs(dest[0] - pos[0]);
+      const dy = Math.abs(dest[1] - pos[1]);
+      const legal = moving === 'K' ? Math.max(dx, dy) === 1 : ((dx === 1 && dy === 2) || (dx === 2 && dy === 1));
+      if (!legal) {
+        giveBack();
+        await reply(`❌ ${moving === 'K' ? 'A king moves one square' : 'A knight moves in an L (1+2)'}. Try again.`, event.messageID);
+        return;
+      }
+      if (pos[0] === dest[0] && pos[1] === dest[1]) {
+        giveBack();
+        await reply('❌ That is not a move.', event.messageID);
+        return;
+      }
+
+      let captured = null;
+      for (const kind of ['K', 'N']) {
+        const p = board[FOE_KEYS[kind]];
+        if (p && p[0] === dest[0] && p[1] === dest[1]) {
+          board[FOE_KEYS[kind]] = null;
+          captured = kind;
+        }
+      }
+
+      board[OWN[moving]] = dest;
+      const bet = state.bet;
+      state.moves = clamp(state.moves) + 1;
+
+      const crown = `${moving === 'K' ? (side === 'w' ? '♔' : '♚') : (side === 'w' ? '♘' : '♞')}`;
+      const winText = (who) => (
+        `🏆 **${who} WINS** — the king is taken.\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${chessBoard(board)}\n`
+        + `📖 ${story()}`
+      );
+
+      if (captured === 'K') {
+        const loserUid = isWhite ? state.bUid : state.wUid;
+        await payout(userDoc, bet * 2, 'game:chess_win', { bet, moves: state.moves });
+        await reply(`${crown} ${userDoc.name} plays **${f1}${r1} → ${f2}${r2}** — KING TAKEN!\n${winText(userDoc.name)}\n💰 +${kc(bet * 2)}\n👛 Wallet: ${kc(userDoc.coins)}`, event.messageID);
+        if (loserUid !== String(event.senderID)) {
+          const loserDoc = await User.findOne({ uid: loserUid });
+          if (loserDoc) await recordLoss(loserDoc, 'game:chess_loss');
+        }
+        return;
+      }
+
+      // Eight moves without a capture is a draw; neither side is robbed.
+      if (state.moves >= 8) {
+        await payout(userDoc, bet, 'game:chess_draw', { bet });
+        const other = await User.findOne({ uid: isWhite ? state.bUid : state.wUid });
+        if (other) await payout(other, bet, 'game:chess_draw', { bet });
+        await reply(`♟️ **DRAW** after ${state.moves} moves.\n${chessBoard(board)}\n🤝 Stakes returned.`, event.messageID);
+        return;
+      }
+
+      state.turn = isWhite ? 'b' : 'w';
+      const nextUid = isWhite ? state.bUid : state.wUid;
+      cache.setPendingGame('chessplay', event.threadID, nextUid, state);
+
+      await reply(
+        `♟️ Move ${state.moves}: **${f1}${r1} → ${f2}${r2}**${captured ? ` — captured a ${captured === 'K' ? 'KING' : 'knight'}!` : ''}\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${chessBoard(board)}\n`
+        + `⏳ Next: ${isWhite ? state.bName : state.wName} (\`!chessplay <move>\`)`,
+        event.messageID,
+      );
+    }),
+  });
 
 // ───────────────────────────────────────────────────────────
 // HEAD-TO-HEAD DUELS — challenge, accept (or duck), settle

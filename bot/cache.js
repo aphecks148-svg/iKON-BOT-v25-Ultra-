@@ -207,6 +207,19 @@ function setPendingGame(game, threadID, uid, payload) {
   return true;
 }
 
+/**
+ * Park a challenge, overwriting any existing one.
+ *
+ * Used when a fresh game is genuinely starting and must not inherit a stale
+ * board. setPendingGame() deliberately refuses to overwrite, so a leftover
+ * entry would otherwise attach the new duel to somebody else's old board.
+ */
+function putPendingGame(game, threadID, uid, payload) {
+  const key = gameKey(game, threadID, uid);
+  pendingGames.set(key, { ...payload, expires: Date.now() + 2 * 60 * 1000 });
+  return true;
+}
+
 function getPendingGame(game, threadID, uid) {
   return pendingGames.get(gameKey(game, threadID, uid)) || null;
 }
@@ -283,7 +296,7 @@ module.exports = {
   sweepBattles, battleCount,
   rememberMessage, ownerOfMessage, sweepMessages,
   // module 5 — game state
-  setPendingGame, getPendingGame, takePendingGame, pendingGameFor,
+  setPendingGame, putPendingGame, getPendingGame, takePendingGame, pendingGameFor,
   setGameState, getGameState, clearGameState,
   banFromGames, gameBanLeft, sweepGames,
 };
