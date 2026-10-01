@@ -46,6 +46,8 @@ const Group = require('../models/Group');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
+const cards = require('../bot/cards');
+const profile = require('../bot/profile');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -404,13 +406,24 @@ async function score(group, list, a, b, amount, by) {
 }
 
 /** Name a uid from a board row, falling back to the uid if the user is gone. */
-async function nameOf(uid) {
+/**
+ * The real display name for a uid.
+ *
+ * Prefers the live Facebook name so a stale or placeholder database entry does
+ * not show on the social boards, then the stored name, then a short id. A stored
+ * "Facebook User" is the API's own placeholder, never a person's name, so it is
+ * treated as no name at all.
+ */
+async function nameOf(uid, api) {
+  try {
+    const live = await profile.fetchRealName(uid, api);
+    if (live) return live;
+  } catch { /* fall through to the stored name */ }
   try {
     const doc = await User.findOne({ uid: String(uid) });
-    return (doc && doc.name) || String(uid);
-  } catch {
-    return String(uid);
-  }
+    if (doc && doc.name && !profile.isPlaceholderName(doc.name)) return doc.name;
+  } catch { /* fall through to the uid */ }
+  return `Hunter ${String(uid).slice(-4)}`;
 }
 
 // ───────────────────────────────────────────────────────────
@@ -1443,7 +1456,7 @@ const commands = [];
       }
 
       const seen = new Set();
-      const rows = [];
+      const pairs = [];
       for (const d of docs) {
         const partner = await User.findOne({ uid: String(d.spouse) }).catch(() => null);
         if (!partner) continue;
@@ -1451,12 +1464,39 @@ const commands = [];
         if (seen.has(key)) continue;
         seen.add(key);
         const days = d.marriedAt ? Math.max(0, Math.floor((Date.now() - new Date(d.marriedAt).getTime()) / 86400000)) : 0;
-        rows.push(`💍 **${d.name}** + **${partner.name}** — ${num(days)} day(s)`);
+        pairs.push({ a: d.uid, b: partner.uid, score: days });
       }
 
-      if (!rows.length) {
+      if (!pairs.length) {
         await reply('💑 **Nobody is married.** 10,000 a divorce and still zero couples. Impressive.', event.messageID);
         return;
+      }
+
+      // Both partners' real photos, with real Facebook names.
+      const card = await cards.pairCard({
+        emoji: '💑',
+        title: 'THE COUPLES',
+        subtitle: `${pairs.length} married pair(s) in this chat`,
+        pairs,
+        api,
+        value: (p) => `${num(p.score)} day(s)`,
+        limit: 10,
+      });
+      if (card) {
+        const mine = userDoc.spouse
+          ? `💖 You are married to ${await nameOf(userDoc.spouse, api)}.`
+          : '💔 You are single. 5,000 fixes that.';
+        await reply({
+          body: `💑 **THE COUPLES (${pairs.length})**\n${mine}`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
+
+      const rows = [];
+      for (const p of pairs) {
+        const [an, bn] = await Promise.all([nameOf(p.a, api), nameOf(p.b, api)]);
+        rows.push(`💍 **${an}** + **${bn}** — ${num(p.score)} day(s)`);
       }
 
       const mine = userDoc.spouse
@@ -1491,9 +1531,30 @@ const commands = [];
       }
 
       if (!args[0]) {
+        const ranked = [...group.fun.besties]
+          .sort((x, y) => clamp(y.score) - clamp(x.score))
+          .slice(0, 10);
+
+        // Real photos of both people in each pair, drawn on canvas.
+        const card = await cards.pairCard({
+          emoji: '🫂',
+          title: 'BEST FRIENDS',
+          subtitle: 'Scores only go up. It is not a fair system.',
+          pairs: ranked.map((r) => ({ a: r.a, b: r.b, score: r.score })),
+          api,
+          value: (p) => `${num(p.score)} BFF pts`,
+        });
+        if (card) {
+          await reply({
+            body: `🫂 **BEST FRIENDS**\nAdd with \`!bestiesultra @user\``,
+            attachment: { type: 'image', data: { url: card } },
+          }, event.messageID);
+          return;
+        }
+
         const rows = [];
-        for (const r of [...group.fun.besties].sort((x, y) => clamp(y.score) - clamp(x.score)).slice(0, 10)) {
-          const [an, bn] = await Promise.all([nameOf(r.a), nameOf(r.b)]);
+        for (const r of ranked) {
+          const [an, bn] = await Promise.all([nameOf(r.a, api), nameOf(r.b, api)]);
           rows.push(`🫂 **${an} + ${bn}** — ${num(r.score)}`);
         }
         await reply(
@@ -1545,9 +1606,29 @@ const commands = [];
       }
 
       if (!args[0]) {
+        const ranked = [...group.fun.enemies]
+          .sort((x, y) => clamp(y.score) - clamp(x.score))
+          .slice(0, 10);
+
+        const card = await cards.pairCard({
+          emoji: '⚔️',
+          title: 'ENEMIES',
+          subtitle: 'Scores only go up either. Grudges forever.',
+          pairs: ranked.map((r) => ({ a: r.a, b: r.b, score: r.score })),
+          api,
+          value: (p) => `${num(p.score)} beef`,
+        });
+        if (card) {
+          await reply({
+            body: `⚔️ **ENEMIES**\nAdd with \`!enemiesultra @user\``,
+            attachment: { type: 'image', data: { url: card } },
+          }, event.messageID);
+          return;
+        }
+
         const rows = [];
-        for (const r of [...group.fun.enemies].sort((x, y) => clamp(y.score) - clamp(x.score)).slice(0, 10)) {
-          const [an, bn] = await Promise.all([nameOf(r.a), nameOf(r.b)]);
+        for (const r of ranked) {
+          const [an, bn] = await Promise.all([nameOf(r.a, api), nameOf(r.b, api)]);
           rows.push(`⚔️ **${an} vs ${bn}** — ${num(r.score)}`);
         }
         await reply(

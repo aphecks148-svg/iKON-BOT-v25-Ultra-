@@ -30,6 +30,8 @@ const cache = require('./cache');
 const canvas = require('./canvas');
 const helpers = require('./helpers');
 const gemini = require('./gemini');
+const profile = require('./profile');
+const cards = require('./cards');
 const config = require('../config');
 
 const User = require('../models/User');
@@ -701,6 +703,141 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
       gemini._reset();
     }
     return 'no key = empty answer, no crash';
+  });
+
+  // ── 14. real names + canvas cards ────────────────────────
+  await step('profile rejects the placeholder name the API invents', () => {
+    // ws3-fca's createDefaultUser returns the literal "Facebook User" when it
+    // cannot resolve a profile. Persisting that is how a profile ended up
+    // permanently named "Facebook User" on every leaderboard.
+    assert.strictEqual(profile.isPlaceholderName('Facebook User'), true);
+    assert.strictEqual(profile.isPlaceholderName('  facebook user '), true);
+    assert.strictEqual(profile.isPlaceholderName(''), true);
+    assert.strictEqual(profile.isPlaceholderName('unknown'), true);
+    assert.strictEqual(profile.isPlaceholderName('Aphecks iKon Klerk'), false);
+    return '"Facebook User" never treated as a name';
+  });
+
+  await step('fetchRealName prefers the live name and rejects placeholders', async () => {
+    profile.clear();
+    const axios = require('axios');
+    const realGet = axios.get;
+    axios.get = async () => ({ data: Buffer.alloc(2048, 7) });
+    try {
+      const api = { getUserInfo: async (id) => ({ name: id === 'good' ? 'Real Name' : 'Facebook User' }) };
+      assert.strictEqual(await profile.fetchRealName('good', api), 'Real Name');
+      assert.strictEqual(await profile.fetchRealName('placeholder', api), null,
+        'a placeholder name must resolve to null, not a fake name');
+      // ws3-fca returns firstName, not first_name.
+      assert.strictEqual(await profile.fetchRealName('first', { getUserInfo: async () => ({ firstName: 'Only First' }) }), 'Only First');
+
+      // Facebook answers a missing photo with a tiny body; caching it would pin
+      // a blank avatar for the whole TTL, so it must be rejected.
+      axios.get = async () => ({ data: Buffer.alloc(100, 1) });
+      assert.strictEqual(await profile.fetchPicture('tiny', { getUserInfo: async () => ({ profilePicUrl: 'x' }) }), null);
+      axios.get = async () => ({ data: Buffer.alloc(2048, 7) });
+      const pic = await profile.fetchPicture('ok', { getUserInfo: async () => ({ profilePicUrl: 'x' }) });
+      assert.ok(Buffer.isBuffer(pic) && pic.length === 2048, 'a real body must be cached as bytes');
+
+      // No api must not throw.
+      assert.strictEqual(await profile.fetchRealName('x', null), null);
+    } finally {
+      axios.get = realGet;
+      profile.clear();
+    }
+    return 'live name wins, placeholder and tiny image rejected';
+  });
+
+  await step('cards render real PNGs with the canvas binary', async () => {
+    if (!canvas.available()) return 'skipped — no canvas binary';
+    profile.clear();
+    const axios = require('axios');
+    const realGet = axios.get;
+    const cvs = canvas.lib();
+    const make = (r) => {
+      const s = cvs.createCanvas(300, 300);
+      const x = s.getContext('2d');
+      x.fillStyle = `rgb(${r}, 90, 200)`;
+      x.fillRect(0, 0, 300, 300);
+      return s.toBuffer('image/png');
+    };
+    axios.get = async () => ({ data: make(60) });
+    const api = { getUserInfo: async (id) => ({ name: `Real ${id}`, profilePicUrl: 'https://example.test/p' }) };
+    const isPng = (d) => typeof d === 'string' && d.startsWith('data:image/png') && d.length > 2000;
+
+    try {
+      const board = await cards.boardCard({
+        emoji: 'T', title: 'BOARD', subtitle: 's', api, value: () => 'x',
+        rows: [{ uid: 'a', name: 'Facebook User', level: 3 }, { uid: 'b', name: 'stale', level: 2 }],
+      });
+      assert.ok(isPng(board), 'boardCard must return a real PNG data URL');
+      assert.ok(isPng(await cards.userCard({
+        emoji: 'X', title: 'XP', subtitle: 's', api, rows: [['Level', '3']], user: { uid: 'a' },
+      })), 'userCard must return a real PNG data URL');
+      assert.ok(isPng(await cards.pairCard({
+        emoji: 'P', title: 'PAIRS', subtitle: 's', api, pairs: [{ a: 'a', b: 'b', score: 5 }], value: () => '5',
+      })), 'pairCard must return a real PNG data URL');
+
+      // A board with no rows is a caller bug, not a card.
+      assert.strictEqual(await cards.boardCard({ title: 'x', rows: [], api, value: () => '' }), null);
+    } finally {
+      axios.get = realGet;
+      profile.clear();
+    }
+    return 'boardCard / userCard / pairCard all emit PNGs';
+  });
+
+  await step('cards still render when Facebook has no picture', async () => {
+    if (!canvas.available()) return 'skipped — no canvas binary';
+    profile.clear();
+    const axios = require('axios');
+    const realGet = axios.get;
+    axios.get = async () => { throw new Error('network down'); };
+    const api = { getUserInfo: async () => ({ name: 'Aphecks', profilePicUrl: 'https://example.test/p' }) };
+    try {
+      // The generated avatar must keep the card renderable: a command that
+      // degrades to nothing when a photo 404s is worse than a plain block.
+      const card = await cards.userCard({
+        emoji: 'X', title: 'XP', subtitle: 's', api, rows: [['Level', '3']], user: { uid: 'no_pic' },
+      });
+      assert.ok(typeof card === 'string' && card.startsWith('data:image/png'), 'must fall back to a generated avatar');
+      const avatar = await profile.picture('no_pic', api);
+      assert.ok(Buffer.isBuffer(avatar) && avatar.length > 200, 'fallbackAvatar must return PNG bytes');
+
+      // Deterministic: the same person must not flicker between colours.
+      profile.clear();
+      const again = await profile.picture('no_pic', api);
+      assert.strictEqual(Buffer.compare(avatar, again), 0, 'avatar must be deterministic per uid');
+    } finally {
+      axios.get = realGet;
+      profile.clear();
+    }
+    return 'generated avatar fallback, deterministic';
+  });
+
+  await step('cards never render a stored placeholder name', async () => {
+    profile.clear();
+    const axios = require('axios');
+    const realGet = axios.get;
+    axios.get = async () => { throw new Error('no network'); };
+    try {
+      // Facebook cannot be reached, so this falls back to the stored name —
+      // which is the API's own placeholder and must not be shown.
+      const api = { getUserInfo: async () => { throw new Error('offline'); } };
+      assert.strictEqual(
+        await cards.realName({ uid: '123456789', name: 'Facebook User' }, api),
+        'Hunter 6789',
+      );
+      // A genuine stored name is still used.
+      assert.strictEqual(
+        await cards.realName({ uid: '123456789', name: 'Aphecks iKon Klerk' }, api),
+        'Aphecks iKon Klerk',
+      );
+    } finally {
+      axios.get = realGet;
+      profile.clear();
+    }
+    return 'short uid instead of a fake name';
   });
 
   // ── summary ───────────────────────────────────────────────

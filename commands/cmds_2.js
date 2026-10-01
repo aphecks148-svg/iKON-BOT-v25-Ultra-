@@ -24,6 +24,7 @@ const Economy = require('../models/Economy');
 const Inventory = require('../models/Inventory');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
+const cards = require('../bot/cards');
 
 const CASH = 'K-Cash';
 
@@ -721,17 +722,34 @@ module.exports = [
     usage: '!leaderboard',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'leaderboard', async () => {
+    execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'leaderboard', async () => {
       await react('🏆');
       if (!mongo.isReady()) {
         await reply('💾 Database offline — the ledger of the city is unavailable.', event.messageID);
         return;
       }
-      const top = await User.find({ coins: { $gt: 0 } }).sort({ coins: -1 }).limit(10).select('name coins level').lean();
+      const top = await User.find({ coins: { $gt: 0 } }).sort({ coins: -1 }).limit(10).select('uid name coins level').lean();
       if (!top.length) {
         await reply('🏆 Nobody has any K-Cash yet. Be the first.', event.messageID);
         return;
       }
+
+      const card = await cards.boardCard({
+        emoji: '🏆',
+        title: 'RICHEST HUNTERS',
+        subtitle: 'Top spenders in iKON City',
+        rows: top,
+        api,
+        value: (u) => `${kc(u.coins)} · Lv ${u.level || 1}`,
+      });
+      if (card) {
+        await reply({
+          body: `🏆 **RICHEST HUNTERS**\n💵 ${kc(top.reduce((s, u) => s + (u.coins || 0), 0))} on the books.`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
+
       const medals = ['🥇', '🥈', '🥉'];
       const lines = top.map((u, i) => `${medals[i] || `${i + 1}.`} ${u.name} — ${kc(u.coins)} (Lv ${u.level || 1})`);
       await reply(
@@ -756,24 +774,44 @@ module.exports = [
     usage: '!richest',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'richest', async () => {
+    execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'richest', async () => {
       await react('🏦');
       if (!mongo.isReady()) {
         await reply('💾 Database offline — vault records are sealed.', event.messageID);
         return;
       }
-      const top = await User.find({ bank: { $gt: 0 } }).sort({ bank: -1 }).limit(10).select('name bank level').lean();
+      // uid is selected explicitly: the canvas card needs it to fetch the real
+      // Facebook photo, and the old select() omitted it.
+      const top = await User.find({ bank: { $gt: 0 } }).sort({ bank: -1 }).limit(10).select('uid name bank level').lean();
       if (!top.length) {
         await reply('🏦 Nobody has deposited yet. The vault is empty and slightly embarrassed.', event.messageID);
         return;
       }
+      const total = top.reduce((s, u) => s + (u.bank || 0), 0);
+
+      const card = await cards.boardCard({
+        emoji: '🏦',
+        title: 'VAULT KINGS',
+        subtitle: `Top ${top.length} bank holders · ${kc(total)} locked away`,
+        rows: top,
+        api,
+        value: (u) => `${kc(u.bank)} · Lv ${u.level || 1}`,
+      });
+      if (card) {
+        await reply({
+          body: `🏦 **VAULT KINGS**\n🔐 ${kc(total)} locked away.`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
+
       const medals = ['🥇', '🥈', '🥉'];
       const lines = top.map((u, i) => `${medals[i] || `${i + 1}.`} ${u.name} — ${kc(u.bank)} (Lv ${u.level || 1})`);
       await reply(
         `🏦 **VAULT KINGS**\n`
         + '━━━━━━━━━━━━━━━\n'
         + `${lines.join('\n')}\n`
-        + `🔐 Total locked away: ${kc(top.reduce((s, u) => s + (u.bank || 0), 0))}\n`
+        + `🔐 Total locked away: ${kc(total)}\n`
         + `🛡️ Robbers read this list and change careers.\n`
         + `📖 ${story()}`,
         event.messageID,

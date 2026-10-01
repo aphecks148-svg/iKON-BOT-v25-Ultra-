@@ -140,6 +140,24 @@ the native `generativelanguage.googleapis.com` endpoint directly.
   tokens as well as the answer. The client also strips thought parts from the
   response so the model's reasoning never reaches the chat.
 
+### Real names and profile pictures
+
+`bot/profile.js` resolves identity from Facebook, `bot/cards.js` renders it.
+
+- **Names.** ws3-fca's `getUserInfo` falls back to a literal `"Facebook User"`
+  when it cannot resolve a profile. That was being written straight into Mongo,
+  so a profile could stay named "Facebook User" on every leaderboard forever.
+  Placeholder names are now detected and never persisted; the card shows a short
+  uid instead, and a later successful lookup replaces it with the real name.
+- **Pictures.** `!profile`, `!xp`, `!rank`, `!leaderboard`, `!leaderboardrpg`,
+  `!richest`, `!topwins`, `!topxp`, `!bestiesultra`, `!enemiesultra` and
+  `!coupleultra` draw a canvas card with each hunter's real Facebook photo.
+  When Facebook has no photo, a deterministic generated avatar is drawn from the
+  uid — stable per person, so a board does not flicker between renders.
+- **Fallbacks.** Every card returns `null` when the native canvas binary is
+  missing, and each command then sends its original text reply. A command that
+  only ever sent an image would be silent on a platform without the binding.
+
 ## Current progress
 
 | Module | Commands |

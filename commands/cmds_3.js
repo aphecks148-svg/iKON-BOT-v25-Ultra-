@@ -24,6 +24,7 @@ const User = require('../models/User');
 const Inventory = require('../models/Inventory');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
+const cards = require('../bot/cards');
 
 const CASH = 'K-Cash';
 
@@ -323,12 +324,39 @@ module.exports = [
     usage: '!profile',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'profile', async () => {
+    execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'profile', async () => {
       await react('🧬');
       const data = rpg(userDoc);
       refreshStamina(userDoc);
       const cls = CLASSES[data.className];
       const titles = data.titles.length ? data.titles.join(', ') : 'None yet';
+
+      // Real name and real Facebook photo, drawn on canvas. Falls back to the
+      // text card when the native binary is missing, so the command always
+      // answers something.
+      const card = await cards.userCard({
+        emoji: '🧬',
+        title: 'iKON ACADEMY ID CARD',
+        subtitle: `Level ${userDoc.level || 1} · ${cls ? cls.name : 'Unchosen'}`,
+        user: userDoc,
+        api,
+        rows: [
+          ['Level', `${userDoc.level || 1} · ${num(userDoc.xp)}/${num(xpNeeded(userDoc.level || 1))} XP`],
+          ['Coins', kc(userDoc.coins)],
+          ['Class', cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'],
+          ['Titles', titles],
+          ['Stamina', `${data.stamina}/${hasSkill(userDoc, 'swiftfoot') ? 11 : 10}`],
+          ['Prestige', `${clamp(userDoc.prestige)} (+${Math.round((prestigeBonus(userDoc) - 1) * 100)}% income)`],
+        ],
+      });
+
+      if (card) {
+        await reply({
+          body: `🧬 **${userDoc.name || 'Hunter'}**\n${cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'}`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
 
       await reply(
         `🧬 **iKON ACADEMY ID CARD**\n`
@@ -392,18 +420,37 @@ module.exports = [
     usage: '!rank',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'rank', async () => {
+    execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'rank', async () => {
       await react('🏅');
       if (!mongo.isReady()) {
         await reply('💾 Academy records are sealed — database offline.', event.messageID);
         return;
       }
-      const board = await User.find({}).sort({ level: -1, xp: -1 }).limit(10).select('name level xp prestige').lean();
+      const board = await User.find({}).sort({ level: -1, xp: -1 }).limit(10).select('uid name level xp prestige').lean();
       if (!board.length) {
         await reply('🏅 No hunters enrolled yet. Enroll by talking.', event.messageID);
         return;
       }
       const medals = ['🥇', '🥈', '🥉'];
+
+      // Real photos and real Facebook names on a canvas board, with the text
+      // list kept as the fallback for platforms without the canvas binary.
+      const card = await cards.boardCard({
+        emoji: '🏅',
+        title: 'iKON ACADEMY RANK',
+        subtitle: 'Strongest hunters on the server',
+        rows: board,
+        api,
+        value: (u) => `Lv ${u.level || 1} · ${num(u.xp)} XP${u.prestige ? ` 👑${u.prestige}` : ''}`,
+      });
+      if (card) {
+        await reply({
+          body: `🏅 **iKON ACADEMY RANK**\n${board.length} hunters enrolled.`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
+
       const lines = board.map((u, i) => {
         const crown = u.prestige ? ` 👑x${u.prestige}` : '';
         return `${medals[i] || `${i + 1}.`} ${u.name} — Lv ${u.level || 1}${crown} (${num(u.xp)} XP)`;
@@ -430,16 +477,41 @@ module.exports = [
     usage: '!xp',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'xp', async () => {
+    execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'xp', async () => {
       await react('✨');
       const level = userDoc.level || 1;
+      const needed = xpNeeded(level);
+      const lifetime = num(needed * (level - 1) + clamp(userDoc.xp));
+
+      const card = await cards.userCard({
+        emoji: '✨',
+        title: 'EXPERIENCE',
+        subtitle: `Level ${level} · ${num(userDoc.xp)} XP banked`,
+        user: userDoc,
+        api,
+        rows: [
+          ['Level', String(level)],
+          ['Progress', `${num(userDoc.xp)} / ${num(needed)} XP`],
+          ['Lifetime', `${lifetime} XP total`],
+          ['To rank up', `${num(needed)} XP`],
+        ],
+      });
+
+      if (card) {
+        await reply({
+          body: `✨ **${userDoc.name || 'Hunter'}** — ${num(userDoc.xp)}/${num(needed)} XP to level ${level + 1}`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
+
       await reply(
         `✨ **${userDoc.name || 'Hunter'}'s EXPERIENCE**\n`
         + '━━━━━━━━━━━━━━━\n'
         + `📊 Level ${level}\n`
-        + `✨ ${num(userDoc.xp)} / ${num(xpNeeded(level))} XP\n`
-        + `📈 Lifetime: ${num(xpNeeded(level) * (level - 1) + clamp(userDoc.xp))} XP total\n`
-        + `🔮 Need ${num(xpNeeded(level))} XP to rank up. Try \`!train\`, \`!quest\` or \`!battle\`.\n`
+        + `✨ ${num(userDoc.xp)} / ${num(needed)} XP\n`
+        + `📈 Lifetime: ${lifetime} XP total\n`
+        + `🔮 Need ${num(needed)} XP to rank up. Try \`!train\`, \`!quest\` or \`!battle\`.\n`
         + `📖 ${story()}`,
         event.messageID,
       );
@@ -950,7 +1022,7 @@ module.exports = [
     usage: '!leaderboardrpg',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'leaderboardrpg', async () => {
+    execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'leaderboardrpg', async () => {
       await react('🏆');
       if (!mongo.isReady()) {
         await reply('💾 The Hall of Fame is sealed — database offline.', event.messageID);
@@ -959,12 +1031,29 @@ module.exports = [
       const board = await User.find({ level: { $gt: 1 } })
         .sort({ level: -1, xp: -1 })
         .limit(10)
-        .select('name level xp prestige')
+        .select('uid name level xp prestige')
         .lean();
       if (!board.length) {
         await reply('🏆 Nobody has ranked up yet. Be the first, do a quest.', event.messageID);
         return;
       }
+
+      const card = await cards.boardCard({
+        emoji: '🏆',
+        title: 'HALL OF FAME',
+        subtitle: 'Highest ranked hunters',
+        rows: board,
+        api,
+        value: (u) => `Lv ${u.level || 1} · ${num(u.xp)} XP${u.prestige ? ` 👑${u.prestige}` : ''}`,
+      });
+      if (card) {
+        await reply({
+          body: `🏆 **HALL OF FAME**\n📜 Engraved on the academy's front wall.`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
+
       const medals = ['🥇', '🥈', '🥉'];
       const lines = board.map((u, i) => {
         const crown = u.prestige ? ` 👑x${u.prestige}` : '';
@@ -1743,7 +1832,7 @@ module.exports = [
     usage: '!topwins',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'topwins', async () => {
+    execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'topwins', async () => {
       await react('🥇');
       if (!mongo.isReady()) {
         await reply('💾 Academy records are sealed — database offline.', event.messageID);
@@ -1752,17 +1841,32 @@ module.exports = [
       const board = await User.find({ 'rpg.stats.wins': { $gt: 0 } })
         .sort({ 'rpg.stats.wins': -1 })
         .limit(10)
-        .select('name level rpg.stats.wins rpg.stats.battles')
+        .select('uid name level rpg.stats.wins rpg.stats.battles')
         .lean();
       if (!board.length) {
         await reply('🥇 Nobody has won a fight yet. Try `!battle`.', event.messageID);
         return;
       }
-      const medals = ['🥇', '🥈', '🥉'];
-      const lines = board.map((u, i) => {
-        const w = (u.rpg && u.rpg.stats && u.rpg.stats.wins) || 0;
-        return `${medals[i] || `${i + 1}.`} ${u.name} — ${num(w)} wins (Lv ${u.level || 1})`;
+      const winsOf = (u) => (u.rpg && u.rpg.stats && u.rpg.stats.wins) || 0;
+
+      const card = await cards.boardCard({
+        emoji: '🥇',
+        title: 'MOST WINS',
+        subtitle: 'Undefeated in the arena',
+        rows: board,
+        api,
+        value: (u) => `${num(winsOf(u))} wins · Lv ${u.level || 1}`,
       });
+      if (card) {
+        await reply({
+          body: `🥇 **MOST WINS**\nThe academy is watching.`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
+
+      const medals = ['🥇', '🥈', '🥉'];
+      const lines = board.map((u, i) => `${medals[i] || `${i + 1}.`} ${u.name} — ${num(winsOf(u))} wins (Lv ${u.level || 1})`);
 
       await reply(
         `🥇 **MOST WINS**\n`
@@ -1785,23 +1889,41 @@ module.exports = [
     usage: '!topxp',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'topxp', async () => {
+    execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'topxp', async () => {
       await react('🌟');
       if (!mongo.isReady()) {
         await reply('💾 Academy records are sealed — database offline.', event.messageID);
         return;
       }
+      // uid is projected so the card can fetch each hunter's real photo.
       const board = await User.aggregate([
         { $match: { $or: [{ xp: { $gt: 0 } }, { level: { $gt: 1 } }] } },
         { $addFields: { lifetimeXp: { $add: [{ $multiply: [{ $ifNull: ['$level', 1] }, 0] }, '$xp'] } } },
         { $sort: { lifetimeXp: -1, xp: -1 } },
         { $limit: 10 },
-        { $project: { name: 1, level: 1, xp: 1, _id: 0 } },
+        { $project: { uid: 1, name: 1, level: 1, xp: 1, _id: 0 } },
       ]);
       if (!board.length) {
         await reply('🌟 Nobody has ground XP yet. Try `!train`.', event.messageID);
         return;
       }
+
+      const card = await cards.boardCard({
+        emoji: '🌟',
+        title: 'TOP XP GRINDERS',
+        subtitle: 'Hardest working hunters on the server',
+        rows: board,
+        api,
+        value: (u) => `Lv ${u.level || 1} · ${num(u.xp)} XP banked`,
+      });
+      if (card) {
+        await reply({
+          body: `🌟 **TOP XP GRINDERS**\nThe grind does not lie.`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
+
       const medals = ['🥇', '🥈', '🥉'];
       const lines = board.map((u, i) => (
         `${medals[i] || `${i + 1}.`} ${u.name} — Lv ${u.level || 1}, ${num(u.xp)} XP banked`

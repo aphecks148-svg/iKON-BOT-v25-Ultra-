@@ -8,6 +8,7 @@
 const config = require('../config');
 const User = require('../models/User');
 const mongo = require('./mongo');
+const profile = require('./profile');
 const { log, error } = require('./helpers');
 
 const TTL = config.CACHE_TTL || 5 * 60 * 1000;
@@ -15,13 +16,24 @@ const TTL = config.CACHE_TTL || 5 * 60 * 1000;
 /** uid -> { doc, name, expires } */
 const store = new Map();
 
-/** Fetch the user's display name from Facebook when possible. */
+/**
+ * Fetch the user's real display name from Facebook when possible.
+ *
+ * Returns null for anything the API invented rather than looked up. ws3-fca
+ * falls back to createDefaultUser(), whose name is the literal string
+ * "Facebook User"; storing that is how a profile ended up permanently named
+ * "Facebook User" on a leaderboard. Callers substitute a short uid instead, so
+ * a failed lookup degrades to an honest label rather than a fake name.
+ *
+ * Note ws3-fca returns `firstName`, not `first_name` — the snake_case key never
+ * existed, so that fallback used to be dead code.
+ */
 async function fetchName(uid, api) {
   try {
     if (api && typeof api.getUserInfo === 'function') {
       const info = await api.getUserInfo(uid);
-      const name = info && (info.name || info.first_name);
-      if (name) return name;
+      const name = info && (info.name || info.firstName);
+      if (name && !profile.isPlaceholderName(name)) return String(name).trim();
     }
   } catch (err) {
     error(`[CACHE] getUserInfo(${uid}) failed: ${err.message}`);
@@ -59,17 +71,20 @@ async function getUser(uid, api) {
 
   try {
     let user = await User.findOne({ uid: id });
+    const liveName = await fetchName(id, api);
 
     if (!user) {
-      const name = (await fetchName(id, api)) || `User ${id.slice(-4)}`;
-      user = await User.create({ uid: id, name });
+      user = await User.create({ uid: id, name: liveName || `User ${id.slice(-4)}` });
       log(`[CACHE] New user ${id} (${user.name})`);
-    } else {
-      const liveName = await fetchName(id, api);
-      if (liveName && liveName !== user.name) {
-        user.name = liveName;
-        await user.save();
-      }
+    } else if (liveName && liveName !== user.name) {
+      user.name = liveName;
+      await user.save();
+    } else if (!liveName && profile.isPlaceholderName(user.name)) {
+      // A name the API invented, cached from an earlier failed lookup. Replace
+      // it with an honest short id instead of leaving "Facebook User" on the
+      // leaderboards until the next successful lookup happens to come along.
+      user.name = `User ${id.slice(-4)}`;
+      await user.save();
     }
 
     store.set(id, { doc: user, expires: Date.now() + TTL });
