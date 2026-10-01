@@ -23,6 +23,7 @@ const toggles = require('./bot/toggles');
 const cache = require('./bot/cache');
 const canvas = require('./bot/canvas');
 const geminiClient = require('./bot/gemini');
+const fcaDiag = require('./bot/fcaDiag');
 const helpers = require('./bot/helpers');
 
 const { log, error, reply, react, safe } = helpers;
@@ -145,6 +146,9 @@ function startServer() {
       sentOk: STATE.sentOk,
       sentFailures: STATE.sentFailures,
       lastSendError: STATE.lastSendError || null,
+      // The raw Facebook response for the last send. ws3-fca's own error is
+      // "[object Object]", so this is the only place the real code appears.
+      lastFacebookResponse: fcaDiag.lastRawSummary() || null,
       lastCommands: STATE.lastCommands || [],
       uptime: Math.floor((Date.now() - STATE.startedAt) / 1000),
     });
@@ -536,6 +540,11 @@ function login() {
           done(null);
           return;
         }
+
+        // Capture what Facebook really says when a send is rejected. ws3-fca
+        // does `throw new Error(resData)`, which stringifies the error object to
+        // "[object Object]" — without this tap the reason is unrecoverable.
+        fcaDiag.install();
 
         STATE.loggedIn = true;
         try {

@@ -52,7 +52,7 @@ async function reply(api, threadID, msg, messageID = null) {
     lastSendError = '';
     return await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID));
   } catch (err) {
-    lastSendError = String((err && err.message) || err).slice(0, 300);
+    lastSendError = describeSendError(err);
     error(`[HELPER] sendMessage failed on thread ${threadID}: ${lastSendError}`);
     return null;
   }
@@ -123,6 +123,65 @@ function isGroupThread(threadID) {
   return String(threadID || '').startsWith('t_');
 }
 
+/**
+ * Turn whatever ws3-fca threw into one readable line.
+ *
+ * ws3-fca's sendMessage does `throw new Error(resData)` where resData is
+ * Facebook's error OBJECT, so `err.message` is the literal string
+ * "[object Object]" and every real code is lost. This digs out whatever is
+ * actually present instead of reporting the placeholder.
+ *
+ * @param {*} err
+ * @returns {string}
+ */
+function describeSendError(err) {
+  if (err === null || err === undefined) return 'unknown error';
+  if (typeof err === 'string') return err.slice(0, 300);
+  if (typeof err !== 'object') return String(err).slice(0, 300);
+
+  // A real Error: its message is only useless if that message is "[object Object]".
+  const msg = typeof err.message === 'string' ? err.message : '';
+  if (msg && msg !== '[object Object]' && msg !== 'Error') return msg.slice(0, 300);
+
+  // Facebook's object, possibly re-thrown under a wrapper. Walk a few levels:
+  // axios nests as err.response.data, ws3-fca hands back the parsed body.
+  const bodies = [err, err.error, err.response, err.response && err.response.data, err.data];
+  for (const body of bodies) {
+    if (!body || typeof body !== 'object') continue;
+    const parts = [];
+    const push = (v) => {
+      if (typeof v === 'string' && v && v !== '[object Object]') parts.push(v);
+      else if (typeof v === 'number') parts.push(String(v));
+      // Facebook also nests the failure as an object, e.g.
+      // { error: { code: 100, message: '...' } }. Flatten it or the real code
+      // is lost again one level down.
+      else if (v && typeof v === 'object') {
+        for (const k of ['code', 'message', 'errorSummary', 'reason', 'status']) {
+          if (typeof v[k] === 'string' || typeof v[k] === 'number') parts.push(`${k}=${v[k]}`);
+        }
+      }
+    };
+    push(body.error);
+    push(body.errorSummary);
+    push(body.error_code);
+    push(body.error_message);
+    push(body.message);
+    push(body.code);
+    if (body.payload && body.payload.error) push(body.payload.error);
+    if (parts.length) return [...new Set(parts)].join(' | ').slice(0, 300);
+  }
+
+  // ws3-fca's `throw new Error(resData)`: the object is already gone by the time
+  // it reaches here, so say that plainly and point at the tap that does capture it.
+  if (msg === '[object Object]') {
+    return 'Facebook rejected the send; ws3-fca hides the reason — read lastFacebookResponse on /health';
+  }
+
+  // Last resort: surface the own keys so it is at least identifiable.
+  const keys = Object.keys(err).slice(0, 8);
+  return keys.length ? `unreadable send error (keys: ${keys.join(', ')})` : 'unknown error';
+}
+
 /** Small formatting helpers shared by commands. */
 
 /**
@@ -154,4 +213,7 @@ const fmt = {
   },
 };
 
-module.exports = { log, error, reply, react, safe, isGroupThread, fmt, clearSendError, lastSendError: () => lastSendError };
+module.exports = {
+  log, error, reply, react, safe, isGroupThread, fmt,
+  clearSendError, lastSendError: () => lastSendError, describeSendError,
+};

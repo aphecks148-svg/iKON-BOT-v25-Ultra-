@@ -840,6 +840,44 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     return 'short uid instead of a fake name';
   });
 
+  // ── 15. send-failure diagnostics ──────────────────────────
+  await step('send errors are readable, never "[object Object]"', () => {
+    // This exact string is what a total send failure looked like in production:
+    // ws3-fca does `throw new Error(resData)` where resData is Facebook's error
+    // OBJECT, so err.message stringifies to "[object Object]" and the real code
+    // is destroyed. Anything reported must therefore be specific.
+    const d = helpers.describeSendError;
+
+    // The unrecoverable shape must say so and point at the tap, not lie.
+    const hidden = d(new Error({ error: 1545012 }));
+    assert.ok(hidden && hidden !== '[object Object]', 'must never report [object Object]');
+    assert.ok(/lastFacebookResponse/.test(hidden), 'must point at the field that does hold the reason');
+
+    // Shapes where the reason IS present must be surfaced.
+    assert.strictEqual(d(new Error('Dissallowed props: `messageID`')), 'Dissallowed props: `messageID`');
+    assert.strictEqual(d('boom'), 'boom');
+    assert.strictEqual(d({ error: 1545012, errorSummary: 'not part of conversation' }),
+      '1545012 | not part of conversation');
+    // Nested object-valued error, which is how axios nests a Facebook failure.
+    assert.ok(/code=100/.test(d({ response: { data: { error: { code: 100, message: 'bad' } } } })),
+      'must flatten a nested error object');
+    assert.strictEqual(d(null), 'unknown error');
+    return 'readable across every throw shape';
+  });
+
+  await step('fcaDiag summarises Facebook error bodies', () => {
+    const diag = require('./fcaDiag');
+    // The tap is the only place the real code survives, so it must extract the
+    // code and the human-readable summary from the shapes Facebook returns.
+    assert.ok(/1545012/.test(diag.summarise({ error: 1545012, errorSummary: 'not part of convo' })));
+    assert.ok(/code=100/.test(diag.summarise({ payload: { error: { code: 100, message: 'bad' } } })));
+    assert.strictEqual(diag.summarise(undefined), '(empty)');
+    // A successful send must not be reported as an error.
+    const ok = diag.summarise({ payload: { actions: [{ thread_fbid: 't_1', message_id: 'mid' }] } });
+    assert.ok(!/error/.test(ok.toLowerCase()), `a good send must not look like an error: ${ok}`);
+    return 'codes extracted, successes not misreported';
+  });
+
   // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;
