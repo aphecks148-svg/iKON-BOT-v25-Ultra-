@@ -9,7 +9,7 @@ A clean modular Facebook Messenger RPG/social bot.
 
 | Layer | Choice |
 |---|---|
-| Runtime | Node.js 20+ (CommonJS) |
+| Runtime | Node.js 22+ (CommonJS) |
 | Facebook | `ws3-fca` with APPSTATE cookies |
 | Database | MongoDB + Mongoose |
 | Server | Express (health/status) |
