@@ -295,6 +295,476 @@ function chessBoard(board) {
 const commands = [];
 
 // ───────────────────────────────────────────────────────────
+// HEAD-TO-HEAD DUELS — challenge, accept (or duck), settle
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'coinflipduel',
+    aliases: ['cfduel'],
+    category: 'games',
+    description: '🪙 Coin flip duel @user — winner takes the doubled pot',
+    usage: '!coinflipduel <user> <amount>',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'coinflipduel', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🪙');
+
+      const bet = betArg(args.slice(1), 1000);
+      const target = await targetOr(reply, event.messageID, args[0], event, 'coinflipduel');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ Flipping against yourself is not a duel.', event.messageID);
+        return;
+      }
+      if ((target.coins || 0) < bet) {
+        await reply(`💸 ${target.name} only has ${kc(target.coins)}.`, event.messageID);
+        return;
+      }
+
+      const parked = cache.setPendingGame('cfduel', event.threadID, String(target.uid), {
+        fromUid: String(event.senderID), fromName: userDoc.name, bet,
+      });
+      if (!parked) {
+        await reply(`⏳ ${target.name} already has a flip waiting.`, event.messageID);
+        return;
+      }
+
+      await reply(
+        `🪙 **FLIP CHALLENGE**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💵 Pot: ${kc(bet)}\n`
+        + `⏳ ${target.name}: \`!cfaccept\` — add \`no\` to duck.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'cfaccept',
+    aliases: [],
+    category: 'games',
+    description: '🪙 Take a coin flip duel — winner takes all',
+    usage: '!cfaccept',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cfaccept', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🪙');
+
+      if (await duck('cfduel', args, userDoc, reply, event)) return;
+      const challenge = cache.takePendingGame('cfduel', event.threadID, String(event.senderID));
+      if (!challenge) {
+        await reply('📭 No flip challenge for you.', event.messageID);
+        return;
+      }
+      const challenger = await User.findOne({ uid: challenge.fromUid });
+      if (!challenger) {
+        await reply('❌ Challenger left the city. Pot void.', event.messageID);
+        return;
+      }
+
+      const bet = challenge.bet;
+      if ((userDoc.coins || 0) < bet || (challenger.coins || 0) < bet) {
+        await reply('❌ Pot is no longer covered. Void.', event.messageID);
+        return;
+      }
+
+      // Both sides stake before the flip, so the pot is real money on both
+      // sides rather than a number that only exists in the reply text.
+      const a = await wager(challenger, bet, 'game:cf_challenger');
+      if (!a.ok) { await reply(a.reason, event.messageID); return; }
+      const b = await wager(userDoc, bet, 'game:cf_accept');
+      if (!b.ok) {
+        await wager(challenger, bet, 'game:cf_refund');
+        await reply(b.reason, event.messageID);
+        return;
+      }
+
+      const pot = bet * 2;
+      await reply(`🪙 Both sides staked ${kc(bet)}. Spinning…`, event.messageID);
+      await sleep(1200);
+
+      const landed = pick(['HEADS', 'TAILS']);
+      const mine = landed === 'HEADS';
+      const winner = mine ? userDoc : challenger;
+      const loser = mine ? challenger : userDoc;
+
+      await payout(winner, pot, 'game:cf_win', { bet, landed });
+      if (!mine) await recordLoss(loser, 'game:cf_loss');
+
+      await reply(
+        `🪙 **IT CAME UP ${landed}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🏆 ${winner.name} takes ${kc(pot)}\n`
+        + `👛 Wallet: ${kc(winner.coins)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'dicewar',
+    aliases: [],
+    category: 'games',
+    description: '🎲 Dice war @user — highest roll wins the pot',
+    usage: '!dicewar <user> <amount>',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'dicewar', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🎲');
+
+      const bet = betArg(args.slice(1), 1000);
+      const target = await targetOr(reply, event.messageID, args[0], event, 'dicewar');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ You cannot war yourself.', event.messageID);
+        return;
+      }
+      if ((target.coins || 0) < bet) {
+        await reply(`💸 ${target.name} only has ${kc(target.coins)}.`, event.messageID);
+        return;
+      }
+
+      const parked = cache.setPendingGame('dicewar', event.threadID, String(target.uid), {
+        fromUid: String(event.senderID), fromName: userDoc.name, bet,
+      });
+      if (!parked) {
+        await reply(`⏳ ${target.name} already has a dice war waiting.`, event.messageID);
+        return;
+      }
+      await reply(
+        `🎲 **DICE WAR**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💵 Pot: ${kc(bet)}\n`
+        + `⏳ ${target.name}: \`!dicewaraccept\` — add \`no\` to duck.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'dicewaraccept',
+    aliases: [],
+    category: 'games',
+    description: '🎲 Take a dice war — highest roll wins',
+    usage: '!dicewaraccept',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'dicewaraccept', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🎲');
+
+      if (await duck('dicewar', args, userDoc, reply, event)) return;
+      const challenge = cache.takePendingGame('dicewar', event.threadID, String(event.senderID));
+      if (!challenge) {
+        await reply('📭 No dice war waiting for you.', event.messageID);
+        return;
+      }
+      const challenger = await User.findOne({ uid: challenge.fromUid });
+      if (!challenger) {
+        await reply('❌ Challenger left. Pot void.', event.messageID);
+        return;
+      }
+
+      const bet = challenge.bet;
+      if ((userDoc.coins || 0) < bet || (challenger.coins || 0) < bet) {
+        await reply('❌ Pot no longer covered. Void.', event.messageID);
+        return;
+      }
+      const a = await wager(challenger, bet, 'game:dice_challenger');
+      if (!a.ok) { await reply(a.reason, event.messageID); return; }
+      const b = await wager(userDoc, bet, 'game:dice_accept');
+      if (!b.ok) {
+        await wager(challenger, bet, 'game:dice_refund');
+        await reply(b.reason, event.messageID);
+        return;
+      }
+
+      await reply('🎲 Rolling…', event.messageID);
+      await sleep(1200);
+
+      const mine = rand(1, 20);
+      const theirs = rand(1, 20);
+      const pot = bet * 2;
+      const winner = mine >= theirs ? userDoc : challenger;
+      const loser = mine >= theirs ? challenger : userDoc;
+
+      await payout(winner, pot, 'game:dice_win', { bet, mine, theirs });
+      if (mine < theirs) await recordLoss(loser, 'game:dice_loss');
+
+      await reply(
+        `🎲 ${userDoc.name}: ${mine} · ${challenger.name}: ${theirs}\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🏆 ${winner.name} takes ${kc(pot)}\n`
+        + `👛 Wallet: ${kc(winner.coins)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'rpsduel',
+    aliases: [],
+    category: 'games',
+    description: '✊ Rock paper scissors duel @user — best of one, pot doubles',
+    usage: '!rpsduel <user> <amount>',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rpsduel', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('✊');
+
+      const bet = betArg(args.slice(1), 500);
+      const target = await targetOr(reply, event.messageID, args[0], event, 'rpsduel');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ You cannot rock-paper-scissors yourself.', event.messageID);
+        return;
+      }
+      if ((target.coins || 0) < bet) {
+        await reply(`💸 ${target.name} only has ${kc(target.coins)}.`, event.messageID);
+        return;
+      }
+
+      const parked = cache.setPendingGame('rps', event.threadID, String(target.uid), {
+        fromUid: String(event.senderID), fromName: userDoc.name, bet,
+      });
+      if (!parked) {
+        await reply(`⏳ ${target.name} already has a throw waiting.`, event.messageID);
+        return;
+      }
+      await reply(
+        `✊ **ROCK PAPER SCISSORS**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💵 Pot: ${kc(bet)}\n`
+        + `⏳ ${target.name}: \`!rpsaccept rock|paper|scissors\` — add \`no\` to duck.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'rpsaccept',
+    aliases: [],
+    category: 'games',
+    description: '✊ Take an RPS duel and throw your hand',
+    usage: '!rpsaccept <rock|paper|scissors>',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rpsaccept', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('✊');
+
+      if (await duck('rps', args, userDoc, reply, event)) return;
+      const challenge = cache.takePendingGame('rps', event.threadID, String(event.senderID));
+      if (!challenge) {
+        await reply('📭 No RPS challenge for you.', event.messageID);
+        return;
+      }
+      const challenger = await User.findOne({ uid: challenge.fromUid });
+      if (!challenger) {
+        await reply('❌ Challenger left. Pot void.', event.messageID);
+        return;
+      }
+
+      // Aliases are accepted, but the throw is drawn from the three distinct
+      // hands only. Rolling over the whole table would hand the challenger's
+      // side of the table a 2-in-6 chance of any one hand.
+      const HANDS = { rock: '🪨', paper: '📄', scissors: '✂️', r: '🪨', p: '📄', s: '✂️' };
+      const THREE_HANDS = ['🪨', '📄', '✂️'];
+      const mineRaw = String(args[0] || '').toLowerCase();
+      const mine = HANDS[mineRaw];
+      if (!mine) {
+        // Hand the challenge back: a typo must not destroy the duel.
+        cache.setPendingGame('rps', event.threadID, String(event.senderID), challenge);
+        await reply('❌ Throw `rock`, `paper` or `scissors`.', event.messageID);
+        return;
+      }
+
+      const bet = challenge.bet;
+      if ((userDoc.coins || 0) < bet || (challenger.coins || 0) < bet) {
+        await reply('❌ Pot no longer covered. Void.', event.messageID);
+        return;
+      }
+      const a = await wager(challenger, bet, 'game:rps_challenger');
+      if (!a.ok) { await reply(a.reason, event.messageID); return; }
+      const b = await wager(userDoc, bet, 'game:rps_accept');
+      if (!b.ok) {
+        await wager(challenger, bet, 'game:rps_refund');
+        await reply(b.reason, event.messageID);
+        return;
+      }
+
+      const theirs = pick(THREE_HANDS);
+      await reply('✊ ...', event.messageID);
+      await sleep(1200);
+
+      const BEATS = { '🪨': '✂️', '✂️': '📄', '📄': '🪨' };
+      const pot = bet * 2;
+      let winner;
+      if (mine === theirs) winner = null;
+      else if (BEATS[mine] === theirs) winner = userDoc;
+      else winner = challenger;
+
+      if (!winner) {
+        await payout(userDoc, bet, 'game:rps_draw', { bet });
+        await payout(challenger, bet, 'game:rps_draw', { bet });
+        await reply(`✊ ${mine} vs ${theirs} — **DRAW.** Stakes returned.\n📖 ${story()}`, event.messageID);
+        return;
+      }
+
+      await payout(winner, pot, 'game:rps_win', { bet, mine, theirs });
+      const loser = winner === userDoc ? challenger : userDoc;
+      await recordLoss(loser, 'game:rps_loss');
+      await reply(
+        `✊ ${mine} vs ${theirs}\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🏆 ${winner.name} takes ${kc(pot)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'pokerduel',
+    aliases: [],
+    category: 'games',
+    description: '🃏 Five card draw duel @user — best hand takes the pot',
+    usage: '!pokerduel <user> <amount>',
+    cooldown: 120,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pokerduel', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🃏');
+
+      const bet = betArg(args.slice(1), 2500);
+      const target = await targetOr(reply, event.messageID, args[0], event, 'pokerduel');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ You cannot bluff yourself.', event.messageID);
+        return;
+      }
+      if ((target.coins || 0) < bet) {
+        await reply(`💸 ${target.name} only has ${kc(target.coins)}.`, event.messageID);
+        return;
+      }
+
+      const parked = cache.setPendingGame('poker', event.threadID, String(target.uid), {
+        fromUid: String(event.senderID), fromName: userDoc.name, bet,
+      });
+      if (!parked) {
+        await reply(`⏳ ${target.name} already has a table waiting.`, event.messageID);
+        return;
+      }
+      await reply(
+        `🃏 **POKER DUEL**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💵 Pot: ${kc(bet)}\n`
+        + `⏳ ${target.name}: \`!pokeraccept\` — add \`no\` to duck.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'pokeraccept',
+    aliases: [],
+    category: 'games',
+    description: '🃏 Sit down at a poker duel — best five card hand wins',
+    usage: '!pokeraccept',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pokeraccept', async () => {
+      if (await bannedCheck(reply, userDoc, event)) return;
+      await react('🃏');
+
+      if (await duck('poker', args, userDoc, reply, event)) return;
+      const challenge = cache.takePendingGame('poker', event.threadID, String(event.senderID));
+      if (!challenge) {
+        await reply('📭 No poker table waiting for you.', event.messageID);
+        return;
+      }
+      const challenger = await User.findOne({ uid: challenge.fromUid });
+      if (!challenger) {
+        await reply('❌ Challenger left. Pot void.', event.messageID);
+        return;
+      }
+
+      const bet = challenge.bet;
+      if ((userDoc.coins || 0) < bet || (challenger.coins || 0) < bet) {
+        await reply('❌ Pot no longer covered. Void.', event.messageID);
+        return;
+      }
+      const a = await wager(challenger, bet, 'game:poker_challenger');
+      if (!a.ok) { await reply(a.reason, event.messageID); return; }
+      const b = await wager(userDoc, bet, 'game:poker_accept');
+      if (!b.ok) {
+        await wager(challenger, bet, 'game:poker_refund');
+        await reply(b.reason, event.messageID);
+        return;
+      }
+
+      const deal = () => Array.from({ length: 5 }, () => rand(2, 14));
+      const handName = (h) => {
+        const s = [...h].sort((a, b) => b - a);
+        if (s[0] === s[4]) return `four ${s[0]}s`;
+        if (new Set(s).size === 3 && s.slice(0, 3).every((v) => v === s[0])) return `three ${s[0]}s`;
+        if (new Set(s).size === 3) return 'two pair';
+        if (new Set(s).size === 4) return `pair of ${s[0]}s`;
+        if (s[0] - s[4] === 4) return 'straight';
+        if (s.some((v) => v === 14)) return 'ace high';
+        return `high ${s[0]}`;
+      };
+      const strength = (h) => {
+        const s = [...h].sort((a, b) => b - a);
+        if (s[0] === s[4]) return [7, s[0]];
+        if (new Set(s).size === 3 && s.slice(0, 3).every((v) => v === s[0])) return [5, s[0]];
+        if (new Set(s).size === 3) return [4, s[0], s[2]];
+        if (new Set(s).size === 4) return [3, s[0]];
+        if (s[0] - s[4] === 4) return [6, s[0]];
+        return [2, s[0]];
+      };
+
+      const mine = deal();
+      const theirs = deal();
+      const pot = bet * 2;
+
+      await reply('🃏 Dealing…', event.messageID);
+      await sleep(1500);
+
+      const mineStr = strength(mine);
+      const theirsStr = strength(theirs);
+      const cmp = (a, b) => (a[0] !== b[0] ? a[0] - b[0] : a.slice(1).reduce((x, y, i) => x + y * (i + 1), 0) - b.slice(1).reduce((x, y, i) => x + y * (i + 1), 0));
+      const delta = cmp(mineStr, theirsStr);
+
+      if (delta === 0) {
+        await payout(userDoc, bet, 'game:poker_draw', { bet });
+        await payout(challenger, bet, 'game:poker_draw', { bet });
+        await reply(`🃏 Both drew ${handName(mine)}. **SPLIT POT.**\n📖 ${story()}`, event.messageID);
+        return;
+      }
+
+      const winner = delta > 0 ? userDoc : challenger;
+      const loser = delta > 0 ? challenger : userDoc;
+      await payout(winner, pot, 'game:poker_win', { bet });
+      await recordLoss(loser, 'game:poker_loss');
+      await reply(
+        `🃏 ${userDoc.name}: ${handName(mine)}\n`
+        + `🃏 ${challenger.name}: ${handName(theirs)}\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🏆 ${winner.name} takes ${kc(pot)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
 // SOLO GAMES — the hunter plays the house
 // ───────────────────────────────────────────────────────────
 
