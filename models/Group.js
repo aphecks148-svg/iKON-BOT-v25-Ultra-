@@ -29,6 +29,15 @@ const GroupSchema = new mongoose.Schema(
       wins: { type: Number, default: 0 },
       steals: { type: Number, default: 0 },
     },
+
+    // module 5 — the hot potato. Exactly one bomb per chat at a time.
+    gameBomb: {
+      holderUid: { type: String, default: null },
+      holderName: { type: String, default: '' },
+      amount: { type: Number, default: 0 },
+      passes: { type: Number, default: 0 },
+      expires: { type: Date, default: null },
+    },
   },
   { timestamps: true },
 );

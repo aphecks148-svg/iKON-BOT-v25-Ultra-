@@ -183,6 +183,96 @@ function sweepMessages() {
   for (const [k, v] of messageOwners) if (now >= v.expires) messageOwners.delete(k);
 }
 
+// ─────────────────────────────────────────────────────────────
+// MODULE 5 — GAME STATE
+//
+// Three short-lived maps so the games do not need their own tables:
+//   pendingGames : duel challenges waiting on an accept
+//   gameState    : an in-progress puzzle/board per hunter
+//   gameBans     : temporary gambling bans (russian roulette)
+// ─────────────────────────────────────────────────────────────
+
+/** `${game}:${threadID}:${challengedUid}` -> challenge payload */
+const pendingGames = new Map();
+
+function gameKey(game, threadID, uid) {
+  return `${game}:${threadID}:${uid}`;
+}
+
+/** Park a challenge. @returns {boolean} false when one already exists */
+function setPendingGame(game, threadID, uid, payload) {
+  const key = gameKey(game, threadID, uid);
+  if (pendingGames.has(key)) return false;
+  pendingGames.set(key, { ...payload, expires: Date.now() + 2 * 60 * 1000 });
+  return true;
+}
+
+function getPendingGame(game, threadID, uid) {
+  return pendingGames.get(gameKey(game, threadID, uid)) || null;
+}
+
+function takePendingGame(game, threadID, uid) {
+  const key = gameKey(game, threadID, uid);
+  const found = pendingGames.get(key) || null;
+  pendingGames.delete(key);
+  return found;
+}
+
+/** Any unexpired challenge aimed at this hunter, across all games. */
+function pendingGameFor(threadID, uid) {
+  const suffix = `:${threadID}:${uid}`;
+  for (const [k, v] of pendingGames) {
+    if (k.endsWith(suffix) && Date.now() < v.expires) return { key: k, ...v };
+  }
+  return null;
+}
+
+/** uid -> { game, payload, expires } — an unfinished puzzle or board. */
+const gameState = new Map();
+
+function setGameState(uid, game, payload, ttlMs = 10 * 60 * 1000) {
+  gameState.set(String(uid), { game, payload, expires: Date.now() + ttlMs });
+}
+
+function getGameState(uid) {
+  const hit = gameState.get(String(uid));
+  if (!hit) return null;
+  if (Date.now() >= hit.expires) {
+    gameState.delete(String(uid));
+    return null;
+  }
+  return hit;
+}
+
+function clearGameState(uid) {
+  gameState.delete(String(uid));
+}
+
+/** uid -> expiry ms — a hunter locked out of the games for a while. */
+const gameBans = new Map();
+
+function banFromGames(uid, ms) {
+  gameBans.set(String(uid), Date.now() + ms);
+}
+
+/** Remaining ban in ms (0 when not banned). */
+function gameBanLeft(uid) {
+  const until = gameBans.get(String(uid));
+  if (!until) return 0;
+  if (Date.now() >= until) {
+    gameBans.delete(String(uid));
+    return 0;
+  }
+  return until - Date.now();
+}
+
+function sweepGames() {
+  const now = Date.now();
+  for (const [k, v] of pendingGames) if (!v || now >= v.expires) pendingGames.delete(k);
+  for (const [k, v] of gameState) if (now >= v.expires) gameState.delete(k);
+  for (const [k, v] of gameBans) if (now >= v) gameBans.delete(k);
+}
+
 const size = () => store.size;
 const clear = () => store.clear();
 
@@ -192,4 +282,8 @@ module.exports = {
   setPendingBattle, getPendingBattle, takePendingBattle, clearPendingBattle,
   sweepBattles, battleCount,
   rememberMessage, ownerOfMessage, sweepMessages,
+  // module 5 — game state
+  setPendingGame, getPendingGame, takePendingGame, pendingGameFor,
+  setGameState, getGameState, clearGameState,
+  banFromGames, gameBanLeft, sweepGames,
 };

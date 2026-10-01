@@ -27,8 +27,25 @@ const UserSchema = new mongoose.Schema(
     reputation: { type: Number, default: 0 },
     prestige: { type: Number, default: 0, min: 0 },
 
+    // module 5 — iKON arcade. Wagered is gross coins bet, not kept.
+    games: {
+      wins: { type: Number, default: 0 },
+      losses: { type: Number, default: 0 },
+      wagered: { type: Number, default: 0 },
+      bestWin: { type: Number, default: 0 },
+      luckyCharm: { type: Number, default: 0, min: 0 }, // +1% per point, forever
+      streak: { type: Number, default: 0 },
+      lastPlayed: { type: Date, default: null },
+      towerFloor: { type: Number, default: 0 },
+      towerBest: { type: Number, default: 0 },
+      godWins: { type: Number, default: 0 },
+    },
+
     // module 4 — set by !petcurse on this hunter's pet, -10% power until it lapses.
     cursedUntil: { type: Date, default: null },
+
+    // module 5 — daily streak claim marker for !streakgame.
+    streakDay: { type: Date, default: null },
 
     // iKON Hunter Academy (module 3).
     rpg: {
