@@ -1405,7 +1405,7 @@ const commands = [];
 
   commands.push({
     name: 'upscale',
-    aliases: ['upscaleultra', 'bigimage'],
+    aliases: ['upscalesuper', 'bigimage'],
     category: 'downloader',
     description: '🔬 Reply to a photo — 4x canvas upscale for the real 4K people',
     usage: '!upscale (reply to an image)',
@@ -1854,6 +1854,310 @@ const commands = [];
         'Style: sharp, weary, allergic to filler.',
       );
       await reply(`🌍 **THE WORLD**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.newsai)}`, event.messageID);
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// TEXT INTELLIGENCE — the last block
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'wiki',
+    aliases: ['wikipediaai', 'wikiai'],
+    category: 'downloader',
+    description: '📚 Wikipedia in one paragraph, then Gemini explains it like you are five',
+    usage: '!wiki <topic>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'wiki', async () => {
+      await react('📚');
+      const topic = args.join(' ').trim();
+      if (!topic) {
+        await reply('❌ Usage: `!wiki photosynthesis`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.wiki, 'downloader:wiki');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const data = await fetchJson(
+        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic.replace(/\s+/g, '_'))}`,
+      );
+      const extract = (data && data.extract) || '';
+      await reply('📚 Looking it up...', event.messageID);
+
+      const eli5 = await askGemini(
+        `Explain "${topic}" like the reader is five years old and slightly bored. `
+        + `One paragraph, then one fun fact.${extract ? `\nReference material: ${extract}` : ''}`
+        + `${extract ? '' : '\nI could not fetch the article, so use your own knowledge and say if it is outside what you know.'}`,
+        'Style: clear, funny, never condescending.',
+      );
+
+      await reply(
+        `📚 **${String((data && data.title) || topic).toUpperCase()}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${extract ? `📄 ${extract.slice(0, 700)}\n\n` : ''}`
+        + `🧒 ${eli5}\n💸 ${kc(FEES.wiki)}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'define',
+    aliases: ['def', 'definitionai'],
+    category: 'downloader',
+    description: '📖 Word meaning, phonetics, and an example in the iKON register',
+    usage: '!define <word>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'define', async () => {
+      await react('📖');
+      const word = args.join(' ').trim();
+      if (!word) {
+        await reply('❌ Usage: `!define laconic`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.define, 'downloader:define');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const data = await fetchJson(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+      const entry = Array.isArray(data) ? data[0] : null;
+      const meanings = (entry && entry.meanings) || [];
+      const defs = meanings.flatMap((m) => (m.definitions || []).map((d) => `${m.partOfSpeech}: ${d.definition}`));
+      const phonetic = (entry && entry.phonetic)
+        || (meanings.find((m) => m.phonetic) || {}).phonetic || '';
+
+      await reply('📖 Checking the dictionary...', event.messageID);
+      const usage = await askGemini(
+        `Give me: an example sentence using "${word}" the way a real person would say it, `
+        + `the closest single word that means almost the same thing, and one line on the vibe `
+        + `of using it.`
+        + (defs.length ? `\nDictionary says: ${defs.slice(0, 3).join(' | ')}` : '\nNo dictionary entry was found, so use your own knowledge.'),
+        'Style: concise, slightly rude about how people misuse words.',
+      );
+
+      await reply(
+        `📖 **${String(word).toUpperCase()}**${phonetic ? ` ${phonetic}` : ''}\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + (defs.length ? `${defs.slice(0, 4).join('\n')}\n\n` : '⚠️ Not in the dictionary.\n\n')
+        + `${usage}\n💸 ${kc(FEES.define)}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'summarize',
+    aliases: ['sum', 'tldr'],
+    category: 'downloader',
+    description: '📋 Reply to a long message — Gemini tells you what actually happened',
+    usage: '!summarize (reply to a message)',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'summarize', async () => {
+      await react('📋');
+      // The quoted text arrives on the message body of the message being replied
+      // to. Fall back to the raw args so it still works if someone types it.
+      let quoted = '';
+      try {
+        const info = await api.getThreadInfo(event.threadID);
+        const list = (info && (info.messageList || info.messages)) || [];
+        const msg = list.find((m) => String(m.messageID) === String(event.messageID)) || list[list.length - 1];
+        quoted = String((msg && (msg.body || msg.text)) || '');
+      } catch {
+        quoted = '';
+      }
+      // No quoted message means they pasted it as args instead. Either is fine.
+      const text = quoted || (args || []).join(' ');
+      if (!text || text.length < 20) {
+        await reply('📋 Reply to a message longer than a sentence and I will summarise it.', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.summarize, 'downloader:summarize');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const brief = await askGemini(
+        `Summarise this in 3 lines maximum, then one line naming the real story underneath it. `
+        + `Text: ${text.slice(0, 3000)}`,
+        'Style: the friend who tells you what actually happened.',
+      );
+      await reply(`📋 **THE SHORT VERSION**\n━━━━━━━━━━━━━━━\n${brief}\n💸 ${kc(FEES.summarize)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'rewrite',
+    aliases: ['rephrase', 'rewriter'],
+    category: 'downloader',
+    description: '✍️ Same words, different energy — fancy, toxic or funny',
+    usage: '!rewrite <fancy|toxic|funny> <text>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'rewrite', async () => {
+      await react('✍️');
+      const mode = (args[0] || '').toLowerCase();
+      const text = args.slice(1).join(' ').trim();
+      if (!mode || !text) {
+        await reply('❌ Usage: `!rewrite <fancy|toxic|funny> <text>`', event.messageID);
+        return;
+      }
+      const styles = {
+        fancy: 'Rewrite it as if it were written for a formal newspaper. Keep every fact identical, just dress it up.',
+        toxic: 'Rewrite it to be genuinely savage. Keep every fact identical, just sharpen the edges.',
+        funny: 'Rewrite it so it is actually funny without changing a single fact.',
+      };
+      if (!styles[mode]) {
+        await reply(`❌ Pick one: ${Object.keys(styles).join(', ')}`, event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.rewrite, 'downloader:rewrite');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const out = await askGemini(
+        `${styles[mode]} Output only the rewrite, nothing else. Original: "${text}"`,
+        'Style: one rewrite. Do not add a preamble or offer alternatives.',
+      );
+      await reply(`✍️ **${mode.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${out}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'storyai',
+    aliases: ['story', 'ikostory'],
+    category: 'downloader',
+    description: '📖 Write a story with the reader in it — horror, comedy, whatever',
+    usage: '!storyai <topic> [genre]',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'storyai', async () => {
+      await react('📖');
+      const topic = args.join(' ').trim();
+      if (!topic) {
+        await reply('❌ Usage: `!storyai haunted hotel horror`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.storyai, 'downloader:storyai');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const story = await askGemini(
+        `Write a short story about "${topic}". Make ${userDoc.name} the main character by name. `
+        + `Under 300 words. End on a line that lands.`,
+        'Style: real prose, not a chat reply. No preamble of any kind.',
+      );
+
+      const card = await captionCard({
+        title: 'iKON STORY',
+        subtitle: topic.toUpperCase(),
+        body: `${userDoc.name} walked in. That was the first mistake.`,
+        footer: `${OWNER} · Gemini`,
+        accent: canvasKit.theme.accent2,
+      });
+      if (card) {
+        await reply({ attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      }
+      await reply(`📖 **${topic.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${story}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'codeai',
+    aliases: ['codereview', 'codium'],
+    category: 'downloader',
+    description: '🧑‍💻️ Gemini reviews your code, roasts it, and shows the fix',
+    usage: '!codeai <code>',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'codeai', async () => {
+      await react('🧑‍💻️');
+      const code = args.join('\n').trim();
+      if (!code) {
+        await reply('❌ Usage: `!codeai <paste your code>`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.codeai, 'downloader:codeai');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // Length is capped because a whole file pasted into a chat message costs
+      // Gemini tokens nobody wants to pay for and produces a weaker review.
+      const review = await askGemini(
+        `Review this code in 4 short parts: BUGS (real problems only), ROAST (one line, funny), `
+        + `FIX (a corrected version), SCORE out of 10. Do not invent bugs that are not there. `
+        + `Code:\n\`\`\`\n${code.slice(0, 2500)}\n\`\`\``,
+        'Style: senior engineer, kind about the code and blunt about the habits.',
+      );
+
+      await reply(
+        `🧑‍💻️ **CODE REVIEW**\n━━━━━━━━━━━━━━━\n${review}\n💸 ${kc(FEES.codeai)}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'songai',
+    aliases: ['song', 'writesong'],
+    category: 'downloader',
+    description: '🎵 Gemini writes the whole song — verse, chorus, and how to sing it',
+    usage: '!songai <topic> [mood]',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'songai', async () => {
+      await react('🎵');
+      const topic = args.join(' ').trim();
+      if (!topic) {
+        await reply('❌ Usage: `!songai heartbreak`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.songai, 'downloader:songai');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      await reply('🎵 Writing...', event.messageID);
+      const song = await askGemini(
+        `Write a complete short song about "${topic}" for ${userDoc.name}. `
+        + `Structure: TITLE, 2 verses, a chorus, a bridge line, then a 3 line "SING IT LIKE" `
+        + `guide with the vocal note that fits. No copyrighted melodies.`,
+        'Style: real lyrics. No commentary before or after.',
+      );
+
+      const card = await captionCard({
+        title: 'iKON SONG',
+        subtitle: `FOR ${String(userDoc.name).toUpperCase()}`,
+        body: `${topic}`,
+        footer: `${OWNER} · Gemini`,
+        accent: canvasKit.theme.gold,
+      });
+      if (card) {
+        await reply({ attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      }
+      await reply(`🎵 **${topic.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${song}\n💸 ${kc(FEES.songai)}`, event.messageID);
     }),
   });
 
