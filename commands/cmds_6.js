@@ -552,4 +552,277 @@ const commands = [];
     }),
   });
 
+// ───────────────────────────────────────────────────────────
+// THE DANGEROUS ONES — anti-link, anti-raid, ghostban, warzone
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'antilink',
+    aliases: ['gclink'],
+    category: 'group',
+    description: '🔗 Auto-fine anyone who pastes a link. 500 coins each, plus a roast',
+    usage: '!antilink on|off [fine]',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'antilink', async () => {
+      await react('🔗');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const on = onOff(args);
+      if (on === null) {
+        await reply(
+          `🔗 Anti-link is **${yesNo(!!cfg.antiLink.on)}** here.\n`
+          + `💸 Current fine: ${kc(cfg.antiLink.fine)}\n`
+          + `Use \`!antilink on [fine]\` or \`!antilink off\`.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const asked = Number.parseInt(args[1], 10);
+      if (Number.isFinite(asked) && asked >= 0) cfg.antiLink.fine = asked;
+
+      cfg.antiLink.on = on;
+      await save(group);
+      await reply(
+        on
+          ? `🔗 **ANTI-LINK IS ON.** One link costs ${kc(cfg.antiLink.fine)}.\n📖 ${story()}`
+          : '🔗 Anti-link is off. Post whatever you like.',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'antiraid',
+    aliases: ['gcraid'],
+    category: 'group',
+    description: '🛡️ Lock the chat when a burst of joins lands inside 10 seconds',
+    usage: '!antiraid on|off [burst]',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'antiraid', async () => {
+      await react('🛡️');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const on = onOff(args);
+      if (on === null) {
+        await reply(
+          `🛡️ Anti-raid is **${yesNo(!!cfg.antiRaid.on)}** here.\n`
+          + `🎯 Locks at ${cfg.antiRaid.burst} joins inside ${fmt.dur(Math.round(cfg.antiRaid.windowMs / 1000))}.\n`
+          + 'Use `!antiraid on [burst]` or `!antiraid off`.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const asked = Number.parseInt(args[1], 10);
+      if (Number.isFinite(asked) && asked >= 2) cfg.antiRaid.burst = asked;
+
+      cfg.antiRaid.on = on;
+      await save(group);
+      await reply(
+        on
+          ? `🛡️ **ANTI-RAID ARMED.** ${cfg.antiRaid.burst} joins inside ${fmt.dur(Math.round(cfg.antiRaid.windowMs / 1000))} and this chat seals itself.\n📖 ${story()}`
+          : '🛡️ Anti-raid disarmed. The door is open again.',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'ghostban',
+    aliases: ['gcghost'],
+    category: 'group',
+    description: '👻 Invisible ban. They still see their own messages. The chat does not',
+    usage: '!ghostban @user [minutes]',
+    cooldown: 30,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'ghostban', async () => {
+      await react('👻');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const target = await targetOr(reply, event.messageID, args[0], event, 'ghostban');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ You cannot ghostban yourself. The silence would be very relaxing.', event.messageID);
+        return;
+      }
+
+      const mins = clamp(Number.parseInt(args[1], 10)) || 60;
+      prune(cfg.ghostBans);
+      const already = punished(cfg, 'ghostBans', target.uid);
+      if (already) {
+        await reply(`👻 ${target.name} is already ghostbanned here.`, event.messageID);
+        return;
+      }
+
+      cfg.ghostBans.push({
+        uid: String(target.uid),
+        name: target.name,
+        by: String(event.senderID),
+        expires: new Date(Date.now() + mins * 60 * 1000),
+      });
+      ug(target).ghosted += 1;
+      await save(target);
+      await save(group);
+
+      // Deliberately no public confirmation naming the target: the whole point
+      // is that the banned hunter must not learn they were caught.
+      await reply(
+        `👻 **SOMEBODY HAS BEEN QUIETENED.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `⏳ They can still see their own messages for ${mins} minutes.\n`
+        + `📖 They will not see why. That is the feature.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'warzone',
+    aliases: ['gcwar'],
+    category: 'group',
+    description: '⚔️ Turn this chat into a warzone — the wealthy pay a tax on every message',
+    usage: '!warzone on|off [tax]',
+    cooldown: 15,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'warzone', async () => {
+      await react('⚔️');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const on = onOff(args);
+      if (on === null) {
+        await reply(
+          `⚔️ Warzone is **${yesNo(!!cfg.warzone.on)}** here.\n`
+          + `💸 Tax: ${kc(cfg.warzone.tax)} per message, for members holding ${kc(cfg.warzone.floor)} or more.\n`
+          + 'Use `!warzone on [tax]` or `!warzone off`.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const asked = Number.parseInt(args[1], 10);
+      if (Number.isFinite(asked) && asked >= 0) cfg.warzone.tax = asked;
+
+      cfg.warzone.on = on;
+      await save(group);
+      await reply(
+        on
+          ? `⚔️ **WARZONE DECLARED.**\n━━━━━━━━━━━━━━━\n💸 Anyone holding ${kc(cfg.warzone.floor)} or more pays ${kc(cfg.warzone.tax)} a message.\n📖 ${story()}`
+          : '⚔️ Warzone lifted. The tax is gone and the chat is quiet again.',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'lockdown',
+    aliases: ['gclock'],
+    category: 'group',
+    description: '🔒 Emoji only. One emoji gets through, the rest of the chat is muted',
+    usage: '!lockdown [emoji|off]',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'lockdown', async () => {
+      await react('🔒');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const first = String(args[0] || '').toLowerCase();
+      if (!first) {
+        await reply(
+          `🔒 Lockdown is **${yesNo(!!cfg.lockdown.on)}** here.\n`
+          + (cfg.lockdown.on ? `✅ Only \`${cfg.lockdown.emoji}\` gets through.\n` : '')
+          + 'Use `!lockdown <emoji>` to seal it, or `!lockdown off` to open it.',
+          event.messageID,
+        );
+        return;
+      }
+
+      if (first === 'off' || first === 'no' || first === '0') {
+        cfg.lockdown.on = false;
+        await save(group);
+        await reply('🔒 Lockdown lifted. Words are permitted again.', event.messageID);
+        return;
+      }
+
+      const emoji = String(args[0] || '').trim();
+      if ([...emoji].length > 3) {
+        await reply('❌ Lockdown takes a single emoji. Pick one.', event.messageID);
+        return;
+      }
+
+      cfg.lockdown.on = true;
+      cfg.lockdown.emoji = emoji;
+      await save(group);
+      await reply(
+        `🔒 **LOCKDOWN.**\n━━━━━━━━━━━━━━━\nOnly \`${emoji}\` is allowed through this door.\n📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'unlockgc',
+    aliases: ['gcunlock', 'gcunlockall'],
+    category: 'group',
+    description: '🔓 Lift every lockdown, mute and warzone in this chat at once',
+    usage: '!unlockgc',
+    cooldown: 20,
+    permission: 'groupAdmin',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'unlockgc', async () => {
+      await react('🔓');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const mutes = cfg.mutes.length;
+      const bans = cfg.bans.length;
+      cfg.lockdown.on = false;
+      cfg.warzone.on = false;
+      cfg.antiRaid.on = false;
+      cfg.mutes.length = 0;
+      cfg.bans.length = 0;
+      cfg.dominated = false;
+      await save(group);
+
+      await reply(
+        `🔓 **EVERYTHING IS OPEN.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🚪 Lockdown: off\n⚔️ Warzone: off\n🛡️ Anti-raid: off\n👑 Domination: revoked\n`
+        + `🔇 Mutes cleared: ${num(mutes)}\n🚫 Bans cleared: ${num(bans)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
 module.exports = commands;
