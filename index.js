@@ -194,8 +194,18 @@ async function handleMessage(api, event) {
   // ── PROFILE ───────────────────────────────────────────────
   const userDoc = await cache.getUser(senderID, api);
 
+  // cache.getUser returns null when the lookup itself fails, not only when
+  // there is no profile: a dropped connection or a failed create lands there
+  // too. Every command reads userDoc.coins straight away, so handing them a
+  // null means either a stack trace in the chat or, worse, a command that
+  // quietly does nothing and looks broken. One honest message beats both.
+  if (!userDoc) {
+    await say('⚠️ I could not load your profile just now. Try again in a moment.');
+    return;
+  }
+
   // ── MODERATION ────────────────────────────────────────────
-  if (userDoc && userDoc.isBanned) {
+  if (userDoc.isBanned) {
     await say(`🚫 You are banned from using the bot${userDoc.banReason ? `: ${userDoc.banReason}` : '.'}`);
     return;
   }

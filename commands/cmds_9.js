@@ -1601,7 +1601,12 @@ const commands = [];
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'toxicmeter', async () => {
       await react('☣️');
       const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'toxicmeter') : userDoc;
-      if (!who) return;
+      if (!who) {
+        // No target resolved. A command that answers nothing reads as broken,
+        // so say why instead of returning in silence.
+        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
+        return;
+      }
 
       const gc = who.gc || {};
       const msgs = clamp(gc.msgs);
@@ -1638,7 +1643,12 @@ const commands = [];
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'simpmeter', async () => {
       await react('🥀');
       const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'simpmeter') : userDoc;
-      if (!who) return;
+      if (!who) {
+        // No target resolved. A command that answers nothing reads as broken,
+        // so say why instead of returning in silence.
+        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
+        return;
+      }
 
       const t = f(who);
       // Gifts out versus gifts in: handing over coins to other people is the
@@ -1675,7 +1685,12 @@ const commands = [];
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'susmeter', async () => {
       await react('🕵️');
       const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'susmeter') : userDoc;
-      if (!who) return;
+      if (!who) {
+        // No target resolved. A command that answers nothing reads as broken,
+        // so say why instead of returning in silence.
+        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
+        return;
+      }
 
       const t = f(who);
       const violent = clamp(t.kills) * 12 + clamp(t.stabs) * 9 + clamp(t.slaps) * 4;
@@ -1710,7 +1725,12 @@ const commands = [];
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rizzultra', async () => {
       await react('😏');
       const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'rizzultra') : userDoc;
-      if (!who) return;
+      if (!who) {
+        // No target resolved. A command that answers nothing reads as broken,
+        // so say why instead of returning in silence.
+        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
+        return;
+      }
 
       const t = f(who);
       const pet = await petOf(who);
@@ -1747,7 +1767,12 @@ const commands = [];
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cringeultra', async () => {
       await react('😬');
       const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'cringeultra') : userDoc;
-      if (!who) return;
+      if (!who) {
+        // No target resolved. A command that answers nothing reads as broken,
+        // so say why instead of returning in silence.
+        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
+        return;
+      }
 
       const t = f(who);
       const attempts = clamp(t.roasts) + clamp(t.compliments) + clamp(t.flexes) + clamp(t.kills) + clamp(t.yeets);
@@ -1781,7 +1806,12 @@ const commands = [];
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'auraultramax', async () => {
       await react('⚡');
       const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'auraultramax') : userDoc;
-      if (!who) return;
+      if (!who) {
+        // No target resolved. A command that answers nothing reads as broken,
+        // so say why instead of returning in silence.
+        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
+        return;
+      }
 
       const t = f(who);
       const pet = await petOf(who);
@@ -2203,7 +2233,12 @@ const commands = [];
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'factultra', async () => {
       await react('🧾');
       const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'factultra') : userDoc;
-      if (!who) return;
+      if (!who) {
+        // No target resolved. A command that answers nothing reads as broken,
+        // so say why instead of returning in silence.
+        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
+        return;
+      }
 
       const fact = pick1(FACT_TEMPLATES)(f(who));
       await reply(
@@ -2228,7 +2263,12 @@ const commands = [];
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pickuplineultra', async () => {
       await react('💘');
       const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'pickuplineultra') : userDoc;
-      if (!who) return;
+      if (!who) {
+        // No target resolved. A command that answers nothing reads as broken,
+        // so say why instead of returning in silence.
+        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
+        return;
+      }
 
       const paid = await fee(userDoc, FEES.pickuplineultra || 50, 'fun:pickuplineultra');
       if (!paid.ok) {

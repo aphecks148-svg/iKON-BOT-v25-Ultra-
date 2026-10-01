@@ -281,7 +281,10 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'threadinfo',
-    aliases: ['groupinfo'],
+    // Not aliased to `groupinfo`: cmds_6 owns a command by that name, and the
+    // loader resolves a real command before any alias, so the alias could never
+    // fire. It looked reachable and was not.
+    aliases: ['threaddetails'],
     category: 'system',
     description: 'Show this group name, member count and admin list',
     usage: '!threadinfo',
