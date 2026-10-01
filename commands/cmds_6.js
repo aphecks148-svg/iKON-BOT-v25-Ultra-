@@ -1114,4 +1114,262 @@ const commands = [];
     }),
   });
 
+// ───────────────────────────────────────────────────────────
+// THE VIRAL MACHINES — invite war, level, domination
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'invitewar',
+    aliases: ['invwar', 'gcwar2'],
+    category: 'group',
+    description: '🚪 Five minute invite war — whoever pulls in the most people wins 10,000',
+    usage: '!invitewar start|join|status|end',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'invitewar', async () => {
+      await react('🚪');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+      const inv = cfg.invites;
+      const mode = String(args[0] || 'status').toLowerCase();
+      const WINDOW = 5 * 60 * 1000;
+      const PRIZE = 10000;
+
+      // A war whose window has closed is settled lazily on the next call.
+      if (inv.windowStart && Date.now() - new Date(inv.windowStart).getTime() > WINDOW && !inv.winner) {
+        const top = [...(inv.entries || [])].sort((a, b) => b.count - a.count)[0];
+        if (top && top.count > 0) {
+          inv.winner = top.uid;
+          inv.winnerName = top.name || top.uid;
+          const champ = await User.findOne({ uid: top.uid });
+          if (champ) {
+            await pay(champ, PRIZE, 'group:invitewar_win', { tid: event.threadID, invites: top.count });
+          }
+        }
+        inv.windowStart = null;
+        inv.entries = [];
+        await save(group);
+        await reply(
+          `🚪 **INVITE WAR OVER**\n━━━━━━━━━━━━━━━\n`
+          + (inv.winner ? `🏆 ${inv.winnerName} pulled in the most people and took ${kc(PRIZE)}.\n` : 'Nobody invited anybody. Shameful.\n')
+          + '📖 `!invitewar start` to run another one.',
+          event.messageID,
+        );
+        inv.winner = '';
+        inv.winnerName = '';
+        await save(group);
+        return;
+      }
+
+      if (mode === 'start') {
+        if (inv.windowStart && Date.now() - new Date(inv.windowStart).getTime() <= WINDOW) {
+          await reply('🚪 An invite war is already running here. Five minutes, then it settles itself.', event.messageID);
+          return;
+        }
+        inv.windowStart = new Date();
+        inv.entries = [];
+        inv.winner = '';
+        inv.winnerName = '';
+        await save(group);
+        await reply(
+          `🚪 **INVITE WAR STARTED**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `⏱️ Five minutes.\n`
+          + `🏆 Most invites wins ${kc(PRIZE)}.\n`
+          + `📮 Join with \`!invitewar join\` after you add somebody.\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (mode === 'join') {
+        if (!inv.windowStart) {
+          await reply('🚪 No war is running. Start one with `!invitewar start`.', event.messageID);
+          return;
+        }
+        const mine = (inv.entries || []).find((e) => String(e.uid) === String(event.senderID));
+        if (mine) {
+          mine.count += 1;
+          ug(userDoc).invites += 1;
+          await save(userDoc);
+        } else {
+          inv.entries.push({ uid: String(event.senderID), name: userDoc.name, count: 1 });
+          ug(userDoc).invites += 1;
+          await save(userDoc);
+        }
+        await save(group);
+
+        const board = [...inv.entries].sort((a, b) => b.count - a.count).slice(0, 5)
+          .map((e, i) => `${i + 1}. ${e.name || e.uid} — ${e.count}`).join('\n');
+        await reply(`🚪 **+1** You have ${num(mine ? mine.count : 1)} invite(s).\n━━━━━━━━━━━━━━━\n${board || 'Nobody yet.'}`, event.messageID);
+        return;
+      }
+
+      const left = inv.windowStart ? fmt.dur(Math.max(0, Math.ceil((WINDOW - (Date.now() - new Date(inv.windowStart).getTime())) / 1000))) : '0s';
+      const board = [...(inv.entries || [])].sort((a, b) => b.count - a.count).slice(0, 5)
+        .map((e, i) => `${i + 1}. ${e.name || e.uid} — ${e.count}`).join('\n');
+      await reply(
+        `🚪 **INVITE WAR**\n━━━━━━━━━━━━━━━\n⏱️ ${left} left\n🏆 Prize: ${kc(PRIZE)}\n\n${board || 'No war running. `!invitewar start` to open one.'}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gclevel',
+    aliases: ['gclevels', 'gcrank'],
+    category: 'group',
+    description: '📈 How loud this chat is — chat level 1 to 100 from message count',
+    usage: '!gclevel',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gclevel', async () => {
+      await react('📈');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      // `!gclevel add <n>` books messages against the chat. The engine cannot
+      // count every message itself, so admins and the moderation commands feed
+      // this number and the level is derived rather than stored and trusted.
+      const bump = Number.parseInt(args[1], 10);
+      if (String(args[0] || '').toLowerCase() === 'add' && Number.isFinite(bump) && bump > 0) {
+        cfg.msgs = clamp(cfg.msgs) + clamp(bump);
+      }
+      cfg.level = levelFor(cfg.msgs);
+      await save(group);
+
+      const nextAt = cfg.level >= 100 ? null : cfg.level * 100;
+      await reply(
+        `📈 **CHAT LEVEL ${cfg.level}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${bar(cfg.level)}\n`
+        + `💬 Lifetime messages: ${num(cfg.msgs)}\n`
+        + (nextAt ? `🎯 Level ${cfg.level + 1} at ${num(nextAt)} messages\n` : '👑 Maximum level. The chat has peaked.\n')
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gcstatsultra',
+    aliases: ['gcstats', 'gcleaderboard'],
+    category: 'group',
+    description: '🏆 Richest, loudest, most toxic and most ghosted hunters in this chat',
+    usage: '!gcstatsultra',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'gcstatsultra', async () => {
+      await react('🏆');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      // Members of this chat, judged by their last known thread.
+      const hunters = await User.find({ 'gc.lastGroup': String(event.threadID) }).limit(200).lean().catch(() => []);
+      if (!hunters || !hunters.length) {
+        await reply(
+          '🏆 **NOTHING TO REPORT.**\n'
+          + '━━━━━━━━━━━━━━━\n'
+          + `💬 Chat level ${cfg.level} · ${num(cfg.msgs)} messages\n`
+          + 'No hunter has activity recorded in this chat yet. Use the bot and come back.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // Counters live under gc.*, so the sorter takes a getter rather than a
+      // key. A dotted path read as a literal property name returns undefined
+      // for every hunter, which would rank them all equal and print an
+      // arbitrary three names as though they were the loudest.
+      const val = (e, path) => path.split('.').reduce((o, k) => (o == null ? 0 : o[k]), e) || 0;
+      const top = (path, unit = '') => [...hunters]
+        .sort((a, b) => val(b, path) - val(a, path))
+        .slice(0, 3)
+        .map((e) => `• ${e.name} — ${num(val(e, path))}${unit}`)
+        .join('\n');
+
+      await reply(
+        `🏆 **THIS CHAT, JUDGED**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💰 Richest\n${top('coins', ` ${CASH}`)}\n\n`
+        + `📢 Loudest\n${top('gc.msgs', ' msgs')}\n\n`
+        + `☠️ Most toxic\n${top('gc.toxicity', ' commands')}\n\n`
+        + `👻 Most ghosted\n${top('gc.ghosted', ' times')}\n\n`
+        + `🔗 Link offenders\n${top('gc.links', ' links')}\n\n`
+        + `💸 Fines paid\n${top('gc.fines', ' fines')}\n\n`
+        + `📈 Chat level ${cfg.level} · ${num(cfg.msgs)} messages\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'ikondomination',
+    aliases: ['gcdominate', 'gctakeover'],
+    category: 'group',
+    description: '👑 At chat level 50 the bot claims the room, icon and lore included',
+    usage: '!ikondomination',
+    cooldown: 60,
+    permission: 'groupAdmin',
+    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'ikondomination', async () => {
+      await react('👑');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+      const level = levelFor(cfg.msgs);
+      cfg.level = level;
+
+      if (level < 50) {
+        const need = 50 * 100 - clamp(cfg.msgs);
+        await reply(
+          `👑 **NOT YET.**\n━━━━━━━━━━━━━━━\n`
+          + `This chat is level ${level}. Domination needs level 50.\n`
+          + `💬 ${num(need)} more messages required.\n`
+          + `📖 ${OWNER} is patient.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const lore = pick([
+        'This room now answers to the house. The house does not answer back.',
+        'The lights dim on command now. Nobody wired them. Nobody dares ask.',
+        'A second Klerk has been appointed. Nobody remembers hiring one.',
+        'The banner was replaced overnight. The old one was never missed.',
+      ]);
+      cfg.dominated = true;
+      cfg.dominatedAt = new Date();
+      await save(group);
+
+      await reply(
+        `👑 **THIS CHAT HAS BEEN CLAIMED.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `📍 Chat level ${level} · ${num(cfg.msgs)} messages\n`
+        + `🖼️ ${lore}\n\n`
+        + `${lore}\n\n`
+        + `🔓 Admins can still run \`!unlockgc\` to take it back.\n`
+        + `📖 ${OWNER} declines to comment.`,
+        event.messageID,
+      );
+      void api;
+    }),
+  });
+
 module.exports = commands;
