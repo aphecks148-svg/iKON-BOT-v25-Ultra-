@@ -135,6 +135,9 @@ async function handleMessage(api, event) {
   const messageID = event.messageID;
   const senderID = event.senderID;
 
+  // Remember the sender so reply-to commands (`!petfight`) can find their target.
+  cache.rememberMessage(messageID, senderID);
+
   // Helper bound to this thread — commands call reply(text) / react(emoji).
   const say = async (text, replyTo = messageID) => reply(api, threadID, text, replyTo ?? messageID);
   const reactTo = (emoji) => react(api, messageID, emoji || config.REACT_EMOJI);

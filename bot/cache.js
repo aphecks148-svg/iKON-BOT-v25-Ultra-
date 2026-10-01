@@ -98,7 +98,98 @@ function sweep() {
   for (const [k, v] of store) if (now >= v.expires) store.delete(k);
 }
 
+// ─────────────────────────────────────────────────────────────
+// PENDING PET CHALLENGES (module 4)
+// `!petbattle @user` parks a challenge here; the target answers with
+// `!petaccept` / `!petdeny` before it expires.
+// ─────────────────────────────────────────────────────────────
+
+/** key: `${threadID}::${challengedUid}` -> { fromUid, fromName, petId, expires } */
+const pendingBattles = new Map();
+
+const battleKey = (threadID, uid) => `${threadID}::${uid}`;
+
+/** Park a challenge for `uid`. Returns false when one is already pending. */
+function setPendingBattle(threadID, uid, payload) {
+  const key = battleKey(threadID, uid);
+  if (pendingBattles.has(key)) return false;
+  pendingBattles.set(key, payload);
+  return true;
+}
+
+/** Read a pending challenge without removing it. */
+function getPendingBattle(threadID, uid) {
+  return pendingBattles.get(battleKey(threadID, uid)) || null;
+}
+
+/** Take a pending challenge, dropping it. @returns {object|null} */
+function takePendingBattle(threadID, uid) {
+  const key = battleKey(threadID, uid);
+  const found = pendingBattles.get(key) || null;
+  pendingBattles.delete(key);
+  return found;
+}
+
+/** Cancel a pending challenge (used when the challenger goes away). */
+function clearPendingBattle(threadID, uid) {
+  pendingBattles.delete(battleKey(threadID, uid));
+}
+
+/** Drop expired challenges. */
+function sweepBattles() {
+  const now = Date.now();
+  for (const [k, v] of pendingBattles) {
+    if (!v || now >= v.expires) pendingBattles.delete(k);
+  }
+}
+
+const battleCount = () => pendingBattles.size;
+
+// ─────────────────────────────────────────────────────────────
+// MESSAGE OWNERS — needed for reply-to targeting.
+// `!petfight` works by replying to somebody's message, so we must be able to
+// map a replied-to messageID back to the person who sent it.
+// ─────────────────────────────────────────────────────────────
+
+/** messageID -> { uid, expires }. Bounded so a long uptime cannot leak. */
+const messageOwners = new Map();
+const OWNER_TTL = 6 * 60 * 60 * 1000; // 6 hours
+const OWNER_CAP = 5000;
+
+/** Remember who sent a message so a reply can be traced back to them. */
+function rememberMessage(messageID, uid) {
+  if (!messageID || !uid) return;
+  messageOwners.set(String(messageID), { uid: String(uid), expires: Date.now() + OWNER_TTL });
+  if (messageOwners.size > OWNER_CAP) {
+    const oldest = [...messageOwners.entries()].sort((a, b) => a[1].expires - b[1].expires);
+    for (let i = 0; i < Math.floor(OWNER_CAP / 4); i += 1) messageOwners.delete(oldest[i][0]);
+  }
+}
+
+/** Resolve a replied-to messageID back to its sender. */
+function ownerOfMessage(messageID) {
+  if (!messageID) return null;
+  const hit = messageOwners.get(String(messageID));
+  if (!hit) return null;
+  if (Date.now() >= hit.expires) {
+    messageOwners.delete(String(messageID));
+    return null;
+  }
+  return hit.uid;
+}
+
+function sweepMessages() {
+  const now = Date.now();
+  for (const [k, v] of messageOwners) if (now >= v.expires) messageOwners.delete(k);
+}
+
 const size = () => store.size;
 const clear = () => store.clear();
 
-module.exports = { getUser, invalidate, touch, sweep, size, clear, TTL };
+module.exports = {
+  getUser, invalidate, touch, sweep, size, clear, TTL,
+  // module 4 — pet challenges and reply-to targeting
+  setPendingBattle, getPendingBattle, takePendingBattle, clearPendingBattle,
+  sweepBattles, battleCount,
+  rememberMessage, ownerOfMessage, sweepMessages,
+};
