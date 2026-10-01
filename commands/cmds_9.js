@@ -299,13 +299,18 @@ async function give(userDoc, amount, action, metadata = {}) {
  * @returns {Promise<{ok:boolean, reason?:string}>}
  */
 async function fee(userDoc, cost, action) {
-  const paid = await take(userDoc, cost, action, { cost });
-  if (!paid.ok) {
+  const need = clamp(cost);
+  // Checked BEFORE any write. take() deliberately drains whatever the target
+  // actually has, which is right for a victim and catastrophic for a fee: a
+  // failed fee must leave the balance exactly as it was, or the "not enough"
+  // message ends up quoting the money it just took.
+  if (clamp(userDoc.coins) < need) {
     return {
       ok: false,
-      reason: `💸 **Not enough.** ${kc(cost)} needed and you have ${kc(userDoc.coins)}.`,
+      reason: `💸 **Not enough.** ${kc(need)} needed and you have ${kc(userDoc.coins)}.`,
     };
   }
+  await take(userDoc, need, action, { cost });
   return { ok: true };
 }
 
@@ -1227,6 +1232,341 @@ const commands = [];
         + `💍 ${exposure}\n`
         + `👛 Their wallet: ${kc(who.coins)}\n`
         + '📖 _All of this is from their own command history. Nothing here is invented._',
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// RELATIONSHIPS — the two expensive commands in the module
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'marryultra',
+    aliases: ['marry2'],
+    category: 'fun',
+    description: '💍 Marry somebody. 5,000 up front, and they have to already be yours',
+    usage: '!marryultra @user',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'marryultra', async () => {
+      await react('💍');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'marryultra');
+      if (!who) return;
+
+      const t = f(userDoc);
+
+      // Re-marriage: 5,000 to change your mind, because getting out should cost
+      // more than getting in. That is the only way the divorce command has any
+      // teeth at all.
+      if (userDoc.spouse) {
+        const current = await User.findOne({ uid: String(userDoc.spouse) }).catch(() => null);
+        if (String(userDoc.spouse) === String(who.uid)) {
+          await reply(`💍 You are already married to ${who.name}. Save up for the divorce.`, event.messageID);
+          return;
+        }
+        // Checked before the 5,000, not after. Re-marrying onto somebody who is
+        // already married would make the target's spouse field lie to two people.
+        if (who.spouse) {
+          const theirs = await User.findOne({ uid: String(who.spouse) }).catch(() => null);
+          await reply(
+            `💍 **${who.name} is already married** to ${(theirs && theirs.name) || 'somebody'}.\n`
+            + `⏳ You were not charged.`,
+            event.messageID,
+          );
+          return;
+        }
+        const paid = await fee(userDoc, 5000, 'fun:remarry');
+        if (!paid.ok) {
+          await reply(`${paid.reason}\n💍 Leaving somebody costs 5,000.`, event.messageID);
+          return;
+        }
+        // The old spouse is released without being told, which is exactly the
+        // kind of thing that makes this command funny and slightly awful.
+        if (current) {
+          current.spouse = '';
+          current.marriedAt = null;
+          await save(current);
+        }
+        userDoc.spouse = who.uid;
+        userDoc.marriedAt = new Date();
+        await save(userDoc);
+        await reply(
+          `💍 **DIVORCE. MARRIAGE. ALL IN ONE NIGHT.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `💸 -5,000 to leave ${(current && current.name) || 'your old spouse'}\n`
+          + `💑 ${userDoc.name} is now married to ${who.name}\n`
+          + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+          + `📖 _${(current && current.name) || 'They'} was not asked._`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const paid = await fee(userDoc, 5000, 'fun:marry');
+      if (!paid.ok) {
+        await reply(`${paid.reason}\n💍 A wedding costs 5,000. \`!gtaheist\` is cheaper than a divorce.`, event.messageID);
+        return;
+      }
+
+      // Married people cannot marry somebody else. Without this, one person
+      // could chain-marriage the entire group.
+      if (who.spouse) {
+        const theirSpouse = await User.findOne({ uid: String(who.spouse) }).catch(() => null);
+        await reply(
+          `💍 **${who.name} is already married** to ${(theirSpouse && theirSpouse.name) || 'somebody'}.\n`
+          + `⏳ You were not charged. Break up first, then come back.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      userDoc.spouse = who.uid;
+      userDoc.marriedAt = new Date();
+      who.spouse = userDoc.uid;
+      who.marriedAt = userDoc.marriedAt;
+      t.shipped += 1;
+      await save(userDoc);
+      await save(who);
+
+      const group = await groupOf(event);
+      if (group) {
+        await score(group, 'ships', userDoc.uid, who.uid, 50, userDoc.uid);
+      }
+
+      await react('🎊');
+      const art = await card({
+        title: '💍 MARRIED',
+        subtitle: `${userDoc.name} + ${who.name}`,
+        body: 'This is binding under group chat law. The divorce costs double.',
+        footer: `${OWNER} · 5,000 SPENT`,
+        accent: canvasKit.theme.accent2,
+      });
+      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+      await reply(
+        `💍 **${userDoc.name} MARRIED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 -5,000\n`
+        + `💑 Both sides now point at each other.\n`
+        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+        + `📖 _A field called spouse. It is not real, but it is permanent until one of you pays 10,000._`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'divorceultra',
+    aliases: ['divorce2'],
+    category: 'fun',
+    description: '💔 Divorce somebody. 10,000, and you do not get to say why',
+    usage: '!divorceultra @user',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'divorceultra', async () => {
+      await react('💔');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'divorceultra');
+      if (!who) return;
+
+      if (!userDoc.spouse || String(userDoc.spouse) !== String(who.uid)) {
+        await reply(`💔 You are not married to ${who.name}. Nothing to end.`, event.messageID);
+        return;
+      }
+
+      // Charged BEFORE the marriage is cleared, so a bot crash halfway through
+      // cannot leave somebody divorced for free.
+      const paid = await fee(userDoc, 10000, 'fun:divorce');
+      if (!paid.ok) {
+        await reply(
+          `${paid.reason}\n💔 The exit costs 10,000. That is what getting in costs 5,000 twice over.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const years = userDoc.marriedAt
+        ? Math.max(0, Math.floor((Date.now() - new Date(userDoc.marriedAt).getTime()) / 86400000))
+        : 0;
+      userDoc.spouse = '';
+      userDoc.marriedAt = null;
+      who.spouse = '';
+      who.marriedAt = null;
+      await save(userDoc);
+      await save(who);
+
+      await react('🗑️');
+      await reply(
+        `💔 **${userDoc.name} DIVORCED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 -10,000\n`
+        + `📅 It lasted ${num(years)} day(s).\n`
+        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+        + `📖 _The bot does not record who was at fault. It is not that kind of bot._`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'coupleultra',
+    aliases: ['couple2', 'couples'],
+    category: 'fun',
+    description: '💑 Every married couple in this chat, read off the spouse field',
+    usage: '!coupleultra',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'coupleultra', async () => {
+      await react('💑');
+      if (!mongo.isReady()) {
+        await reply('💑 The marriage registry is asleep. No records. Ever.', event.messageID);
+        return;
+      }
+
+      let docs = [];
+      try {
+        // Only half of each couple is stored twice, so matching both directions
+        // and then de-duplicating on the lower uid halves the list.
+        docs = (await User.find({ spouse: { $nin: ['', null] } }).sort({ marriedAt: -1 }).limit(60)) || [];
+      } catch {
+        await reply('💑 The registry refused to open.', event.messageID);
+        return;
+      }
+
+      const seen = new Set();
+      const rows = [];
+      for (const d of docs) {
+        const partner = await User.findOne({ uid: String(d.spouse) }).catch(() => null);
+        if (!partner) continue;
+        const key = [String(d.uid), String(partner.uid)].sort().join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const days = d.marriedAt ? Math.max(0, Math.floor((Date.now() - new Date(d.marriedAt).getTime()) / 86400000)) : 0;
+        rows.push(`💍 **${d.name}** + **${partner.name}** — ${num(days)} day(s)`);
+      }
+
+      if (!rows.length) {
+        await reply('💑 **Nobody is married.** 10,000 a divorce and still zero couples. Impressive.', event.messageID);
+        return;
+      }
+
+      const mine = userDoc.spouse
+        ? await User.findOne({ uid: String(userDoc.spouse) }).catch(() => null)
+        : null;
+
+      await reply(
+        `💑 **THE COUPLES (${rows.length})**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${rows.slice(0, 15).join('\n')}\n`
+        + (rows.length > 15 ? `…and ${rows.length - 15} more.\n` : '')
+        + (mine ? `\n💖 You are married to ${mine.name}.` : '\n💔 You are single. 5,000 fixes that.'),
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'bestiesultra',
+    aliases: ['besties2', 'bff'],
+    category: 'fun',
+    description: '🫂 Build or read a best-friends board. Score never goes down',
+    usage: '!bestiesultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'bestiesultra', async () => {
+      await react('🫂');
+      const group = await groupOf(event);
+      if (!group) {
+        await reply('🫂 Besties are per-chat. Needs a group and a database.', event.messageID);
+        return;
+      }
+
+      if (!args[0]) {
+        const rows = [];
+        for (const r of [...group.fun.besties].sort((x, y) => clamp(y.score) - clamp(x.score)).slice(0, 10)) {
+          const [an, bn] = await Promise.all([nameOf(r.a), nameOf(r.b)]);
+          rows.push(`🫂 **${an} + ${bn}** — ${num(r.score)}`);
+        }
+        await reply(
+          `🫂 **BEST FRIENDS**\n━━━━━━━━━━━━━━━\n`
+          + `${rows.length ? rows.join('\n') : 'Nobody is on the board. Tag somebody.'}\n\n`
+          + `Add with \`!bestiesultra @user\``,
+          event.messageID,
+        );
+        return;
+      }
+
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'bestiesultra');
+      if (!who) return;
+      const paid = await fee(userDoc, FEES.bestiesultra, 'fun:bestiesultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const added = rand(10, 30);
+      const scored = await score(group, 'besties', userDoc.uid, who.uid, added, userDoc.uid);
+      await react('✨');
+      await reply(
+        `🫂 **${userDoc.name} + ${who.name}: BESTIES**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(Math.min(100, scored.score), '🫂 BFF SCORE', 1)}\n`
+        + `➕ +${added}\n`
+        + `📈 Total: ${num(scored.score)}\n`
+        + '📖 _Best friend scores only go up. It is not a fair system._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'enemiesultra',
+    aliases: ['enemies2', 'nemesis'],
+    category: 'fun',
+    description: '⚔️ Build or read an enemies board. Score never goes down either',
+    usage: '!enemiesultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'enemiesultra', async () => {
+      await react('⚔️');
+      const group = await groupOf(event);
+      if (!group) {
+        await reply('⚔️ Enemies are per-chat. Needs a group and a database.', event.messageID);
+        return;
+      }
+
+      if (!args[0]) {
+        const rows = [];
+        for (const r of [...group.fun.enemies].sort((x, y) => clamp(y.score) - clamp(x.score)).slice(0, 10)) {
+          const [an, bn] = await Promise.all([nameOf(r.a), nameOf(r.b)]);
+          rows.push(`⚔️ **${an} vs ${bn}** — ${num(r.score)}`);
+        }
+        await reply(
+          `⚔️ **ENEMIES**\n━━━━━━━━━━━━━━━\n`
+          + `${rows.length ? rows.join('\n') : 'No enemies yet. Everyone is getting along, which is suspicious.'}\n\n`
+          + `Add with \`!enemiesultra @user\``,
+          event.messageID,
+        );
+        return;
+      }
+
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'enemiesultra');
+      if (!who) return;
+      const paid = await fee(userDoc, FEES.enemiesultra, 'fun:enemiesultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const added = rand(10, 30);
+      const scored = await score(group, 'enemies', userDoc.uid, who.uid, added, userDoc.uid);
+      await react('🔥');
+      await reply(
+        `⚔️ **${userDoc.name} vs ${who.name}: ENEMIES**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(Math.min(100, scored.score), '⚔️ RIVALRY', 1)}\n`
+        + `➕ +${added}\n`
+        + `📈 Total: ${num(scored.score)}\n`
+        + '📖 _There is no un-rival command._',
         event.messageID,
       );
     }),
