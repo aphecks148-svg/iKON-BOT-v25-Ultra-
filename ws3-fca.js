@@ -586,8 +586,14 @@ process.on('uncaughtException', (err) => {
   error(`[UNCAUGHT] ${(err && err.message) || err}`);
 });
 
-if (require.main === module) {
-  boot().catch((err) => {
+/**
+ * Start the bot. Shared by both entry points (index.js and this file when run
+ * directly) so a boot failure always ends in a retry, never in process.exit.
+ *
+ * @returns {Promise<void>}
+ */
+function start() {
+  return boot().catch((err) => {
     // Never process.exit on a boot failure: the HTTP server is already up and
     // Render only needs /health to answer. Retry instead.
     error(`[BOOT] Fatal: ${err && err.stack ? err.stack : err}`);
@@ -595,7 +601,10 @@ if (require.main === module) {
   });
 }
 
+if (require.main === module) start();
+
 module.exports = {
+  start,
   boot,
   login,
   startServer,

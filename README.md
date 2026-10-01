@@ -21,7 +21,8 @@ A clean modular Facebook Messenger RPG/social bot.
 
 ```
 iKON-BOT/
-├── ws3-fca.js         central engine (Express, login, routing, permissions, cooldowns)
+├── index.js            entry point (Render runs `node index.js`)
+├── ws3-fca.js          central engine (Express, login, routing, permissions, cooldowns)
 ├── config.js           env-only configuration
 ├── commands/
 │   ├── cmds_1.js … cmds_10.js    10 modules x 35 commands = 350

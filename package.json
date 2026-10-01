@@ -2,13 +2,13 @@
   "name": "ikon-bot",
   "version": "2.0.0",
   "description": "iKON-BOT v2 — clean modular Facebook Messenger RPG/social bot (ws3-fca, MongoDB, Express, @napi-rs/canvas, Gemini)",
-  "main": "ws3-fca.js",
+  "main": "index.js",
   "type": "commonjs",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "start": "node ws3-fca.js",
+    "start": "node index.js",
     "test": "node bot/test.js",
     "test:e2e": "node bot/e2e.js",
     "test:exec": "node bot/exec-all.js",
