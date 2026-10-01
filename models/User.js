@@ -27,6 +27,9 @@ const UserSchema = new mongoose.Schema(
     reputation: { type: Number, default: 0 },
     prestige: { type: Number, default: 0, min: 0 },
 
+    // module 4 — set by !petcurse on this hunter's pet, -10% power until it lapses.
+    cursedUntil: { type: Date, default: null },
+
     // iKON Hunter Academy (module 3).
     rpg: {
       className: { type: String, default: '' },

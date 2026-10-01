@@ -22,6 +22,13 @@ const GroupSchema = new mongoose.Schema(
     disabledCommands: { type: [String], default: [] },
     disabledModules: { type: [String], default: [] },
     maintenance: { type: Boolean, default: false },
+
+    // module 4 — per-chat pet arena record
+    petArena: {
+      battles: { type: Number, default: 0 },
+      wins: { type: Number, default: 0 },
+      steals: { type: Number, default: 0 },
+    },
   },
   { timestamps: true },
 );

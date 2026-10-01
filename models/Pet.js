@@ -16,6 +16,17 @@ const PetSchema = new mongoose.Schema(
     // basePower + (level * 10) + (prestige * 50).
     basePower: { type: Number, default: 100, min: 0 },
     isTitanPrime: { type: Boolean, default: false },
+    // Cosmetic + evolution metadata.
+    emoji: { type: String, default: '' },
+    title: { type: String, default: '' },
+    // +50 permanent power per rebirth, on top of the level curve.
+    prestige: { type: Number, default: 0, min: 0 },
+    // +25 permanent power per !petlove.
+    bond: { type: Number, default: 0, min: 0 },
+
+    // Temporary combat modifiers.
+    blessedUntil: { type: Date, default: null },
+    cursedUntil: { type: Date, default: null },
 
     // Safe mode: while true, nobody can attack this pet. Unsafe pets can be
     // attacked by anyone replying `!petfight` to one of their messages.
