@@ -16,7 +16,7 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 process.env.ADMIN_IDS = process.env.ADMIN_IDS || '999000111';
 process.env.BOT_PREFIX = '!';
 
-const ik = require('../index');
+const ik = require('../ws3-fca');
 const router = require('./router');
 const loader = require('./loader');
 const config = require('../config');

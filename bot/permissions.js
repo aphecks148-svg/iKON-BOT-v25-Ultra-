@@ -56,7 +56,7 @@ async function check(event, api, level = 'all') {
   return false;
 }
 
-/** Convenience wrapper used by index.js: true = allowed. */
+/** Convenience wrapper used by ws3-fca.js: true = allowed. */
 async function can(event, api, level) {
   const res = await check(event, api, level);
   return res !== false;

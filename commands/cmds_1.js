@@ -814,7 +814,7 @@ module.exports = [
     cooldown: 10,
     permission: 'owner',
     execute: async ({ config, reply, react, event }) => guard(reply, event.messageID, 'botstatus', async () => {
-      const ik = require('../index');
+      const ik = require('../ws3-fca');
       const status = mongo.status();
       const dbLatency = mongo.isReady() ? await measure(() => User.estimatedDocumentCount()) : null;
       const mem = process.memoryUsage();
@@ -957,7 +957,7 @@ module.exports = [
     cooldown: 15,
     permission: 'owner',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'reload', async () => {
-      const result = require('../index').reloadCommands();
+      const result = require('../ws3-fca').reloadCommands();
       await react('♻️');
       await reply(
         `♻️ Commands reloaded in ${result.ms}ms\n`
@@ -981,7 +981,7 @@ module.exports = [
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'check', async () => {
       await react('🔍');
       const checker = require('../bot/check');
-      const ik = require('../index');
+      const ik = require('../ws3-fca');
       const { problems, categories } = checker.validate(ik.registry);
       const modules = checker.perModule(ik.registry);
 
@@ -1014,7 +1014,7 @@ module.exports = [
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'e2e', async () => {
       await react('🧪');
       const checks = [
-        ['Registry loads', () => require('../index').registry.size > 0],
+        ['Registry loads', () => require('../ws3-fca').registry.size > 0],
         ['Router parses', () => require('../bot/router').parse('!ping', '!').name === 'ping'],
         ['Cooldown works', () => {
           const cd = require('../bot/cooldown');
@@ -1163,7 +1163,7 @@ module.exports = [
     permission: 'all',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'ping2', async () => {
       await react('⏱');
-      const ik = require('../index');
+      const ik = require('../ws3-fca');
 
       const engineStart = Date.now();
       // Engine responsiveness: how long a registry lookup takes.
