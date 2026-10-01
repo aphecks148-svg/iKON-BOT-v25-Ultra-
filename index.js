@@ -168,7 +168,7 @@ async function handleMessage(api, event) {
     return;
   }
 
-  // ── PERMISSIONS ───────────────────────────────────────────
+  // ── PERMISSION (redundant, but safe if a handler ran out of order) ──
   let allowed = false;
   try {
     allowed = await permissions.can(event, api, cmd.permission);
@@ -190,6 +190,12 @@ async function handleMessage(api, event) {
 
   // ── PROFILE ───────────────────────────────────────────────
   const userDoc = await cache.getUser(senderID, api);
+
+  // ── MODERATION ────────────────────────────────────────────
+  if (userDoc && userDoc.isBanned) {
+    await say(`🚫 You are banned from using the bot${userDoc.banReason ? `: ${userDoc.banReason}` : '.'}`);
+    return;
+  }
 
   // ── REACTION (fast ack before the command runs) ────────────
   if (config.REACTIONS_ENABLED) reactTo(config.REACT_EMOJI);
@@ -234,8 +240,26 @@ async function recordActivity(senderID, isCommand) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// GROUP MANAGEMENT
+// ── RELOAD ───────────────────────────────────────────────────
+/**
+ * Re-scan commands/ without restarting the process.
+ * Command files are evicted from require.cache so edits take effect.
+ * @returns {{count:number, aliases:number, ms:number}}
+ */
+function reloadCommands() {
+  const started = Date.now();
+  loader.setHotReload(true);
+  try {
+    const loaded = loader.loadCommands();
+    registry = loaded.registry;
+    aliases = loaded.aliases;
+    return { count: registry.size, aliases: aliases.size, ms: Date.now() - started };
+  } finally {
+    loader.setHotReload(false);
+  }
+}
+
+// ── GROUP MANAGEMENT
 // ─────────────────────────────────────────────────────────────
 async function handleGroupChange(api, event) {
   const threadID = event.threadID;
@@ -489,7 +513,17 @@ module.exports = {
   handleMessage,
   handleGroupChange,
   attachClient,
+  reloadCommands,
   findCommand: (name) => loader.findCommand(name, registry, aliases),
+  listCommands: (category) => loader.listCommands(category, registry),
+  mongo,
+  canvas,
+  config,
+  loader,
+  toggles,
+  permissions,
+  cooldown,
+  cache,
   get registry() { return registry; },
   get aliases() { return aliases; },
   get client() { return client; },

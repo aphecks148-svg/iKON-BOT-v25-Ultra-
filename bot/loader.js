@@ -21,6 +21,18 @@ const COMMANDS_DIR = path.join(__dirname, '..', 'commands');
 const REQUIRED = ['name', 'category', 'execute'];
 
 /**
+ * When true, command files are evicted from require.cache before being loaded,
+ * so `!reload` picks up edits without a process restart.
+ */
+let hotReload = false;
+
+/** Enable/disable cache eviction. @returns {boolean} the new state */
+function setHotReload(on) {
+  hotReload = Boolean(on);
+  return hotReload;
+}
+
+/**
  * @returns {{registry: Map<string,object>, aliases: Map<string,string>, count:number, categories:Map<string,number>}}
  */
 function loadCommands(dir = COMMANDS_DIR) {
@@ -41,6 +53,10 @@ function loadCommands(dir = COMMANDS_DIR) {
 
     let mod;
     try {
+      if (hotReload) {
+        // Drop the cached copy so an edited file is actually re-read.
+        delete require.cache[require.resolve(full)];
+      }
       // eslint-disable-next-line global-require, import/no-dynamic-require
       mod = require(full);
     } catch (err) {
@@ -121,4 +137,4 @@ function listCommands(category, registry) {
   return all.filter((c) => c.category === category);
 }
 
-module.exports = { loadCommands, findCommand, listCommands, MODULE_COUNT, COMMANDS_DIR };
+module.exports = { loadCommands, findCommand, listCommands, setHotReload, MODULE_COUNT, COMMANDS_DIR };

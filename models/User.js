@@ -16,6 +16,11 @@ const UserSchema = new mongoose.Schema(
     reputation: { type: Number, default: 0 },
     prestige: { type: Number, default: 0, min: 0 },
 
+    // moderation
+    isBanned: { type: Boolean, default: false },
+    banReason: { type: String, default: '' },
+    bannedBy: { type: String, default: null },
+
     stats: {
       messages: { type: Number, default: 0 },
       commandsUsed: { type: Number, default: 0 },

@@ -9,10 +9,32 @@ const Group = require('../models/Group');
 const mongo = require('./mongo');
 const config = require('../config');
 
+/**
+ * A throwaway Group doc for when the database is unreachable.
+ * Writes land in memory only, so admin commands still respond instantly.
+ */
+function transientGroup(tid) {
+  const doc = {
+    tid: String(tid),
+    isEnabled: true,
+    isApproved: false,
+    pendingApproval: true,
+    prefix: null,
+    settings: { welcome: false, goodbye: false, welcomeMsg: '', goodbyeMsg: '' },
+    disabledCommands: [],
+    disabledModules: [],
+    maintenance: false,
+    transient: true,
+    async save() { return doc; },
+  };
+  return doc;
+}
+
 /** Get (or create) the group document for a thread. */
 async function getGroup(tid) {
   if (!tid) return null;
   const tidStr = String(tid);
+  if (!mongo.isReady()) return transientGroup(tidStr);
   let group = await Group.findOne({ tid: tidStr });
   if (!group) {
     group = await Group.create({

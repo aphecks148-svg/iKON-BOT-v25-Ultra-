@@ -1,8 +1,7 @@
 'use strict';
 
 /**
- * Static integrity check for the command registry.
- *   node bot/check.js
+ * Registry validation — shared by `node bot/check.js` and the `!check` command.
  *
  * Verifies the cmds_1..10 contract:
  *   - every file exports a plain array
@@ -21,57 +20,81 @@ const SHAPE = ['name', 'aliases', 'category', 'description', 'usage', 'cooldown'
 const MODULES = 10;
 const TARGET_PER_MODULE = 35;
 
-const problems = [];
-const perModule = {};
+/**
+ * Validate a loaded registry.
+ * @param {Map} registry
+ * @returns {{problems:string[], categories:number}}
+ */
+function validate(registry) {
+  const problems = [];
+  const seenNames = new Set();
 
-const loaded = loader.loadCommands(path.join(__dirname, '..', 'commands'));
-
-for (let i = 1; i <= MODULES; i += 1) {
-  const key = `cmds_${i}`;
-  const list = [...loaded.registry.values()].filter((c) => c.module === key);
-  perModule[key] = list.length;
-}
-
-// shape validation
-for (const cmd of loaded.registry.values()) {
-  for (const field of SHAPE) {
-    if (cmd[field] === undefined || cmd[field] === null) {
-      problems.push(`${cmd.module}/${cmd.name}: missing "${field}"`);
+  for (const cmd of registry.values()) {
+    for (const field of SHAPE) {
+      if (cmd[field] === undefined || cmd[field] === null) problems.push(`${cmd.name || 'unnamed'}: missing "${field}"`);
     }
+    if (typeof cmd.execute !== 'function') problems.push(`${cmd.name}: execute is not a function`);
+    if (!Number.isFinite(Number(cmd.cooldown))) problems.push(`${cmd.name}: cooldown is not a number`);
+    if (!Array.isArray(cmd.aliases)) problems.push(`${cmd.name}: aliases must be an array`);
+    if (typeof cmd.usage === 'string' && !cmd.usage.startsWith(config.PREFIX)) {
+      problems.push(`${cmd.name}: usage "${cmd.usage}" does not start with "${config.PREFIX}"`);
+    }
+    if (Array.isArray(cmd.aliases) && cmd.aliases.includes(cmd.name)) {
+      problems.push(`${cmd.name}: alias duplicates its own name`);
+    }
+    if (seenNames.has(cmd.name)) problems.push(`duplicate command name "${cmd.name}"`);
+    seenNames.add(cmd.name);
   }
-  if (typeof cmd.execute !== 'function') problems.push(`${cmd.name}: execute is not a function`);
-  if (!Number.isFinite(Number(cmd.cooldown))) problems.push(`${cmd.name}: cooldown is not a number`);
-  if (typeof cmd.usage === 'string' && !cmd.usage.startsWith(config.PREFIX)) {
-    problems.push(`${cmd.name}: usage "${cmd.usage}" does not start with "${config.PREFIX}"`);
+
+  return { problems, categories: new Set([...registry.values()].map((c) => c.category)).size };
+}
+
+/** Command count per module key (cmds_1 … cmds_10). */
+function perModule(registry) {
+  const all = [...registry.values()];
+  const out = [];
+  for (let i = 1; i <= MODULES; i += 1) {
+    const key = `cmds_${i}`;
+    out.push({ key, count: all.filter((c) => c.module === key).length });
   }
-  if (cmd.aliases.includes(cmd.name)) problems.push(`${cmd.name}: alias duplicates its own name`);
+  return out;
 }
 
-const names = new Set();
-for (const cmd of loaded.registry.values()) {
-  if (names.has(cmd.name)) problems.push(`duplicate command name "${cmd.name}"`);
-  names.add(cmd.name);
+/** Count every alias across the registry. */
+function aliasCount(registry) {
+  let n = 0;
+  for (const cmd of registry.values()) n += cmd.aliases.length;
+  return n;
 }
 
-console.log('\n=== iKON-BOT registry check ===\n');
-console.log(`  prefix        : ${config.PREFIX}`);
-console.log(`  commands      : ${loaded.registry.size}`);
-console.log(`  aliases       : ${loaded.aliases.size}`);
-console.log(`  categories    : ${loaded.categories.size}`);
-console.log(`  target        : ${MODULES} modules x ${TARGET_PER_MODULE} = ${MODULES * TARGET_PER_MODULE} commands`);
-console.log('\n  per module:');
-for (let i = 1; i <= MODULES; i += 1) {
-  const key = `cmds_${i}`;
-  const n = perModule[key] || 0;
-  const bar = `${'█'.repeat(Math.min(35, n))}${'░'.repeat(Math.max(0, 35 - n))}`;
-  console.log(`    ${key.padEnd(9)} ${String(n).padStart(3)}/35  ${bar}`);
-}
+module.exports = {
+  SHAPE, MODULES, TARGET_PER_MODULE, validate, perModule, aliasCount, config,
+};
 
-if (problems.length) {
-  console.log(`\n  ❌ ${problems.length} PROBLEM(S):`);
-  problems.forEach((p) => console.log(`    - ${p}`));
-  console.log('');
-  process.exit(1);
-}
+/* Run as a script: node bot/check.js */
+if (require.main === module) {
+  const loaded = loader.loadCommands(path.join(__dirname, '..', 'commands'));
+  const { problems, categories } = validate(loaded.registry);
+  const modules = perModule(loaded.registry);
 
-console.log('\n  ✅ registry OK — every command matches the required shape\n');
+  console.log('\n=== iKON-BOT registry check ===\n');
+  console.log(`  prefix        : ${config.PREFIX}`);
+  console.log(`  commands      : ${loaded.registry.size}`);
+  console.log(`  aliases       : ${loaded.aliases.size}`);
+  console.log(`  categories    : ${categories}`);
+  console.log(`  target        : ${MODULES} modules x ${TARGET_PER_MODULE} = ${MODULES * TARGET_PER_MODULE} commands`);
+  console.log('\n  per module:');
+  modules.forEach(({ key, count }) => {
+    const filled = Math.round((count / TARGET_PER_MODULE) * 24);
+    const bar = `${'█'.repeat(Math.min(24, filled))}${'░'.repeat(Math.max(0, 24 - filled))}`;
+    console.log(`    ${key.padEnd(9)} ${String(count).padStart(3)}/${TARGET_PER_MODULE}  ${bar}`);
+  });
+
+  if (problems.length) {
+    console.log(`\n  ❌ ${problems.length} PROBLEM(S):`);
+    problems.forEach((p) => console.log(`    - ${p}`));
+    console.log('');
+    process.exit(1);
+  }
+  console.log('\n  ✅ registry OK — every command matches the required shape\n');
+}
