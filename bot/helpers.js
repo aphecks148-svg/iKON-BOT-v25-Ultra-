@@ -18,13 +18,25 @@ function error(...parts) {
 }
 
 /**
- * Send a message, replying to the original when possible.
+ * Send a message, threading it under the triggering message when there is one.
  * Resolves with the api result, or null on failure (never throws).
+ *
+ * ws3-fca's signature is `sendMessage(msg, threadID, replyToMessage, isSingleUser)`.
+ * Two things follow from that, and getting either wrong makes every reply
+ * silently vanish while reactions keep working:
+ *
+ *   - the reply-to id is the THIRD positional argument, never a key on the
+ *     payload. sendMessage whitelists payload keys and throws
+ *     "Dissallowed props: `messageID`" on anything else.
+ *   - a one-to-one thread must pass isSingleUser=true. Its threadID is a bare
+ *     uid, not a `t_` thread_fbid, so without the flag the send is addressed
+ *     to a thread that does not exist.
  *
  * @param {object} api ws3-fca client
  * @param {string|number} threadID conversation id
  * @param {object|string} msg body (string, or attachment descriptor)
- * @param {string|number} [messageID] message being replied to
+ * @param {string} [messageID] message being replied to
+ * @returns {Promise<object|null>}
  */
 async function reply(api, threadID, msg, messageID = null) {
   if (!api || typeof api.sendMessage !== 'function') return null;
@@ -33,11 +45,11 @@ async function reply(api, threadID, msg, messageID = null) {
   const payload = typeof msg === 'string' ? { body: msg } : { ...(msg || {}) };
   if (!payload.body && !payload.attachment) return null;
 
-  // Reply-to semantics: Messenger renders it threaded under the trigger.
-  if (messageID !== undefined && messageID !== null) payload.messageID = messageID;
+  // sendMessage only accepts a reply-to id that is a string.
+  const replyTo = messageID === undefined || messageID === null ? null : String(messageID);
 
   try {
-    return await api.sendMessage(payload, threadID);
+    return await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID));
   } catch (err) {
     error(`[HELPER] sendMessage failed on thread ${threadID}: ${err.message}`);
     return null;
@@ -98,6 +110,17 @@ async function safe(fn, api, threadID, messageID, label = 'handler') {
   }
 }
 
+/**
+ * True when a thread id is a group chat rather than a private message.
+ * Messenger group threads are prefixed `t_`; a one-to-one chat is a bare uid.
+ *
+ * @param {string|number} threadID
+ * @returns {boolean}
+ */
+function isGroupThread(threadID) {
+  return String(threadID || '').startsWith('t_');
+}
+
 /** Small formatting helpers shared by commands. */
 const fmt = {
   n: (v) => (Number.isFinite(Number(v)) ? Number(v).toLocaleString('en-US') : String(v)),
@@ -113,4 +136,4 @@ const fmt = {
   },
 };
 
-module.exports = { log, error, reply, react, safe, fmt };
+module.exports = { log, error, reply, react, safe, isGroupThread, fmt };

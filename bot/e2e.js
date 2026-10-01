@@ -34,18 +34,34 @@ function assertStep(label, fn) {
     });
 }
 
-/** Fake ws3-fca client that records everything the bot sends. */
+/**
+ * Fake ws3-fca client that records everything the bot sends.
+ *
+ * sendMessage enforces the same contract as the real one: the payload may only
+ * carry whitelisted keys, and the reply-to id is the third argument. A looser
+ * mock is what let `payload.messageID` ship and silently kill every reply.
+ */
 function mockApi() {
   const sent = [];
   const reactions = [];
   const listeners = {};
+  const ALLOWED = ['attachment', 'url', 'sticker', 'emoji', 'emojiSize', 'body', 'mentions', 'location'];
   return {
     sent,
     reactions,
     on(evt, fn) { (listeners[evt] = listeners[evt] || []).push(fn); },
     emit(evt, ...args) { (listeners[evt] || []).forEach((f) => f(...args)); },
-    async sendMessage(payload, threadID) {
-      const rec = { body: payload.body, messageID: payload.messageID, threadID, attachment: payload.attachment };
+    async sendMessage(payload, threadID, replyToMessage = null, isSingleUser = false) {
+      const bad = Object.keys(payload).filter((k) => !ALLOWED.includes(k));
+      if (bad.length) throw new Error(`Dissallowed props: \`${bad.join(', ')}\``);
+      if (replyToMessage && typeof replyToMessage !== 'string') throw new Error('MessageID should be of type string');
+      const rec = {
+        body: payload.body,
+        messageID: replyToMessage,
+        threadID,
+        isSingleUser,
+        attachment: payload.attachment,
+      };
       sent.push(rec);
       return { messageID: `mid_${sent.length}` };
     },

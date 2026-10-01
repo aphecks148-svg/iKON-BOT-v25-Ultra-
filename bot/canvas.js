@@ -11,6 +11,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const { isGroupThread } = require('./helpers');
+
 let canvas = null;
 let loadError = null;
 
@@ -100,14 +102,20 @@ async function registerDefaultFont(dir = path.join(__dirname, 'fonts')) {
   }
 }
 
-/** Send a canvas as a Messenger attachment. */
+/**
+ * Send a canvas as a Messenger attachment.
+ *
+ * The reply-to id is sendMessage's THIRD argument, not a payload key: ws3-fca
+ * whitelists payload properties and throws "Dissallowed props" otherwise, which
+ * is why the text side of these commands used to go out while the image did not.
+ */
 async function sendImage(api, threadID, canvasObj, messageID) {
   const buffer = await toBuffer(canvasObj);
   if (!buffer || !api) return null;
   const payload = { attachment: { type: 'image', data: { url: `data:image/png;base64,${buffer.toString('base64')}` } } };
-  if (messageID) payload.messageID = messageID;
+  const replyTo = messageID === undefined || messageID === null ? null : String(messageID);
   try {
-    return await api.sendMessage(payload, threadID);
+    return await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID));
   } catch (err) {
     console.warn(`[CANVAS] sendImage failed: ${err.message}`);
     return null;

@@ -50,6 +50,7 @@ const Economy = require('../models/Economy');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
+const { isGroupThread } = require('../bot/helpers');
 
 const CASH = 'K-Cash';
 
@@ -558,13 +559,19 @@ function wrap(ctx, text, x, y, maxWidth, lineHeight) {
   return at;
 }
 
-/** Send a data URL as a photo, ignoring failure. Text always goes out too. */
+/**
+ * Send a data URL as a photo, ignoring failure. Text always goes out too.
+ *
+ * The reply-to id is sendMessage's THIRD argument. ws3-fca whitelists payload
+ * properties, so putting it on the payload throws "Dissallowed props" and the
+ * image never leaves the process.
+ */
 async function send(api, threadID, dataUrl, messageID) {
   if (!dataUrl || !api || !threadID) return false;
   const payload = { attachment: { type: 'image', data: { url: dataUrl } } };
-  if (messageID) payload.messageID = messageID;
+  const replyTo = messageID === undefined || messageID === null ? null : String(messageID);
   try {
-    await api.sendMessage(payload, threadID);
+    await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID));
     return true;
   } catch {
     return false;

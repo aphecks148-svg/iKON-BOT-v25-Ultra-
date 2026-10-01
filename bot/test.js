@@ -60,12 +60,18 @@ async function step(label, fn) {
 }
 
 // ── fake ws3-fca client ──────────────────────────────────────
+// sendMessage enforces the real payload whitelist, so a helper that smuggles
+// the reply-to id onto the payload throws here exactly as it does live.
 function mockApi() {
   const sent = [];
+  const ALLOWED = ['attachment', 'url', 'sticker', 'emoji', 'emojiSize', 'body', 'mentions', 'location'];
   return {
     sent,
-    async sendMessage(payload, threadID) {
-      sent.push({ payload, threadID });
+    async sendMessage(payload, threadID, replyToMessage = null, isSingleUser = false) {
+      const bad = Object.keys(payload).filter((k) => !ALLOWED.includes(k));
+      if (bad.length) throw new Error(`Dissallowed props: \`${bad.join(', ')}\``);
+      if (replyToMessage && typeof replyToMessage !== 'string') throw new Error('MessageID should be of type string');
+      sent.push({ payload, threadID, replyToMessage, isSingleUser });
       return { messageID: `mock_${sent.length}` };
     },
     async react({ messageID, reaction }) {
@@ -164,13 +170,32 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
   // ── 7. helpers ────────────────────────────────────────────
   await step('helpers reply + react + safe() error boundary', async () => {
     const api = mockApi();
-    const res = await helpers.reply(api, 't1', 'hello', 'm1');
+    // Real Messenger group thread ids are prefixed `t_`; a bare uid is a DM.
+    const GROUP = 't_1234567890';
+    const res = await helpers.reply(api, GROUP, 'hello', 'm1');
     assert.ok(res);
     assert.strictEqual(api.sent[0].payload.body, 'hello');
-    assert.strictEqual(api.sent[0].payload.messageID, 'm1');
+    // The reply-to id must be sendMessage's third argument, never a payload
+    // key: the real client whitelists payload props and throws on the rest,
+    // which dropped every reply while reactions kept working.
+    assert.strictEqual(api.sent[0].replyToMessage, 'm1');
+    assert.strictEqual(api.sent[0].payload.messageID, undefined);
+    assert.strictEqual(api.sent[0].isSingleUser, false, 'a t_ thread is not single-user');
+
+    // A bare uid is a one-to-one chat and needs isSingleUser=true.
+    await helpers.reply(api, '999000111', 'dm');
+    assert.strictEqual(api.sent[1].isSingleUser, true);
+
+    // A numeric messageID must still reach sendMessage as a string.
+    await helpers.reply(api, GROUP, 'num', 12345);
+    assert.strictEqual(api.sent[2].replyToMessage, '12345');
+
+    const before = api.sent.length;
+    assert.strictEqual(await helpers.reply(api, GROUP, { body: 'x', messageID: 'nope' }), null);
+    assert.strictEqual(api.sent.length, before, 'illegal payload key must not send');
 
     assert.strictEqual(await helpers.react(api, 'm1', '✅'), true);
-    assert.strictEqual(api.sent[1].react.reaction, '✅');
+    assert.strictEqual(api.sent[before].react.reaction, '✅');
 
     const boom = await helpers.safe(async () => { throw new Error('kaboom'); }, api, 't1', 'm1', 'test');
     assert.strictEqual(boom.ok, false);

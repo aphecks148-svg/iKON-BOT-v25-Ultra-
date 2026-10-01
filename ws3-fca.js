@@ -275,11 +275,11 @@ async function handleMessage(api, event) {
  * Messenger thread ids are always prefixed: `t_` for a conversation, and a
  * bare numeric uid for a one-to-one chat. Counting a DM as a group would file
  * every hunter's private chatter under a fake chat record and pollute the
- * group standings the module ranks on.
+ * group standings the module ranks on. sendMessage needs the same distinction
+ * to pick isSingleUser, so both callers share helpers.isGroupThread rather
+ * than keeping two copies that can drift apart.
  */
-function isGroupThread(threadID) {
-  return typeof threadID === 'string' && threadID.startsWith('t_');
-}
+const isGroupThread = helpers.isGroupThread;
 
 /**
  * Bump the user profile counters. Best effort, never fatal.

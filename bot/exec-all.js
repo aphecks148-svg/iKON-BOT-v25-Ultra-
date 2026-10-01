@@ -27,9 +27,18 @@ loaded.aliases.forEach((v, k) => ik.aliases.set(k, v));
 
 function mockApi() {
   const sent = [];
+  const ALLOWED = ['attachment', 'url', 'sticker', 'emoji', 'emojiSize', 'body', 'mentions', 'location'];
   return {
     sent,
-    async sendMessage(payload) { sent.push(payload.body || '(attachment)'); return { messageID: 'm' }; },
+    // Enforces the real payload whitelist so a handler that smuggles extra
+    // keys onto the payload fails here instead of only failing on Facebook.
+    async sendMessage(payload, threadID, replyToMessage = null, isSingleUser = false) {
+      const bad = Object.keys(payload).filter((k) => !ALLOWED.includes(k));
+      if (bad.length) throw new Error(`Dissallowed props: \`${bad.join(', ')}\``);
+      if (replyToMessage && typeof replyToMessage !== 'string') throw new Error('MessageID should be of type string');
+      sent.push(payload.body || '(attachment)');
+      return { messageID: 'm' };
+    },
     async react() { return true; },
     async getUserInfo(uid) { return { name: `Tester ${uid.slice(-2)}` }; },
     async getThreadInfo() {
