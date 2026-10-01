@@ -1509,7 +1509,7 @@ const commands = [];
       await reply(
         `🫂 **${userDoc.name} + ${who.name}: BESTIES**\n`
         + '━━━━━━━━━━━━━━━\n'
-        + `${meter(Math.min(100, scored.score), '🫂 BFF SCORE', 1)}\n`
+        + `${meter(Math.min(100, scored.score), '🫂 BFF SCORE')}\n`
         + `➕ +${added}\n`
         + `📈 Total: ${num(scored.score)}\n`
         + '📖 _Best friend scores only go up. It is not a fair system._',
@@ -1563,10 +1563,310 @@ const commands = [];
       await reply(
         `⚔️ **${userDoc.name} vs ${who.name}: ENEMIES**\n`
         + '━━━━━━━━━━━━━━━\n'
-        + `${meter(Math.min(100, scored.score), '⚔️ RIVALRY', 1)}\n`
+        + `${meter(Math.min(100, scored.score), '⚔️ RIVALRY')}\n`
         + `➕ +${added}\n`
         + `📈 Total: ${num(scored.score)}\n`
         + '📖 _There is no un-rival command._',
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// METERS
+//
+// All seven read the same record and differ only in what they weigh. None of
+// them invent a number: every figure is derived from counters and balances that
+// already exist, so a meter can be wrong but it cannot be a lie.
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'toxicmeter',
+    aliases: ['toxic'],
+    category: 'fun',
+    description: '☣️ Toxicity read straight off the activity tracker. Commands run is the proxy',
+    usage: '!toxicmeter @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'toxicmeter', async () => {
+      await react('☣️');
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'toxicmeter') : userDoc;
+      if (!who) return;
+
+      const gc = who.gc || {};
+      const msgs = clamp(gc.msgs);
+      const tox = clamp(gc.toxicity);
+      const fines = clamp(gc.fines);
+      // toxicity is commands run and msgs is messages, so the ratio is roughly
+      // "how much of their chat is aimed at the bot".
+      const perMsg = msgs > 0 ? Math.round((tox / msgs) * 100) : 0;
+      const level = perMsg > 60 ? '☣️ TOXIC' : perMsg > 30 ? '🟠 SPICY' : perMsg > 10 ? '🟡 A BIT MUCH' : '🟢 MOSTLY FINE';
+      const pet = await petOf(who);
+
+      await reply(
+        `☣️ **${who.name} — TOXICITY**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(perMsg, level)}\n`
+        + `💬 Group messages tracked: ${num(msgs)}\n`
+        + `⌨️ Commands run: ${num(tox)}\n`
+        + `💸 Fines: ${num(fines)}\n`
+        + `🐾 Pet contribution: ${pet ? `${pet.emoji || '🐾'} ${pet.name} makes it worse` : 'no pet to blame'}\n`
+        + '📖 _Read from the activity tracker. Nothing here is generated._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'simpmeter',
+    aliases: ['simp'],
+    category: 'fun',
+    description: '🥀 Simp meter — derived from how much you give away versus what you run',
+    usage: '!simpmeter @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'simpmeter', async () => {
+      await react('🥀');
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'simpmeter') : userDoc;
+      if (!who) return;
+
+      const t = f(who);
+      // Gifts out versus gifts in: handing over coins to other people is the
+      // only behaviour here that genuinely resembles simping.
+      const out = clamp(t.giftsOut);
+      const incoming = clamp(t.giftsIn);
+      const pet = await petOf(who);
+      // Holding a weak pet while giving coins away pushes it up.
+      const petPity = pet && petPower(pet) < 200 ? 15 : 0;
+      const scorePct = Math.max(0, Math.min(100, Math.round(out * 1.2 + petPity - incoming * 0.5)));
+      const verdict = scorePct > 75 ? 'CERTIFIED SIMP' : scorePct > 45 ? 'SOFT SIMP' : scorePct > 20 ? 'MIGHT BE A SIMP' : 'NOT A SIMP';
+
+      await reply(
+        `🥀 **${who.name} — SIMP METER**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(scorePct, verdict)}\n`
+        + `💸 Given away: ${num(out)} coins of affection\n`
+        + `🎁 Received: ${num(incoming)}\n`
+        + `🐾 ${pet ? `${pet.emoji || '🐾'} ${pet.name} (${num(petPower(pet))} pwr)${petPity ? ` — weak pet, +${petPity} simp` : ''}` : 'no pet, no excuses'}\n`
+        + '📖 _Derived from actual transfers. You can be audited._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'susmeter',
+    aliases: ['sus'],
+    category: 'fun',
+    description: '🕵️ SUS meter — kills, stabs and slaps do not look innocent',
+    usage: '!susmeter @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'susmeter', async () => {
+      await react('🕵️');
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'susmeter') : userDoc;
+      if (!who) return;
+
+      const t = f(who);
+      const violent = clamp(t.kills) * 12 + clamp(t.stabs) * 9 + clamp(t.slaps) * 4;
+      const pet = await petOf(who);
+      const unsafe = pet && pet.isSafe === false ? 20 : 0;
+      const scorePct = Math.max(0, Math.min(100, violent + unsafe));
+      const verdict = scorePct > 70 ? 'EXTREMELY SUS' : scorePct > 40 ? 'SOMEWHAT SUS' : scorePct > 15 ? 'A LITTLE SUS' : 'CLEAR';
+
+      await reply(
+        `🕵️ **${who.name} — SUS METER**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(scorePct, verdict)}\n`
+        + `💀 Fake kills: ${num(t.kills)} (+${clamp(t.kills) * 12})\n`
+        + `🔪 Stabs: ${num(t.stabs)} (+${clamp(t.stabs) * 9})\n`
+        + `👋 Slaps: ${num(t.slaps)} (+${clamp(t.slaps) * 4})\n`
+        + `🐾 Unsafe pet: ${unsafe ? '+20' : 'none'}\n`
+        + `👛 Wallet: ${kc(who.coins)}\n`
+        + '📖 _Every point is a counter on their own account. All of the violence was a message._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'rizzultra',
+    aliases: ['rizz'],
+    category: 'fun',
+    description: '😏 Rizz score — presence, gifts and whether you actually have a pet',
+    usage: '!rizzultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rizzultra', async () => {
+      await react('😏');
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'rizzultra') : userDoc;
+      if (!who) return;
+
+      const t = f(who);
+      const pet = await petOf(who);
+      const petPowerN = petPower(pet);
+      // Gifting adds presence, hugs and kisses add warmth, a real pet adds the
+      // single biggest chunk. Coins alone do very little, which is on purpose.
+      const scorePct = Math.max(0, Math.min(100, Math.round(
+        clamp(t.giftsOut) * 1.5 + clamp(t.hugs) * 2 + clamp(t.kisses) * 2 + clamp(t.compliments) + petPowerN * 0.05,
+      )));
+      const line = pick1(RIZZ_LINES);
+      const verdict = scorePct > 80 ? 'CERTIFIED RIZZ' : scorePct > 55 ? 'HAS SOME RIZZ' : scorePct > 30 ? 'TRYING' : 'NO RIZZ DETECTED';
+
+      await reply(
+        `😏 **${who.name} — RIZZ**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(scorePct, verdict)}\n`
+        + `🐾 ${pet ? `${pet.emoji || '🐾'} ${pet.name} — ${num(petPowerN)} pwr` : 'no pet. that is most of the problem.'}\n`
+        + `💸 Gifts sent: ${num(t.giftsOut)} · 🤗 Hugs: ${num(t.hugs)} · 💋 Kisses: ${num(t.kisses)}\n\n`
+        + `💬 *"${line}"*\n`
+        + '📖 _Coins barely count. Charisma is not purchasable in this module._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'cringeultra',
+    aliases: ['cringe'],
+    category: 'fun',
+    description: '😬 Cringe meter — net worth against how much you have spent on being funny',
+    usage: '!cringeultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cringeultra', async () => {
+      await react('😬');
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'cringeultra') : userDoc;
+      if (!who) return;
+
+      const t = f(who);
+      const attempts = clamp(t.roasts) + clamp(t.compliments) + clamp(t.flexes) + clamp(t.kills) + clamp(t.yeets);
+      // Cringe is volume of public attempts against what it has actually earned.
+      // Spending money on attention with an empty wallet is the worst case.
+      const broke = clamp(who.coins) < 1000 ? 30 : 0;
+      const scorePct = Math.max(0, Math.min(100, attempts * 5 + broke));
+      const verdict = scorePct > 70 ? 'PHYSICALLY PAINFUL' : scorePct > 45 ? 'VERY CRINGE' : scorePct > 20 ? 'A LITTLE CRINGE' : 'BARELY CRINGE';
+
+      await reply(
+        `😬 **${who.name} — CRINGE METER**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(scorePct, verdict)}\n`
+        + `🎭 Public attempts: ${num(attempts)}\n`
+        + `🔥 Roasts ${num(t.roasts)} · 🪞 Compliments ${num(t.compliments)} · 💪 Flexes ${num(t.flexes)} · 💀 Kills ${num(t.kills)} · 🚀 Yeets ${num(t.yeets)}\n`
+        + `👛 Wallet: ${kc(who.coins)}${broke ? ' — broke, which is +30' : ''}\n`
+        + '📖 _Counted, not judged. The number is real even if the verdict is not._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'auraultramax',
+    aliases: ['aura', 'auraa'],
+    category: 'fun',
+    description: '⚡ Aura, from -1000 to +1000. Coins and pet power pull in both directions',
+    usage: '!auraultramax @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'auraultramax', async () => {
+      await react('⚡');
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'auraultramax') : userDoc;
+      if (!who) return;
+
+      const t = f(who);
+      const pet = await petOf(who);
+      const petPowerN = petPower(pet);
+      // Wealth is the biggest pull and it can drag you DOWN: a rich person with
+      // nothing else going on reads as try-hard, which is the joke.
+      const wealth = Math.round(clamp(who.coins) / 1000);
+      const social = clamp(t.hugs) * 3 + clamp(t.kisses) * 3 + clamp(t.compliments) * 2 - clamp(t.slaps) * 2 - clamp(t.kills) * 2;
+      const raw = Math.round(petPowerN * 0.1 + wealth * 0.5 + social);
+      const aura = Math.max(-1000, Math.min(1000, raw));
+      // The bar is a -1000..1000 scale, so zero sits in the middle at 50%. That
+      // is exactly what NEUTRAL means, and it must not be labelled as a failing
+      // state the way a negative aura is.
+      const title = aura > 600 ? 'MAIN CHARACTER ENERGY' : aura > 300 ? 'POSITIVE AURA' : aura > 0 ? 'STEADY' : aura === 0 ? 'NEUTRAL AURA' : aura > -300 ? 'SHAKY' : aura > -600 ? 'NEGATIVE AURA' : 'AURA EMERGENCY';
+
+      const art = await card({
+        title: '⚡ AURA',
+        subtitle: `${who.name}`,
+        body: meter(Math.round((aura + 1000) / 20), `${aura > 0 ? '+' : ''}${num(aura)} · ${title}`),
+        footer: aura >= 0 ? 'COINS. PETS. BEING LIKED.' : 'TOO MUCH SLAPPING. TOO LITTLE RESPECT.',
+        accent: aura >= 0 ? canvasKit.theme.accent : canvasKit.theme.accent2,
+      });
+      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+
+      await reply(
+        `⚡ **${who.name} — AURA ${aura > 0 ? '+' : ''}${num(aura)} / 1000**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${meter(Math.round((aura + 1000) / 20), title)}\n`
+        + `💰 Wallet: ${kc(who.coins)} (${wealth > 0 ? '+' : ''}${num(wealth)})\n`
+        + `🐾 Pet power: ${num(petPowerN)} (${petPowerN > 0 ? '+' : ''}${num(Math.round(petPowerN * 0.1))})\n`
+        + `🤗 Social: ${social > 0 ? '+' : ''}${num(social)}\n`
+        + '📖 _Every term is a counter or a balance. You can check the maths._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'flexultra',
+    aliases: ['flex2'],
+    category: 'fun',
+    description: '💪 Flex your wallet and your pet. Costs 100, because showing off should',
+    usage: '!flexultra',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'flexultra', async () => {
+      await react('💪');
+      const paid = await fee(userDoc, FEES.flexultra, 'fun:flexultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const t = f(userDoc);
+      const pet = await petOf(userDoc);
+
+      // Rank against the whole collection. The query sorts in the database
+      // rather than pulling every user into memory and sorting in JS.
+      let rank = null;
+      if (mongo.isReady()) {
+        try {
+          rank = (await User.countDocuments({ coins: { $gt: clamp(userDoc.coins) } })) + 1;
+        } catch {
+          rank = null;
+        }
+      }
+
+      f(userDoc).flexes += 1;
+      await save(userDoc);
+
+      const brags = [];
+      if (clamp(userDoc.coins) >= 1000000) brags.push('six figures. casually.');
+      else if (clamp(userDoc.coins) >= 100000) brags.push('five figures and not raising them.');
+      else if (clamp(userDoc.coins) < 1000) brags.push('flexing on fumes, which takes a kind of confidence.');
+      if (pet && petPower(pet) >= 600) brags.push(`${pet.name} is doing most of the work here.`);
+      else if (pet && petPower(pet) < 200) brags.push(`${pet.name} is watching from a safe distance.`);
+      if (!pet) brags.push('no pet, all you.');
+
+      await react('📢');
+      const art = await card({
+        title: '💪 FLEX',
+        subtitle: userDoc.name,
+        body: `${kc(userDoc.coins)}\n${pet ? `${pet.emoji || '🐾'} ${pet.name} — ${num(petPower(pet))} pwr` : 'No pet'}\n${rank ? `Rank #${num(rank)}` : 'Rank unavailable'}`,
+        footer: `-${kc(FEES.flexultra)} TO POST THIS`,
+        accent: canvasKit.theme.gold,
+      });
+      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+      await reply(
+        `💪 **${userDoc.name} IS FLEXING**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `👛 ${kc(userDoc.coins)}${rank ? ` · rank #${num(rank)}` : ''}\n`
+        + `🐾 ${pet ? `${pet.emoji || '🐾'} ${pet.name} — ${num(petPower(pet))} pwr` : 'no pet'}\n`
+        + `💸 -${kc(FEES.flexultra)} to post this\n\n`
+        + `${brags.map((b) => `• ${b}`).join('\n')}\n\n`
+        + '📖 _Your real balance and your real pet. The flex is the only fiction._',
         event.messageID,
       );
     }),
