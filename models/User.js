@@ -95,6 +95,38 @@ const UserSchema = new mongoose.Schema(
       commandsUsed: { type: Number, default: 0 },
     },
 
+    // module 7 — GTA. The coin sink: cars, guns and fuel are the expensive half
+    // of the loop, so every money path in this module deducts before it pays.
+    gta: {
+      started: { type: Boolean, default: false },
+      level: { type: Number, default: 1, min: 1 },
+      xp: { type: Number, default: 0, min: 0 },
+      money: { type: Number, default: 0, min: 0 }, // winnings banked inside GTA
+      spent: { type: Number, default: 0, min: 0 },
+      // Wanted level 0-5. At 5 the cops hunt, which is the whole point.
+      wanted: { type: Number, default: 0, min: 0, max: 5 },
+      wantedAt: { type: Date, default: null },
+      jailedUntil: { type: Date, default: null },
+      // Owned cars: { id, fuel, nitro, color, tuned, crashed }.
+      cars: { type: [Object], default: [] },
+      // Owned weapons: { id, ammo }.
+      weapons: { type: [Object], default: [] },
+      activeCar: { type: String, default: '' },
+      activeWeapon: { type: String, default: '' },
+      // Cartel this player founded or joined.
+      cartel: { type: String, default: '' },
+      cartelRank: { type: String, default: '' },
+      // Daily claim marker for !gtadaily.
+      gtadaily: { type: Date, default: null },
+      lastTaxi: { type: Date, default: null },
+      lastHeist: { type: Date, default: null },
+      copsHuntUntil: { type: Date, default: null },
+      racesWon: { type: Number, default: 0, min: 0 },
+      racesLost: { type: Number, default: 0, min: 0 },
+      missions: { type: Number, default: 0, min: 0 },
+      busts: { type: Number, default: 0, min: 0 },
+    },
+
     lastSeen: { type: Date, default: Date.now },
   },
   { timestamps: true },

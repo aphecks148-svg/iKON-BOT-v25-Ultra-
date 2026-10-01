@@ -94,6 +94,19 @@ const GroupSchema = new mongoose.Schema(
       tod: { question: { type: String, default: '' }, dare: { type: String, default: '' }, at: { type: Date, default: null } },
     },
 
+    // module 7 — cartel. A per-chat vault the members tax missions into.
+    cartel: {
+      name: { type: String, default: '' },
+      founder: { type: String, default: '' },
+      vault: { type: Number, default: 0, min: 0 },
+      members: { type: [{ uid: { type: String, default: '' }, name: { type: String, default: '' }, joined: { type: Date, default: null } }], default: [] },
+      // The five minute cartel war: who shot the most wins the vault.
+      warEnds: { type: Date, default: null },
+      warScores: { type: [{ uid: { type: String, default: '' }, name: { type: String, default: '' }, score: { type: Number, default: 0 } }], default: [] },
+      warWinner: { type: String, default: '' },
+      warWinnerName: { type: String, default: '' },
+    },
+
     // module 5 — the hot potato. Exactly one bomb per chat at a time.
     gameBomb: {
       holderUid: { type: String, default: null },
