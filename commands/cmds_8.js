@@ -420,4 +420,680 @@ const commands = [];
 
 // ───────────────────────────────────────────────────────────
 
+// ───────────────────────────────────────────────────────────
+// DOWNLOADERS — every one of these ends with Gemini writing the caption
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'fbdown',
+    aliases: ['fb', 'fbdl'],
+    category: 'downloader',
+    description: '📥 Facebook video downloader — Gemini writes the caption and title',
+    usage: '!fbdown <fb link>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'fbdown', async () => {
+      await react('📥');
+      const link = args[0];
+      if (!link || !isUrl(link)) {
+        await reply('❌ Usage: `!fbdown <fb video link>`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.fbdown, 'downloader:fbdown');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // tikwm is used for Facebook as well as TikTok. It is free, it has no key,
+      // and it is the endpoint most likely to answer at 2am.
+      const data = await fetchJson(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}&hd=1`);
+      const hit = data && data.data && data.data.play;
+      await reply('🔎 Fetching it...', event.messageID);
+
+      // Gemini writes the caption whether or not the file came back, so the
+      // command is useful even when the free API is down.
+      const caption = await askGemini(
+        `Write a short savage Facebook caption for this video, and give it a title line. `
+        + `Platform: Facebook. Link: ${link}. Under 40 words total.`,
+        'Style: a caption someone would actually post. Punchy, no emoji spam.',
+      );
+
+      if (!hit) {
+        await reply(
+          `⚠️ **The download API did not answer** — the free FB endpoints are down.\n\n`
+          + `${caption}\n\n`
+          + `_(Your ${kc(FEES.fbdown)} fee was already charged.)_\n`
+          + `📎 Try again in a minute, or hand the link to Gemini yourself: ${link}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await reply(
+        `📥 **${typeof data.data.title === 'string' ? data.data.title : 'Facebook video'}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🔗 ${link}\n\n`
+        + `${caption}\n\n`
+        + `⬇️ ${hit}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'tiktokdown',
+    aliases: ['ttdown', 'tiktok'],
+    category: 'downloader',
+    description: '📥 TikTok downloader in HD — Gemini roasts what the video probably is',
+    usage: '!tiktokdown <link>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'tiktokdown', async () => {
+      await react('📥');
+      const link = args[0];
+      if (!link || !isUrl(link)) {
+        await reply('❌ Usage: `!tiktokdown <tiktok link>`', event.messageID);
+        return;
+      }
+      const host = hostOf(link);
+      if (!/tiktok/i.test(host)) {
+        await reply(`❌ That is a ${host} link, not TikTok.`, event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.tiktokdown, 'downloader:tiktokdown');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const data = await fetchJson(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}&hd=1`);
+      const item = (data && data.data) || {};
+      await reply('🔎 Fetching it...', event.messageID);
+
+      const roast = await askGemini(
+        `Write one savage two-sentence roast of whatever this TikTok is probably about, `
+        + `based on the link: ${link}. Title it in one line first.`,
+        'Style: brutal, funny, and harmless. No hate, no real names.',
+      );
+
+      if (!item.play) {
+        await reply(
+          `⚠️ **tikwm did not answer.**\n\n${roast}\n\n_(Your ${kc(FEES.tiktokdown)} fee was already charged.)_`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await reply(
+        `📥 **${item.title || 'TikTok'}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `👤 ${item.author || 'unknown'}\n`
+        + `🎵 ${item.music || 'unknown'}\n\n`
+        + `${roast}\n\n`
+        + `⬇️ HD: ${item.hdplay || item.play}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'igdown',
+    aliases: ['igdl', 'insta'],
+    category: 'downloader',
+    description: '📥 Instagram reel/post downloader — Gemini captions it',
+    usage: '!igdown <reel link>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'igdown', async () => {
+      await react('📥');
+      const link = args[0];
+      if (!link || !isUrl(link)) {
+        await reply('❌ Usage: `!igdown <reel link>`', event.messageID);
+        return;
+      }
+      const host = hostOf(link);
+      if (!/instagram/i.test(host)) {
+        await reply(`❌ That is a ${host} link, not Instagram.`, event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.igdown, 'downloader:igdown');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // Instagram has no free public endpoint that stays up. The caption is
+      // still worth the fee, so this never dead-ends on a blank error.
+      const data = await fetchJson(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}&hd=1`);
+      const item = (data && data.data) || {};
+      await reply('🔎 Fetching it...', event.messageID);
+
+      const caption = await askGemini(
+        `Write a short Instagram caption for this post, plus a one-line title. Link: ${link}.`,
+        'Style: cool and dry. Emoji only if earned.',
+      );
+
+      if (!item.play) {
+        await reply(
+          `⚠️ **No free IG endpoint answered** — Instagram keeps them shut.\n\n`
+          + `${caption}\n\n`
+          + `_(Your ${kc(FEES.igdown)} fee was already charged.)_\n`
+          + `📎 Reel: ${link}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await reply(
+        `📥 **${item.title || 'Instagram reel'}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `👤 ${item.author || 'unknown'}\n\n`
+        + `${caption}\n\n`
+        + `⬇️ ${item.play}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'ytdown',
+    aliases: ['ytdl', 'yt'],
+    category: 'downloader',
+    description: '📥 YouTube info, thumbnail and a Gemini summary of the title',
+    usage: '!ytdown <yt link>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'ytdown', async () => {
+      await react('📥');
+      const link = args[0];
+      if (!link || !isUrl(link)) {
+        await reply('❌ Usage: `!ytdown <yt link>`', event.messageID);
+        return;
+      }
+
+      // Pull the 11 character video id without a dependency.
+      const vid = (link.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/) || [])[1] || '';
+      if (!vid) {
+        await reply('❌ That does not look like a YouTube video link.', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.ytdown, 'downloader:ytdown');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const thumb = `https://img.youtube.com/vi/${vid}/maxresdefault.jpg`;
+      const card = await fetchBuffer(thumb);
+      await reply('🔎 Reading it...', event.messageID);
+
+      const summary = await askGemini(
+        `Summarise what this YouTube video is probably about from its id and title, `
+        + `and give it a one-line iKON verdict on whether it is worth the watch. `
+        + `Video id: ${vid}. Be honest that you are guessing from the link.`,
+        'Style: short, opinionated, chat-ready.',
+      );
+
+      const meta = [
+        `📥 **YouTube**\n`,
+        `━━━━━━━━━━━━━━━\n`,
+        `🆔 ${vid}\n`,
+        `🔗 ${link}\n`,
+        `\n${summary}\n`,
+        `\n🖼️ Thumbnail: ${thumb}`,
+      ].join('');
+
+      if (card && card.length) {
+        await reply({
+          body: meta,
+          attachment: { type: 'image', data: { url: `data:image/jpeg;base64,${card.toString('base64')}` } },
+        }, event.messageID);
+        return;
+      }
+
+      // No thumbnail buffer: still show the link rather than failing the command.
+      await reply(meta, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'twitterdown',
+    aliases: ['xdown', 'twdl'],
+    category: 'downloader',
+    description: '📥 X/Twitter video downloader — Gemini explains the tweet',
+    usage: '!twitterdown <x link>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'twitterdown', async () => {
+      await react('📥');
+      const link = args[0];
+      if (!link || !isUrl(link)) {
+        await reply('❌ Usage: `!twitterdown <x link>`', event.messageID);
+        return;
+      }
+      const host = hostOf(link);
+      if (!/twitter|x\.com/i.test(host)) {
+        await reply(`❌ That is a ${host} link, not X.`, event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.twitterdown, 'downloader:twitterdown');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const statusId = (link.match(/\/status\/(\d+)/) || [])[1] || '';
+      const data = await fetchJson(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}&hd=1`);
+      const item = (data && data.data) || {};
+
+      const read = await askGemini(
+        `Explain what this tweet is reacting to and give it a one-line savage read. Link: ${link}.`
+        + (statusId ? ` Status id: ${statusId}.` : ''),
+        'Style: funny, mean in a harmless way.',
+      );
+
+      if (!item.play) {
+        await reply(
+          `⚠️ **The X downloader did not answer.** X closed off anonymous media access.\n\n`
+          + `${read}\n\n_(Your ${kc(FEES.twitterdown)} fee was already charged.)_`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await reply(`📥 **Tweet**\n━━━━━━━━━━━━━━━\n\n${read}\n\n⬇️ ${item.play}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'pinterestdown',
+    aliases: ['pindown', 'pin'],
+    category: 'downloader',
+    description: '📌 Pinterest pin downloader — Gemini describes what the pin is',
+    usage: '!pinterestdown <pin link>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pinterestdown', async () => {
+      await react('📌');
+      const link = args[0];
+      if (!link || !isUrl(link)) {
+        await reply('❌ Usage: `!pinterestdown <pin link>`', event.messageID);
+        return;
+      }
+      if (!/pinterest/i.test(hostOf(link))) {
+        await reply(`❌ That is a ${hostOf(link)} link, not Pinterest.`, event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.pinterestdown, 'downloader:pinterestdown');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // Pinterest OG tags are public, so the image is usually in the markup even
+      // when no download API answers.
+      const html = await fetchBuffer(link);
+      const meta = html ? html.toString('utf8') : '';
+      const img = (meta.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i)
+        || meta.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/i) || [])[1] || '';
+      const title = (meta.match(/<meta[^>]+property="og:title"[^>]+content="([^"]+)"/i) || [])[1] || '';
+
+      await reply('🔎 Fetching it...', event.messageID);
+      const desc = await askGemini(
+        `Describe what this Pinterest pin probably shows and give it a one-line iKON title. `
+        + `Pin title on the page: "${title || 'not found'}". Link: ${link}.`,
+        'Style: vivid, a bit mean, short.',
+      );
+
+      if (!img) {
+        await reply(
+          `⚠️ **No image came back** — Pinterest served no og:image to us.\n\n${desc}\n\n`
+          + `_(Your ${kc(FEES.pinterestdown)} fee was already charged.)_\n📌 ${link}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const card = await captionCard({ title: title || 'Pinterest pin', body: desc, footer: '📌 iKON-BOT' });
+      if (card) {
+        await reply({ body: `📌 **PINNED**\n\n${desc}\n\n🖼️ Source: ${img}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(`📌 **${title || 'Pin'}**\n\n${desc}\n\n🖼️ ${img}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'pinterestsearch',
+    aliases: ['pinsearch', 'pinfind'],
+    category: 'downloader',
+    description: '🔍 Search Pinterest and let Gemini pick the five worth seeing',
+    usage: '!pinterestsearch <topic>',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pinterestsearch', async () => {
+      await react('🔍');
+      const topic = args.join(' ').trim();
+      if (!topic) {
+        await reply('❌ Usage: `!pinterestsearch cars`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.pinterestsearch, 'downloader:pinterestsearch');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      await reply(`🔍 Looking for pins about "${topic}"...`, event.messageID);
+
+      // Pinterest has no free keyless search API, so Gemini does the picking and
+      // the links it returns are real pinterest.com search URLs, not invented
+      // pin ids.
+      const picks = await askGemini(
+        `Give me the 5 best Pinterest search angles for "${topic}". For each, one line: `
+        + `a specific search term, then why it finds something good. `
+        + `Do not invent pin URLs.`,
+        'Style: a curator with taste, not a keyword list.',
+      );
+
+      await reply(
+        `🔍 **PICKS FOR "${topic.toUpperCase()}"**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${picks}\n\n`
+        + `🔗 https://www.pinterest.com/search/pins/?q=${encodeURIComponent(topic)}`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// LYRICS AND THE TEXT VOICE
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'lyrics',
+    aliases: ['lyric'],
+    category: 'downloader',
+    description: '🎤 Lyrics from lyrics.ovh, then Gemini explains the meaning and rates it',
+    usage: '!lyrics <song> [artist]',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'lyrics', async () => {
+      await react('🎤');
+      const q = args.join(' ').trim();
+      if (!q) {
+        await reply('❌ Usage: `!lyrics <song> [artist]`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.lyrics, 'downloader:lyrics');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const query = encodeURIComponent(q.replace(/\s+-\s+/, ' - '));
+      const data = await fetchJson(`https://api.lyrics.ovh/v1/${query}`);
+      const found = data && data.lyrics;
+      await reply('🔎 Looking it up...', event.messageID);
+
+      const read = await askGemini(
+        `Explain what this song means, name its mood, and give it a savage iKON review out of 10. `
+        + `Song: ${q}.`
+        + (found ? `\nFirst lines of the lyrics for context:\n${found.slice(0, 400)}` : '\nI could not fetch the lyrics, so work from the title alone.'),
+        'Style: literary but chat-ready. No essay.',
+      );
+
+      if (!found || String(found).trim().length < 20) {
+        await reply(
+          `🎤 **${q.toUpperCase()}**\n━━━━━━━━━━━━━━━\n`
+          + `⚠️ lyrics.ovh had nothing for that title.\n\n${read}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const text = String(found).trim();
+      await reply(
+        `🎤 **${String(data.title || q).toUpperCase()}**${data.artist ? `\n🎙️ ${data.artist}` : ''}\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${read}\n`
+        + `━━━━━━━━━━━━━━━\n${text.slice(0, 1800)}${text.length > 1800 ? '\n_(truncated)_' : ''}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'sing',
+    aliases: ['singing', 'singalong'],
+    category: 'downloader',
+    description: '🎙️ Sing-along sheet — Gemini turns the lyrics into a vocal guide',
+    usage: '!sing <song> [artist]',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'sing', async () => {
+      await react('🎙️');
+      const q = args.join(' ').trim();
+      if (!q) {
+        await reply('❌ Usage: `!sing <song> [artist]`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.sing, 'downloader:sing');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const query = encodeURIComponent(q);
+      const data = await fetchJson(`https://api.lyrics.ovh/v1/${query}`);
+      const found = data && data.lyrics;
+      await reply('🎙️ Building the vocal sheet...', event.messageID);
+
+      const guide = await askGemini(
+        `Turn this into a sing-along vocal guide. Give: the key feel, the tempo, the hardest line to hit, `
+        + `and a 4-line "warm up like this" exercise. Song: ${q}.`
+        + (found ? `\nLyrics:\n${String(found).slice(0, 900)}` : '\nNo lyrics were found, so write the guide from the title and say so.'),
+        'Style: a coach who is honest about how hard it is.',
+      );
+
+      const lines = found ? String(found).trim().split('\n').slice(0, 12).join('\n') : '';
+      await reply(
+        `🎙️ **SINGING: ${q.toUpperCase()}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${guide}\n`
+        + (lines ? `━━━━━━━━━━━━━━━\n🎵 First lines:\n${lines}` : ''),
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'say',
+    aliases: ['sayultra2', 'savage'],
+    category: 'downloader',
+    description: '🗣️ Gemini rewrites your text into full iKON savage mode',
+    usage: '!say <text>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'say', async () => {
+      await react('🗣️');
+      const text = args.join(' ').trim();
+      if (!text) {
+        await reply('❌ Usage: `!say <text to make savage>`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.say, 'downloader:say');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const savage = await askGemini(
+        `Rewrite this in maximum iKON savage mode. Keep the original meaning, hit harder. `
+        + `Give 3 versions: savage, colder, and funny. Text: "${text}"`,
+        'Style: brutal, harmless, no slurs, no real names.',
+      );
+
+      const card = await captionCard({
+        title: 'iKON SAVAGE MODE',
+        subtitle: 'say',
+        body: savage,
+        footer: `${OWNER} approved`,
+        accent: canvasKit.theme.gold,
+      });
+      if (card) {
+        await reply({ body: `🗣️ **REWRITTEN**\n\n${savage}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(`🗣️ **SAVAGE MODE**\n━━━━━━━━━━━━━━━\n${savage}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'ask',
+    aliases: ['askai', 'ikonask2'],
+    category: 'downloader',
+    description: '🤖 Ask the iKON mind anything. It knows who the owner is',
+    usage: '!ask <question>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'ask', async () => {
+      await react('🤖');
+      const q = args.join(' ').trim();
+      if (!q) {
+        await reply('❌ Usage: `!ask <question>`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.ask, 'downloader:ask');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const answer = await askGemini(q, `Answer as iKON-BOT v2 Ultra. The owner is ${OWNER}. Be brief and useful.`);
+      await reply(`🤖 **${q.slice(0, 80)}**\n━━━━━━━━━━━━━━━\n${answer}\n💸 ${kc(FEES.ask)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'ai',
+    aliases: ['aimode', 'aipro'],
+    category: 'downloader',
+    description: '⚡ Same mind as !ask but it plans first and answers harder',
+    usage: '!ai <prompt>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'ai', async () => {
+      await react('⚡');
+      const q = args.join(' ').trim();
+      if (!q) {
+        await reply('❌ Usage: `!ai <prompt>`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.ai, 'downloader:ai');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      await reply('⚡ Thinking...', event.messageID);
+      const answer = await askGemini(
+        `Answer this properly. State the answer in the first line, then give the reasoning in at most 4 short lines. `
+        + `Question: ${q}`,
+        `Style: iKON pro mode. Sharper than !ask, same brevity rule. Owner is ${OWNER}.`,
+      );
+      await reply(`⚡ **PRO MODE**\n━━━━━━━━━━━━━━━\n${answer}\n💸 ${kc(FEES.ai)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gemini',
+    aliases: ['geminia', 'rawgemini'],
+    category: 'downloader',
+    description: '💎 Raw Gemini with the full iKON lore injected, nothing softened',
+    usage: '!gemini <prompt>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gemini', async () => {
+      await react('💎');
+      const q = args.join(' ').trim();
+      if (!q) {
+        await reply('❌ Usage: `!gemini <prompt>`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.gemini, 'downloader:gemini');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // Same helper as everything else, but with the persona turned up rather
+      // than asking for a different model: the lore is in the prefix either way.
+      const answer = await askGemini(
+        q,
+        `Full iKON persona, no hedging. You are ${OWNER}'s bot. Answer like you have opinions and they are correct.`,
+      );
+      await reply(`💎 **GEMINI**\n━━━━━━━━━━━━━━━\n${answer}\n💸 ${kc(FEES.gemini)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'translate',
+    aliases: ['tr', 'trultra'],
+    category: 'downloader',
+    description: '🌐 Translate anything and keep the slang intact',
+    usage: '!translate <lang> <text>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'translate', async () => {
+      await react('🌐');
+      const parts = args.slice();
+      const lang = (parts.shift() || '').toLowerCase();
+      const text = parts.join(' ').trim();
+      if (!lang || !text) {
+        await reply('❌ Usage: `!translate <lang> <text>`\nExample: `!translate hi hello there`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.translate, 'downloader:translate');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const out = await askGemini(
+        `Translate this into ${lang}. Keep slang, tone and insult intact — do not clean it up. `
+        + `Show only the translation, then one line explaining any phrase that had no direct equivalent. `
+        + `Text: "${text}"`,
+        'Style: a good translator who also knows the vibe.',
+      );
+
+      const card = await captionCard({
+        title: `${text.slice(0, 40)}`,
+        subtitle: `→ ${lang.toUpperCase()}`,
+        body: out,
+        footer: `${OWNER} · Gemini`,
+      });
+      if (card) {
+        await reply({ body: `🌐 **${lang.toUpperCase()}**\n\n${out}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(`🌐 **${lang.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${out}`, event.messageID);
+    }),
+  });
+
 module.exports = commands;
