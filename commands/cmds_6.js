@@ -825,4 +825,293 @@ const commands = [];
     }),
   });
 
+// ───────────────────────────────────────────────────────────
+// PUNISHMENT — bans, mutes, announcements
+// ───────────────────────────────────────────────────────────
+
+  /**
+   * Everyone currently in the thread, as uid strings.
+   *
+   * Returns an empty list when the running build cannot enumerate members. That
+   * makes a bulk action a no-op rather than a gamble: muting "everybody" from
+   * an empty roster must not silently fall through to muting nobody while
+   * reporting a success.
+   */
+  async function safeMembers(api, event) {
+    try {
+      if (typeof api.getThreadMembers === 'function') {
+        const members = await api.getThreadMembers({ threadID: event.threadID });
+        return (members || []).map((m) => String(m && (m.userID || m.id || m))).filter(Boolean);
+      }
+      if (typeof api.getParticipantInfo === 'function') {
+        const info = await api.getParticipantInfo({ threadID: event.threadID });
+        return ((info && info.participantIDs) || []).map(String);
+      }
+    } catch { /* fall through to the empty roster */ }
+    return [];
+  }
+
+  commands.push({
+    name: 'gcban',
+    aliases: ['gcbanuser'],
+    category: 'group',
+    description: '🚫 Ban somebody from this chat entirely',
+    usage: '!gcban @user [reason]',
+    cooldown: 20,
+    permission: 'groupAdmin',
+    execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'gcban', async () => {
+      await react('🚫');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const target = await targetOr(reply, event.messageID, args[0], event, 'gcban');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ Banning yourself would just be a very slow logout.', event.messageID);
+        return;
+      }
+      if (punished(cfg, 'bans', target.uid)) {
+        await reply(`🚫 ${target.name} is already banned here.`, event.messageID);
+        return;
+      }
+
+      const reason = args.slice(1).join(' ').trim() || 'no reason given';
+      cfg.bans.push({
+        uid: String(target.uid),
+        name: target.name,
+        reason,
+        by: String(event.senderID),
+        expires: null,
+      });
+      await save(group);
+
+      let kicked = false;
+      if (api.removeUserFromGroup) {
+        try {
+          await api.removeUserFromGroup({ threadID: event.threadID, userID: target.uid });
+          kicked = true;
+        } catch { /* the ban list still stands even if the kick failed */ }
+      }
+
+      await reply(
+        `🚫 **${target.name} IS BANNED.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `📖 ${reason}\n`
+        + (kicked ? '🚪 Removed from the chat.\n' : '📋 On the ban list. This build could not remove them.\n')
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gcmute',
+    aliases: ['gcmuteuser'],
+    category: 'group',
+    description: '🔇 Mute somebody — the bot deletes everything they say',
+    usage: '!gcmute @user [minutes]',
+    cooldown: 15,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gcmute', async () => {
+      await react('🔇');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const target = await targetOr(reply, event.messageID, args[0], event, 'gcmute');
+      if (!target) return;
+      if (String(target.uid) === String(event.senderID)) {
+        await reply('❌ You cannot mute yourself. Try being quieter instead.', event.messageID);
+        return;
+      }
+
+      const mins = clamp(Number.parseInt(args[1], 10)) || 10;
+      prune(cfg.mutes);
+      const existing = punished(cfg, 'mutes', target.uid);
+      if (existing) {
+        // Re-muting extends rather than stacking a second overlapping entry.
+        existing.expires = new Date(Date.now() + mins * 60 * 1000);
+        await save(group);
+        await reply(`🔇 ${target.name} is muted for another ${mins} minutes.`, event.messageID);
+        return;
+      }
+
+      cfg.mutes.push({
+        uid: String(target.uid),
+        name: target.name,
+        expires: new Date(Date.now() + mins * 60 * 1000),
+      });
+      await save(group);
+      await reply(`🔇 **${target.name}** is muted for ${mins} minutes.\n📖 The house will delete the words for you.`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gcmuteall',
+    aliases: ['gcmuteeveryone'],
+    category: 'group',
+    description: '🤐 Mute everybody except admins for 5 minutes. Total chaos',
+    usage: '!gcmuteall [minutes]',
+    cooldown: 60,
+    permission: 'groupAdmin',
+    execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'gcmuteall', async () => {
+      await react('🤐');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const mins = clamp(Number.parseInt(args[0], 10)) || 5;
+      const expires = new Date(Date.now() + mins * 60 * 1000);
+      prune(cfg.mutes);
+
+      const admins = await threadAdmins(api, event);
+      const exempt = new Set([...admins, String(event.senderID)]);
+      const members = await safeMembers(api, event);
+
+      if (!members.length) {
+        await reply('❌ This build cannot list a chat\'s members, so nobody was muted.\nUse `!gcmute @user` one at a time.', event.messageID);
+        return;
+      }
+
+      let muted = 0;
+      for (const uid of members) {
+        if (exempt.has(String(uid))) continue;
+        cfg.mutes.push({ uid: String(uid), name: '', expires });
+        muted += 1;
+      }
+      await save(group);
+
+      await reply(
+        muted
+          ? `🤐 **EVERYONE IS MUTED.**\n`
+            + '━━━━━━━━━━━━━━━\n'
+            + `🔇 ${num(muted)} hunters silenced for ${mins} minutes\n`
+            + `🛡️ ${num(exempt.size)} admins kept talking. You always do.\n`
+            + `📖 ${story()}`
+          : '🤐 Nobody to mute. Everyone here is an admin. Congratulations, you built a perfect chat.',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gcunmute',
+    aliases: ['gcunban'],
+    category: 'group',
+    description: '🔈 Lift a mute, a ban, or a ghostban on somebody',
+    usage: '!gcunmute @user',
+    cooldown: 15,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gcunmute', async () => {
+      await react('🔈');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+
+      const target = await targetOr(reply, event.messageID, args[0], event, 'gcunmute');
+      if (!target) return;
+
+      const before = cfg.mutes.length + cfg.bans.length + cfg.ghostBans.length;
+      cfg.mutes = cfg.mutes.filter((e) => String(e.uid) !== String(target.uid));
+      cfg.bans = cfg.bans.filter((e) => String(e.uid) !== String(target.uid));
+      cfg.ghostBans = cfg.ghostBans.filter((e) => String(e.uid) !== String(target.uid));
+      const lifted = before - (cfg.mutes.length + cfg.bans.length + cfg.ghostBans.length);
+      await save(group);
+
+      await reply(
+        lifted
+          ? `🔈 **${target.name}** walks free again. ${num(lifted)} punishment(s) lifted.\n📖 ${story()}`
+          : `${target.name} was not punished here. Nothing changed.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gcbanlist',
+    aliases: ['gcbans', 'gcghostlist'],
+    category: 'group',
+    description: '📋 Everyone the bot has locked out of this chat',
+    usage: '!gcbanlist',
+    cooldown: 20,
+    permission: 'groupAdmin',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'gcbanlist', async () => {
+      await react('📋');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+      prune(cfg.bans);
+      prune(cfg.ghostBans);
+      prune(cfg.mutes);
+      await save(group);
+
+      const left = (e) => (e.expires
+        ? fmt.dur(Math.max(0, Math.ceil((new Date(e.expires).getTime() - Date.now()) / 1000)))
+        : 'permanent');
+
+      if (!cfg.bans.length && !cfg.ghostBans.length && !cfg.mutes.length) {
+        await reply('📋 Nobody is locked out. The chat is behaving itself.', event.messageID);
+        return;
+      }
+
+      const lines = [];
+      if (cfg.bans.length) {
+        lines.push(`🚫 **BANNED (${cfg.bans.length})**`);
+        for (const e of cfg.bans) lines.push(`• ${e.name || e.uid} — ${e.reason || 'no reason'} [${left(e)}]`);
+      }
+      if (cfg.ghostBans.length) {
+        lines.push(`👻 **GHOSTBANNED (${cfg.ghostBans.length})**`);
+        for (const e of cfg.ghostBans) lines.push(`• ${e.name || e.uid} [${left(e)}]`);
+      }
+      if (cfg.mutes.length) {
+        lines.push(`🔇 **MUTED (${cfg.mutes.length})**`);
+        for (const e of cfg.mutes) lines.push(`• ${e.name || e.uid} [${left(e)}]`);
+      }
+
+      await reply(`📋 **THE LOCKOUT LIST**\n━━━━━━━━━━━━━━━\n${lines.join('\n')}\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gcannounce',
+    aliases: ['gcsay', 'gcnotice'],
+    category: 'group',
+    description: '📢 Make the bot announce a message to the whole chat',
+    usage: '!gcannounce <message>',
+    cooldown: 15,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gcannounce', async () => {
+      await react('📢');
+      const msg = args.join(' ').trim();
+      if (!msg) {
+        await reply('❌ Usage: `!gcannounce <message>`', event.messageID);
+        return;
+      }
+
+      await reply(
+        `📢 **ANNOUNCEMENT**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${msg}\n`
+        + `📖 — ${OWNER} is watching this chat.`,
+        event.messageID,
+      );
+    }),
+  });
+
 module.exports = commands;
