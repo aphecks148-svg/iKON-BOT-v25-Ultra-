@@ -959,6 +959,56 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     return 'fails open; owners can always lift it';
   });
 
+  // ── 20. session-loss recovery ─────────────────────────────
+  await step('"Not logged in" is detected from the tap, not the thrown Error', () => {
+    // Runs in a child process because the recovery path calls process.exit(1),
+    // and because helpers deliberately latches so it can only fire once.
+    const fs2 = require('fs');
+    const os2 = require('os');
+    const path2 = require('path');
+    const { execFileSync } = require('child_process');
+    const dir = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'ik-sess-'));
+    const helpersPath = path.join(__dirname, 'helpers.js');
+    const diagPath = path.join(__dirname, 'fcaDiag.js');
+
+    // The realistic case: ws3-fca threw new Error({error:'Not logged in.'}),
+    // which discards the object. Nothing on the Error mentions the session —
+    // only the tap still has it.
+    const script = `
+      const diag = require(${JSON.stringify(diagPath)});
+      diag.lastRawSummary = () => 'error=Not logged in. | Not logged in.';
+      const h = require(${JSON.stringify(helpersPath)});
+      const cookies = [{ key: 'c_user', value: '123', domain: '.facebook.com',
+        expires: Date.now() + 1e6, hostOnly: false, path: '/', secure: true,
+        httpOnly: false, sameSite: 'None' }];
+      const api = {
+        async sendMessage() { throw new Error({ error: 'Not logged in.' }); },
+        getAppState: () => cookies,
+      };
+      h.reply(api, 't_sess', 'hello').then(() => {
+        // Give the reboot timer time to fire.
+        setTimeout(() => { console.log('NO_REBOOT'); process.exit(0); }, 2500);
+      });
+    `;
+    let code = 0;
+    let out = '';
+    try {
+      out = execFileSync(process.execPath, ['-e', script], { cwd: dir, encoding: 'utf8', timeout: 20000 });
+    } catch (err) {
+      code = err.status === undefined ? -1 : err.status;
+      out = `${err.stdout || ''}`;
+    }
+
+    const written = fs2.existsSync(path.join(dir, 'appstate.json'));
+    const contents = written ? fs2.readFileSync(path.join(dir, 'appstate.json'), 'utf8') : '';
+    fs2.rmSync(dir, { recursive: true, force: true });
+
+    assert.strictEqual(code, 1, `expected a non-zero exit to force a redeploy, got ${code} (${out})`);
+    assert.ok(written, 'appstate.json was not written');
+    assert.ok(/c_user/.test(contents), 'appstate.json did not contain the cookies');
+    return 'detected via the tap, appstate saved, process reboots';
+  });
+
   // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;

@@ -227,9 +227,14 @@ async function handleMessage(api, event) {
   const reactTo = (emoji) => react(api, messageID, emoji || config.REACT_EMOJI);
 
   // ── PARSER ────────────────────────────────────────────────
+  // The prefix is resolved from the per-group override first and config.PREFIX
+  // second, so a group that changed it is honoured. Logged on every non-command
+  // message: a wrong prefix is the single most common reason a bot looks deaf,
+  // and without this line there is no way to tell it apart from a dead listener.
   const prefix = await resolvePrefix(threadID);
   const parsed = router.parse(body, prefix);
   if (!parsed) {
+    if (body) log(`[PARSE] no command for "${body.slice(0, 60)}" (prefix ${JSON.stringify(prefix)})`);
     // Not a command. Count the message for the RPG profile and stop.
     await recordActivity(senderID, false, isGroupThread(threadID) ? threadID : null);
     return;
@@ -472,6 +477,30 @@ function attachClient(api) {
 }
 
 /**
+ * JSON.stringify that cannot throw.
+ *
+ * An MQTT event carries a normalised message object, and `JSON.stringify`
+ * dies on the first circular reference it meets — which would take down the
+ * listener itself, the one piece of code that must never fail. Falls back to
+ * a plain key list, which is still enough to see what arrived.
+ *
+ * @param {*} value
+ * @param {number} [limit] max characters
+ * @returns {string}
+ */
+function safeInspect(value, limit = 500) {
+  try {
+    return JSON.stringify(value).slice(0, limit);
+  } catch {
+    try {
+      return JSON.stringify(Object.keys(value || {})).slice(0, limit);
+    } catch {
+      return '(unserialisable)';
+    }
+  }
+}
+
+/**
  * Route ws3-fca MQTT events into the command chain.
  *
  * ws3-fca does NOT expose `api.on(...)`. Events arrive on the EventEmitter
@@ -487,10 +516,32 @@ function attachEvents(api, emitter) {
   emitter.on('message', (event) => {
     if (!event || !event.threadID) return;
 
+    // "Reacting but never replying" is indistinguishable from "not listening",
+    // and the two have completely different fixes. Log what actually arrives,
+    // including the fields that decide whether it is handled below.
+    log(`[EVENT DEBUG] ${safeInspect({
+      type: event.type,
+      isSelf: event.isSelf,
+      isGroup: event.isGroup,
+      threadID: event.threadID,
+      messageID: event.messageID,
+      senderID: event.senderID,
+      body: typeof event.body === 'string' ? event.body.slice(0, 120) : event.body,
+      attachments: (event.attachments || []).length,
+      logMessageType: event.logMessageType,
+    })}`);
+
     // Text messages from other people are the only thing commands care about.
-    if (event.type === 'message') {
+    // ws3-fca labels a reply "message_reply" (listenMqtt.js:246), so accepting
+    // only "message" silently dropped every message sent as a reply to the bot
+    // — the reaction path still worked, which is exactly the reported symptom.
+    if (event.type === 'message' || event.type === 'message_reply') {
       if (event.isSelf === true) return;
-      if (typeof event.body !== 'string' || !event.body) return;
+      // An attachment-only message has no body but is still a real message
+      // (a sticker or a photo is sent with an empty body).
+      const hasBody = typeof event.body === 'string' && event.body.length > 0;
+      const hasAttachment = Array.isArray(event.attachments) && event.attachments.length > 0;
+      if (!hasBody && !hasAttachment) return;
       safe(() => handleMessage(api, event), api, event.threadID, event.messageID, 'message');
       return;
     }
@@ -582,6 +633,22 @@ function login() {
         // does `throw new Error(resData)`, which stringifies the error object to
         // "[object Object]" — without this tap the reason is unrecoverable.
         fcaDiag.install();
+
+        // Re-assert the options that decide whether we ever see a message.
+        // login() takes them too, but setOptions is the only way to change them
+        // AFTER a successful login, and these two are the difference between
+        // "bot is deaf" and "bot is talking".
+        //   selfListen:false — our own messages must not come back to us.
+        //   listenEvents:true — group join/leave events, used by !autoadd.
+        // Note: there is no `logLevel` option in this build
+        // (core/models/setOptions.js), so it is not passed here.
+        if (typeof api.setOptions === 'function') {
+          try {
+            await api.setOptions({ selfListen: false, listenEvents: true });
+          } catch (err) {
+            error(`[LOGIN] setOptions failed: ${err.message}`);
+          }
+        }
 
         STATE.loggedIn = true;
         try {
@@ -708,6 +775,9 @@ module.exports = {
   attachClient,
   attachEvents,
   reloadCommands,
+  // Exposed so the tests can assert that an event actually reached the
+  // handler, rather than only that nothing threw.
+  STATE,
   findCommand: (name) => loader.findCommand(name, registry, aliases),
   listCommands: (category) => loader.listCommands(category, registry),
   mongo,

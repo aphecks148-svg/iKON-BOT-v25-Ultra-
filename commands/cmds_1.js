@@ -60,8 +60,12 @@ module.exports = [
     permission: 'all',
     execute: async ({ reply, react, event }) => {
       await react('⚡');
+      // Uptime proves the whole chain: a value here means the process booted,
+      // and the reply itself proves Facebook accepted a send.
+      const s = process.uptime();
       await reply(
-        'PONG ✅ LOGIN->DB->LOADER->MESSAGE->PARSER->COMMAND->REPLY works',
+        `Pong! Uptime: ${dur(s)}\n`
+        + `Started: ${new Date(Date.now() - s * 1000).toUTCString()}`,
         event.messageID,
       );
     },

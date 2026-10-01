@@ -107,14 +107,12 @@ const EVENT = (body, over = {}) => ({
 
   // ── 2. full chain ─────────────────────────────────────────
   let event = EVENT('!ping');
-  await assertStep('MESSAGE->PARSER->COMMAND->REPLY: !ping replies with PONG', async () => {
+  await assertStep('MESSAGE->PARSER->COMMAND->REPLY: !ping replies with Pong + uptime', async () => {
     await ik.handleMessage(api, event);
     const last = api.lastBody();
     assert.ok(last, 'bot sent nothing');
-    assert.strictEqual(
-      last,
-      'PONG ✅ LOGIN->DB->LOADER->MESSAGE->PARSER->COMMAND->REPLY works',
-    );
+    assert.ok(String(last).startsWith('Pong!'), `expected a Pong, got: ${last}`);
+    assert.ok(/Uptime:/.test(String(last)), `expected an uptime, got: ${last}`);
   });
 
   await assertStep('REPLY threads under the triggering messageID', () => {
@@ -132,7 +130,7 @@ const EVENT = (body, over = {}) => ({
   event = EVENT('!p', { messageID: 'alias_mid', senderID: 'e2e_user_2' });
   await assertStep('ALIAS "!p" runs the same command', async () => {
     await ik.handleMessage(api, event);
-    assert.ok(String(api.lastBody()).startsWith('PONG'), `got: ${api.lastBody()}`);
+    assert.ok(String(api.lastBody()).startsWith('Pong!'), `got: ${api.lastBody()}`);
   });
 
   await assertStep('ALIAS shares the cooldown bucket with the real name', async () => {
@@ -221,6 +219,79 @@ const EVENT = (body, over = {}) => ({
     } finally {
       ik.registry.delete('__adminonly__');
     }
+  });
+
+  // ── 9. a message sent AS A REPLY must still be handled ────
+  // ws3-fca labels a reply "message_reply" (listenMqtt.js:246). The listener
+  // used to accept only "message", so replying to the bot produced a reaction
+  // but never a reply — indistinguishable from a dead send path.
+  await assertStep('EVENT FILTER: type "message_reply" is handled, not dropped', () => {
+    const seen = [];
+    const fakeApi = mockApi();
+    fakeApi.sendMessage = async (...args) => { seen.push(args); return { messageID: 'm' }; };
+    const emitter = new (require('events').EventEmitter)();
+    ik.attachEvents(fakeApi, emitter);
+
+    emitter.emit('message', {
+      type: 'message_reply',
+      isSelf: false,
+      isGroup: false,
+      threadID: 'e2e_reply_thread',
+      messageID: 'reply_mid',
+      senderID: 'e2e_user_9',
+      body: '!ping',
+      attachments: [],
+    });
+
+    // attachEvents dispatches through safe(), which is async internally, so
+    // let the microtask queue drain before asserting.
+    return new Promise((resolve) => setImmediate(() => {
+      assert.strictEqual(seen.length, 1, `a message_reply was dropped (${seen.length} sends)`);
+      resolve();
+    }));
+  });
+
+  await assertStep('EVENT FILTER: an attachment-only message is not dropped', () => {
+    const fakeApi = mockApi();
+    const emitter = new (require('events').EventEmitter)();
+    ik.attachEvents(fakeApi, emitter);
+
+    const before = ik.STATE.messagesSeen;
+    // A sticker or photo arrives with an empty body. The old filter required a
+    // non-empty body and threw the message away before it was ever counted.
+    emitter.emit('message', {
+      type: 'message',
+      isSelf: false,
+      isGroup: false,
+      threadID: 'e2e_att_thread',
+      messageID: 'att_mid',
+      senderID: 'e2e_user_9',
+      body: '',
+      attachments: [{ type: 'sticker' }],
+    });
+    assert.ok(
+      ik.STATE.messagesSeen > before,
+      'an attachment-only message never reached the handler',
+    );
+
+    // And a genuinely empty message still is dropped, so this is not just a
+    // counter that increments for everything.
+    const before2 = ik.STATE.messagesSeen;
+    emitter.emit('message', {
+      type: 'message',
+      isSelf: false,
+      isGroup: false,
+      threadID: 'e2e_att_thread',
+      messageID: 'empty_mid',
+      senderID: 'e2e_user_9',
+      body: '',
+      attachments: [],
+    });
+    assert.strictEqual(
+      ik.STATE.messagesSeen,
+      before2,
+      'a truly empty message should still be ignored',
+    );
   });
 
   line('');

@@ -59,8 +59,74 @@ async function reply(api, threadID, msg, messageID = null) {
   } catch (err) {
     lastSendError = describeSendError(err);
     error(`[HELPER] sendMessage failed on thread ${threadID}: ${lastSendError}`);
+    // Facebook rejects every send once the session is gone, so the session is
+    // the thing worth acting on rather than the individual message.
+    if (isSessionLost(err)) noteSessionLost(api);
     return null;
   }
+}
+
+/**
+ * Has the Facebook session expired?
+ *
+ * The thrown value cannot answer this on its own: ws3-fca wraps the failure in
+ * `new Error(resData)`, and `new Error({...})` discards the object entirely —
+ * including the `error: "Not logged in."` string ws3-fca sets for exactly this
+ * case. So the text is read from the fcaDiag tap instead, which captured the raw
+ * response body before the wrapper threw it away.
+ *
+ * @param {*} err the thrown value
+ * @returns {boolean}
+ */
+function isSessionLost(err) {
+  const haystacks = [
+    lastSendError,
+    typeof err === 'string' ? err : (err && err.error) || '',
+    err && err.message ? String(err.message) : '',
+  ];
+  try {
+    // eslint-disable-next-line global-require
+    haystacks.push(require('./fcaDiag').lastRawSummary());
+  } catch { /* the tap is optional */ }
+
+  return haystacks.some((s) => typeof s === 'string' && /not logged in/i.test(s));
+}
+
+/**
+ * Called when a send is rejected because the session is no longer valid.
+ *
+ * Dumps the current cookies to appstate.json so a manual redeploy has fresh
+ * credentials to work from, then asks the engine to reboot — ws3-fca cannot
+ * re-authenticate in place, and Render restarts the process on exit anyway.
+ *
+ * Deliberately fires ONCE per process. Without the latch this runs on every
+ * failed send, and a dead session produces a failed send per command, so a
+ * busy group would rewrite the file and reboot in a tight loop.
+ *
+ * @param {object} api ws3-fca client
+ */
+let sessionLossHandled = false;
+function noteSessionLost(api) {
+  if (sessionLossHandled) return;
+  sessionLossHandled = true;
+
+  error('[SESSION] Facebook reports "Not logged in" — the appstate is stale.');
+
+  try {
+    if (api && typeof api.getAppState === 'function') {
+      const appState = api.getAppState();
+      if (Array.isArray(appState) && appState.length) {
+        // eslint-disable-next-line global-require, import/no-dynamic-require
+        require('fs').writeFileSync('appstate.json', JSON.stringify(appState, null, 2));
+        log(`[SESSION] wrote ${appState.length} cookies to appstate.json`);
+      }
+    }
+  } catch (err) {
+    error(`[SESSION] could not write appstate.json: ${err.message}`);
+  }
+
+  // Give the write a moment to flush, then exit non-zero so Render restarts us.
+  setTimeout(() => process.exit(1), 1500);
 }
 
 /**
