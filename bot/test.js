@@ -459,6 +459,8 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
       assert.deepStrictEqual(g.disabledCommands, []);
       assert.deepStrictEqual(g.disabledModules, []);
       assert.strictEqual(g.maintenance, false);
+      assert.strictEqual(g.autoAddLeavers, false, 'auto-add must be opt-in, never on by default');
+      assert.strictEqual(g.adminsOnly, false, 'admins-only must be opt-in');
       return 'defaults correct';
     });
 
@@ -488,8 +490,18 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
 
       await toggles.setMaintenance(tid, false);
       assert.strictEqual((await toggles.isCommandDisabled(tid, 'ping', 'system')).allowed, true);
+
+      // adminsOnly is reported to the engine rather than enforced here: this
+      // module has no api, so it cannot tell who is a thread admin.
+      await Group.updateOne({ tid }, { adminsOnly: true });
+      const locked = await toggles.isCommandDisabled(tid, 'ping', 'system');
+      assert.strictEqual(locked.allowed, true, 'the gate must not block on its own');
+      assert.strictEqual(locked.adminsOnly, true, 'but it must report the restriction');
+      await Group.updateOne({ tid }, { adminsOnly: false });
+      assert.strictEqual((await toggles.isCommandDisabled(tid, 'ping', 'system')).adminsOnly, false);
+
       assert.ok(g0);
-      return 'command, module and maintenance gates';
+      return 'command, module, maintenance and adminsOnly gates';
     });
 
     await step('Economy model: ledger entry', async () => {
@@ -876,6 +888,75 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     const ok = diag.summarise({ payload: { actions: [{ thread_fbid: 't_1', message_id: 'mid' }] } });
     assert.ok(!/error/.test(ok.toLowerCase()), `a good send must not look like an error: ${ok}`);
     return 'codes extracted, successes not misreported';
+  });
+
+  // ── 16. !unsend must target a bot message, not the user's ──
+  await step('lastSent tracks the bot\'s own messages, not the command', async () => {
+    const api = mockApi();
+    const tid = 't_unsend';
+    assert.strictEqual(helpers.lastSent(tid), '', 'empty before anything is sent');
+
+    const sent = await helpers.reply(api, tid, 'hello');
+    assert.ok(sent && sent.messageID, 'mock must return a message id');
+    assert.strictEqual(helpers.lastSent(tid), sent.messageID);
+
+    // The newest send wins, so a bare !unsend removes the latest bot message.
+    const sent2 = await helpers.reply(api, tid, 'newer');
+    assert.strictEqual(helpers.lastSent(tid), sent2.messageID);
+    assert.notStrictEqual(helpers.lastSent(tid), sent.messageID);
+    return 'newest bot message is the unsend target';
+  });
+
+  // ── 18. autoadd guards ────────────────────────────────────
+  await step('autoadd never re-invites the bot or a non-numeric id', async () => {
+    const ik = require('../ws3-fca');
+    const calls = [];
+    const api = { ...mockApi(), gcmember: async (a, uid, tid) => { calls.push({ a, uid, tid }); } };
+
+    // Force the toggle on, which needs no database.
+    const realGetGroup = toggles.getGroup;
+    toggles.getGroup = async () => ({ autoAddLeavers: true, settings: {} });
+    // Fixed numeric ids so the assertions never depend on a live login.
+    const BOT_ID = '999000111';
+    try {
+      // A normal numeric leaver IS re-invited.
+      await ik.handleGroupChange(api, {
+        threadID: 't_auto', logMessageType: 'log:unsubscribe',
+        logMessageData: { leftParticipantFbId: '1234567890' },
+      });
+      // The bot's own id must never be re-invited (it would loop forever).
+      await ik.handleGroupChange(api, {
+        threadID: 't_auto', logMessageType: 'log:unsubscribe',
+        logMessageData: { leftParticipantFbId: BOT_ID }, BotID: BOT_ID,
+      });
+      // A non-numeric id must be skipped: gcmember does parseInt and would
+      // otherwise invite uid 0.
+      await ik.handleGroupChange(api, {
+        threadID: 't_auto', logMessageType: 'log:unsubscribe',
+        logMessageData: { leftParticipantFbId: 'not-an-id' },
+      });
+    } finally {
+      toggles.getGroup = realGetGroup;
+    }
+
+    assert.strictEqual(calls.length, 1, 'exactly one invite should have been sent');
+    assert.strictEqual(calls[0].a, 'add');
+    assert.strictEqual(calls[0].uid, '1234567890');
+    assert.strictEqual(calls[0].tid, 't_auto');
+    return 're-invites leavers, skips self and bad ids';
+  });
+
+  // ── 19. adminsOnly must not be able to lock a group ───────
+  await step('the gate fails open so a group can never be locked out', async () => {
+    // With no group document — which is the case for an unknown thread AND for
+    // every thread while Mongo is down — the gate must report no restriction.
+    // That is the property that guarantees !onlyadminoff stays reachable: the
+    // engine only ever applies adminsOnly when a real group doc says so.
+    const res = await toggles.isCommandDisabled('t_missing_' + Date.now(), 'ping', 'system');
+    assert.strictEqual(res.allowed, true);
+    assert.strictEqual(res.adminsOnly, false, 'must never report a restriction it did not read');
+    assert.ok('adminsOnly' in res, 'the field must always be present for the engine');
+    return 'fails open; owners can always lift it';
   });
 
   // ── summary ───────────────────────────────────────────────

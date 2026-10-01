@@ -20,6 +20,8 @@ function transientGroup(tid) {
     isApproved: false,
     pendingApproval: true,
     prefix: null,
+    autoAddLeavers: false,
+    adminsOnly: false,
     settings: { welcome: false, goodbye: false, welcomeMsg: '', goodbyeMsg: '' },
     disabledCommands: [],
     disabledModules: [],
@@ -64,40 +66,44 @@ function findGroup(tid) {
  * whole bot down — maintenance is enforced from config.MAINTENANCE_MODE, which
  * needs no database at all.
  *
- * @returns {Promise<{allowed:boolean, reason:string}>}
+ * @returns {Promise<{allowed:boolean, reason:string, adminsOnly:boolean}>}
  */
 async function isCommandDisabled(tid, cmdName, category) {
   if (config.MAINTENANCE_MODE) {
-    return { allowed: false, reason: 'Bot is under maintenance. Back shortly.' };
+    return { allowed: false, reason: 'Bot is under maintenance. Back shortly.', adminsOnly: false };
   }
 
   const group = await findGroup(tid);
-  if (!group) return { allowed: true, reason: '' };
+  if (!group) return { allowed: true, reason: '', adminsOnly: false };
+
+  // Reported rather than enforced here: only the engine knows the sender, and
+  // this module has no api to resolve thread admins with.
+  const adminsOnly = group.adminsOnly === true;
 
   if (group.isEnabled === false) {
-    return { allowed: false, reason: 'This group is paused.' };
+    return { allowed: false, reason: 'This group is paused.', adminsOnly };
   }
 
   if (group.maintenance) {
-    return { allowed: false, reason: 'This group is under maintenance.' };
+    return { allowed: false, reason: 'This group is under maintenance.', adminsOnly };
   }
 
   const moduleKey = String(cmdName || '').split('_')[0];
   if (group.disabledModules?.length) {
     if (group.disabledModules.includes(moduleKey)) {
-      return { allowed: false, reason: `Module ${moduleKey} is disabled here.` };
+      return { allowed: false, reason: `Module ${moduleKey} is disabled here.`, adminsOnly };
     }
     // A command may also declare its module by category.
     if (group.disabledModules.includes(category)) {
-      return { allowed: false, reason: `Category ${category} is disabled here.` };
+      return { allowed: false, reason: `Category ${category} is disabled here.`, adminsOnly };
     }
   }
 
   if (cmdName && group.disabledCommands?.includes(cmdName)) {
-    return { allowed: false, reason: `Command ${cmdName} is disabled here.` };
+    return { allowed: false, reason: `Command ${cmdName} is disabled here.`, adminsOnly };
   }
 
-  return { allowed: true, reason: '' };
+  return { allowed: true, reason: '', adminsOnly };
 }
 
 /** Turn maintenance mode on/off for a group. */

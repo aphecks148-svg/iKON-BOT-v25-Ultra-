@@ -12,6 +12,16 @@ const GroupSchema = new mongoose.Schema(
 
     prefix: { type: String, default: null }, // null = fall back to config.PREFIX
 
+    // Re-invite anyone who leaves this group (command: !autoadd). Honoured by
+    // handleGroupChange on log:unsubscribe. Left off by default: it also fires
+    // for people removed on purpose, which an admin usually did not mean.
+    autoAddLeavers: { type: Boolean, default: false },
+
+    // Only thread admins may run commands here (commands: !onlyadminon /
+    // !onlyadminoff). Enforced in the engine gate, which exempts bot owners so
+    // the setting can always be lifted again.
+    adminsOnly: { type: Boolean, default: false },
+
     settings: {
       welcome: { type: Boolean, default: false },
       goodbye: { type: Boolean, default: false },

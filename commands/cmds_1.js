@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 1 — SYSTEM CORE (35 commands)
+ * MODULE 1 — SYSTEM CORE (36 commands)
  *
  * Exports a plain array. No factories, no legacy loader.
  *
@@ -22,7 +22,7 @@ const toggles = require('../bot/toggles');
 const mongo = require('../bot/mongo');
 const canvas = require('../bot/canvas');
 const loader = require('../bot/loader');
-const { fmt } = require('../bot/helpers');
+const { fmt, describeSendError, lastSent } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
 
 const BOT_ICON = '🤖';
@@ -48,7 +48,7 @@ async function currentPrefix(threadID, config) {
 
 module.exports = [
   // ─────────────────────────────────────────────────────────
-  // 1
+  // 1$
   // ─────────────────────────────────────────────────────────
   {
     name: 'ping',
@@ -68,7 +68,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 2
+  // 2$
   // ─────────────────────────────────────────────────────────
   {
     name: 'help',
@@ -125,7 +125,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 3
+  // 3$
   // ─────────────────────────────────────────────────────────
   {
     name: 'botinfo',
@@ -153,7 +153,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 4
+  // 4$
   // ─────────────────────────────────────────────────────────
   {
     name: 'uptime',
@@ -175,7 +175,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 5
+  // 5$
   // ─────────────────────────────────────────────────────────
   {
     name: 'dbstats',
@@ -210,7 +210,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 6
+  // 6$
   // ─────────────────────────────────────────────────────────
   {
     name: 'id',
@@ -234,7 +234,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 7
+  // 7$
   // ─────────────────────────────────────────────────────────
   {
     name: 'userinfo',
@@ -278,7 +278,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 8
+  // 8$
   // ─────────────────────────────────────────────────────────
   {
     name: 'threadinfo',
@@ -325,7 +325,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 9
+  // 9$
   // ─────────────────────────────────────────────────────────
   {
     name: 'adminlist',
@@ -364,7 +364,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 10
+  // 10$
   // ─────────────────────────────────────────────────────────
   {
     name: 'prefix',
@@ -388,7 +388,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 11
+  // 11$
   // ─────────────────────────────────────────────────────────
   {
     name: 'setprefix',
@@ -425,7 +425,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 12
+  // 12$
   // ─────────────────────────────────────────────────────────
   {
     name: 'maintenance',
@@ -459,7 +459,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 13
+  // 13$
   // ─────────────────────────────────────────────────────────
   {
     name: 'enablecmd',
@@ -491,7 +491,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 14
+  // 14$
   // ─────────────────────────────────────────────────────────
   {
     name: 'disablecmd',
@@ -526,7 +526,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 15
+  // 15$
   // ─────────────────────────────────────────────────────────
   {
     name: 'enablemod',
@@ -559,7 +559,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 16
+  // 16$
   // ─────────────────────────────────────────────────────────
   {
     name: 'disablemod',
@@ -595,7 +595,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 17
+  // 17$
   // ─────────────────────────────────────────────────────────
   {
     name: 'listcmds',
@@ -631,7 +631,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 18
+  // 18$
   // ─────────────────────────────────────────────────────────
   {
     name: 'listmods',
@@ -665,112 +665,218 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 19
+  // 19$
   // ─────────────────────────────────────────────────────────
   {
-    name: 'approve',
-    aliases: [],
+    name: 'autoadd',
+    aliases: ['autojoin', 'reinvite'],
     category: 'system',
-    description: 'Approve this group and turn the bot on',
-    usage: '!approve',
-    cooldown: 10,
-    permission: 'owner',
-    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'approve', async () => {
+    description: 'Auto re-invite members who leave this group',
+    usage: '!autoadd <on|off>',
+    cooldown: 5,
+    permission: 'groupAdmin',
+    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'autoadd', async () => {
       if (!event.isGroup) {
         await reply('❌ This command only works in a group.', event.messageID);
         return;
       }
-      await toggles.approve(event.threadID, true);
-      await react('✅');
-      await reply('✅ This group is approved and the bot is enabled here.', event.messageID);
+      const group = await toggles.getGroup(event.threadID);
+      const mode = (args[0] || '').toLowerCase();
+
+      if (!['on', 'off'].includes(mode)) {
+        await reply(
+          `🔁 Auto re-add: ${group.autoAddLeavers ? 'ON' : 'OFF'}\n`
+          + 'Usage: `!autoadd on` or `!autoadd off`\n'
+          + 'When ON, anyone who leaves is invited straight back. That includes '
+          + 'people who were removed on purpose, so use it only where nobody gets kicked.',
+          event.messageID,
+        );
+        return;
+      }
+
+      group.autoAddLeavers = mode === 'on';
+      // Same honesty as !ban: a transient save() is a no-op, so say so rather
+      // than confirming a setting that will be gone after a restart.
+      if (group.transient) {
+        await reply('⚠️ Database is offline — this setting is TEMPORARY and resets on restart.', event.messageID);
+        return;
+      }
+      await group.save();
+      await react(mode === 'on' ? '🔁' : '✅');
+      await reply(
+        mode === 'on'
+          ? '🔁 Auto re-add is ON — leavers get invited back.'
+          : '✅ Auto re-add is OFF — leavers stay out.',
+        event.messageID,
+      );
     }),
   },
 
   // ─────────────────────────────────────────────────────────
-  // 20
+  // 20$
   // ─────────────────────────────────────────────────────────
   {
-    name: 'disapprove',
-    aliases: ['unapprove'],
+    name: 'count',
+    aliases: ['members'],
     category: 'system',
-    description: 'Disapprove this group and turn the bot off',
-    usage: '!disapprove',
+    description: 'Count the members and admins in this group',
+    usage: '!count',
     cooldown: 10,
-    permission: 'owner',
-    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'disapprove', async () => {
+    permission: 'all',
+    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'count', async () => {
+      await react('👥');
+
+      // A DM has exactly one member and no admins, so answer without a lookup.
+      if (!event.isGroup) {
+        await reply('👥 This is a private chat — just you and me.', event.messageID);
+        return;
+      }
+
+      // getThreadInfo can fail on a transient fetch. Count what is known rather
+      // than claiming a number we do not have.
+      let members = 0;
+      let admins = 0;
+      let known = true;
+      try {
+        const info = await api.getThreadInfo(event.threadID);
+        const ids = (info && info.participantIDs) || [];
+        const adminIds = (info && info.adminIDs) || [];
+        // An empty participant list means the build could not read it, not that
+        // the group is empty — reporting "0 members" would be a lie.
+        known = ids.length > 0;
+        members = ids.length;
+        admins = adminIds.length;
+      } catch {
+        known = false;
+      }
+
+      if (!known) {
+        await reply('👥 I could not read the member list just now. Try again in a moment.', event.messageID);
+        return;
+      }
+
+      const group = await toggles.findGroup(event.threadID);
+      await reply(
+        `👥 Members: ${members}\n`
+        + `🛡️ Admins: ${admins}\n`
+        + `💬 Messages recorded: ${group && group.gc && group.gc.msgs ? group.gc.msgs : 0}`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 21$
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'unsend',
+    aliases: ['del', 'undelete'],
+    category: 'system',
+    description: 'Delete the bot\'s last message, or the one you replied to',
+    usage: '!unsend',
+    cooldown: 5,
+    permission: 'groupAdmin',
+    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'unsend', async () => {
+      if (typeof api.unsendMessage !== 'function') {
+        await reply('⚠️ This build of ws3-fca cannot unsend messages.', event.messageID);
+        return;
+      }
+
+      // Facebook only lets a bot unsend its OWN messages, so the target must be
+      // one the bot sent. event.messageID is the user's command and is never a
+      // valid target. Preference order:
+      //   1. the bot message the user replied to (event.replyToMessage)
+      //   2. the last message the bot sent in this thread
+      const target = String(event.replyToMessage || lastSent(event.threadID) || '');
+      if (!target) {
+        await reply('❌ Nothing to unsend — the bot has not posted in this chat yet.', event.messageID);
+        return;
+      }
+
+      try {
+        await api.unsendMessage(target);
+      } catch (err) {
+        // Same "[object Object]" trap as sendMessage: ws3-fca throws the raw
+        // Facebook object, so report it through the shared describer.
+        await reply(`⚠️ Could not unsend: ${describeSendError(err)}`, event.messageID);
+        return;
+      }
+
+      await react('🗑');
+      await reply('🗑 Deleted that message.', event.messageID);
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 22$
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'onlyadminon',
+    aliases: ['adminsonly', 'adminonly'],
+    category: 'system',
+    description: 'Restrict this group so only admins can run commands',
+    usage: '!onlyadminon',
+    cooldown: 5,
+    permission: 'groupAdmin',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'onlyadminon', async () => {
       if (!event.isGroup) {
         await reply('❌ This command only works in a group.', event.messageID);
         return;
       }
-      await toggles.approve(event.threadID, false);
-      await react('🚫');
-      await reply('🚫 This group is disapproved and the bot is disabled here.', event.messageID);
+      const group = await toggles.getGroup(event.threadID);
+      if (group.adminsOnly) {
+        await reply('ℹ️ Admins-only is already ON here.', event.messageID);
+        return;
+      }
+      group.adminsOnly = true;
+      if (group.transient) {
+        await reply('⚠️ Database is offline — this setting is TEMPORARY and resets on restart.', event.messageID);
+        return;
+      }
+      await group.save();
+      await react('🔒');
+      await reply(
+        '🔒 Admins-only is ON — only group admins can run commands here.\n'
+        + 'Turn it back off with `!onlyadminoff`.',
+        event.messageID,
+      );
     }),
   },
 
   // ─────────────────────────────────────────────────────────
-  // 21
+  // 23$
   // ─────────────────────────────────────────────────────────
   {
-    name: 'approved',
-    aliases: [],
+    name: 'onlyadminoff',
+    aliases: ['allusers'],
     category: 'system',
-    description: 'List every approved group',
-    usage: '!approved',
-    cooldown: 10,
-    permission: 'owner',
-    execute: async ({ config, reply, event }) => guard(reply, event.messageID, 'approved', async () => {
-      if (!mongo.isReady()) {
-        await reply('💾 Database is offline.', event.messageID);
+    description: 'Let everyone run commands in this group again',
+    usage: '!onlyadminoff',
+    cooldown: 5,
+    permission: 'groupAdmin',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'onlyadminoff', async () => {
+      if (!event.isGroup) {
+        await reply('❌ This command only works in a group.', event.messageID);
         return;
       }
-      const groups = await Group.find({ isApproved: true }).select('tid isEnabled maintenance').limit(50).lean();
-      if (!groups.length) {
-        await reply('✅ No approved groups yet.', event.messageID);
+      const group = await toggles.getGroup(event.threadID);
+      if (!group.adminsOnly) {
+        await reply('ℹ️ Admins-only is already OFF here.', event.messageID);
         return;
       }
-      const lines = [`✅ Approved groups (${groups.length})`, '━━━━━━━━━━━━━━━'];
-      groups.forEach((g, i) => {
-        const flags = `${g.isEnabled ? 'enabled' : 'disabled'}${g.maintenance ? ', maintenance' : ''}`;
-        lines.push(`${i + 1}. \`${g.tid}\` — ${flags}`);
-      });
-      if (groups.length === 50) lines.push('\n(list truncated at 50)');
-      await reply(lines.join('\n'), event.messageID);
+      group.adminsOnly = false;
+      if (group.transient) {
+        await reply('⚠️ Database is offline — this setting is TEMPORARY and resets on restart.', event.messageID);
+        return;
+      }
+      await group.save();
+      await react('🔓');
+      await reply('🔓 Admins-only is OFF — everyone can run commands here again.', event.messageID);
     }),
   },
 
   // ─────────────────────────────────────────────────────────
-  // 22
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'pending',
-    aliases: [],
-    category: 'system',
-    description: 'List groups waiting for approval',
-    usage: '!pending',
-    cooldown: 10,
-    permission: 'owner',
-    execute: async ({ config, reply, event }) => guard(reply, event.messageID, 'pending', async () => {
-      if (!mongo.isReady()) {
-        await reply('💾 Database is offline.', event.messageID);
-        return;
-      }
-      const groups = await Group.find({ pendingApproval: true }).select('tid createdAt').limit(50).lean();
-      if (!groups.length) {
-        await reply('✅ Nothing pending — every group has been reviewed.', event.messageID);
-        return;
-      }
-      const lines = [`⏳ Pending approval (${groups.length})`, '━━━━━━━━━━━━━━━'];
-      groups.forEach((g, i) => {
-        const seen = g.createdAt ? new Date(g.createdAt).toUTCString().slice(5, 17) : 'unknown';
-        lines.push(`${i + 1}. \`${g.tid}\` — seen ${seen}`);
-      });
-      await reply(`${lines.join('\n')}\n\nApprove with \`!approve\` inside that group.`, event.messageID);
-    }),
-  },
-
-  // ─────────────────────────────────────────────────────────
-  // 23
+  // 24$
   // ─────────────────────────────────────────────────────────
   {
     name: 'config',
@@ -814,7 +920,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 24
+  // 25$
   // ─────────────────────────────────────────────────────────
   {
     name: 'botstatus',
@@ -851,7 +957,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 25
+  // 26$
   // ─────────────────────────────────────────────────────────
   {
     name: 'version',
@@ -881,7 +987,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 26
+  // 27$
   // ─────────────────────────────────────────────────────────
   {
     name: 'owner',
@@ -906,7 +1012,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 27
+  // 28$
   // ─────────────────────────────────────────────────────────
   {
     name: 'support',
@@ -933,7 +1039,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 28
+  // 29$
   // ─────────────────────────────────────────────────────────
   {
     name: 'restart',
@@ -957,7 +1063,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 29
+  // 30$
   // ─────────────────────────────────────────────────────────
   {
     name: 'reload',
@@ -979,7 +1085,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 30
+  // 31$
   // ─────────────────────────────────────────────────────────
   {
     name: 'check',
@@ -1012,7 +1118,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 31
+  // 32$
   // ─────────────────────────────────────────────────────────
   {
     name: 'e2e',
@@ -1055,7 +1161,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 32
+  // 33$
   // ─────────────────────────────────────────────────────────
   {
     name: 'ban',
@@ -1124,7 +1230,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 33
+  // 34$
   // ─────────────────────────────────────────────────────────
   {
     name: 'unban',
@@ -1162,7 +1268,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 34
+  // 35$
   // ─────────────────────────────────────────────────────────
   {
     name: 'ping2',
@@ -1198,7 +1304,7 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 35
+  // 36$
   // ─────────────────────────────────────────────────────────
   {
     name: 'echo',

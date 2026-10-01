@@ -50,12 +50,53 @@ async function reply(api, threadID, msg, messageID = null) {
 
   try {
     lastSendError = '';
-    return await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID));
+    const res = await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID));
+    // Remember what we just sent so !unsend has a target. Facebook only lets a
+    // bot unsend its own messages, and the id of the user's command (which is
+    // what event.messageID holds) is not one of them.
+    if (res && res.messageID) rememberLastSent(threadID, String(res.messageID));
+    return res;
   } catch (err) {
     lastSendError = describeSendError(err);
     error(`[HELPER] sendMessage failed on thread ${threadID}: ${lastSendError}`);
     return null;
   }
+}
+
+/**
+ * Last message the bot sent in each thread, newest first.
+ *
+ * `!unsend` needs this: a user replying to a bot message gives the id directly,
+ * but a bare `!unsend` does not, and `event.messageID` is the user's own
+ * command rather than something the bot is allowed to delete.
+ *
+ * Bounded on both sides — at most MAX_SENT_TRACKED threads, each holding a few
+ * ids — so a long-running bot cannot grow this without limit.
+ */
+const LAST_SENT = new Map();
+const MAX_SENT_TRACKED = 500;
+const SENT_HISTORY = 3;
+
+/** @param {string|number} threadID @param {string} messageID */
+function rememberLastSent(threadID, messageID) {
+  const key = String(threadID);
+  const list = LAST_SENT.get(key) || [];
+  list.unshift(messageID);
+  LAST_SENT.set(key, list.slice(0, SENT_HISTORY));
+  // Map preserves insertion order, so the first key is the least recently used.
+  while (LAST_SENT.size > MAX_SENT_TRACKED) {
+    LAST_SENT.delete(LAST_SENT.keys().next().value);
+  }
+}
+
+/**
+ * The bot's most recent message id in a thread, or '' if nothing was sent.
+ * @param {string|number} threadID
+ * @returns {string}
+ */
+function lastSent(threadID) {
+  const list = LAST_SENT.get(String(threadID));
+  return (list && list[0]) || '';
 }
 
 /**
@@ -216,4 +257,5 @@ const fmt = {
 module.exports = {
   log, error, reply, react, safe, isGroupThread, fmt,
   clearSendError, lastSendError: () => lastSendError, describeSendError,
+  lastSent, rememberLastSent,
 };

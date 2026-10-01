@@ -256,6 +256,23 @@ async function handleMessage(api, event) {
     return;
   }
 
+  // ── ADMINS-ONLY (!onlyadminon) ─────────────────────────────
+  // Checked after the toggle gate and before permission so the setting applies
+  // to every command. Bot owners are exempt, which is what guarantees the
+  // group can never be locked: an owner can always run !onlyadminoff.
+  if (gate.adminsOnly) {
+    let isAdmin = false;
+    try {
+      isAdmin = await permissions.canModerate(api, event);
+    } catch {
+      isAdmin = false; // a failed lookup never grants
+    }
+    if (!isAdmin) {
+      await say('🔒 Only admins can run commands in this group.');
+      return;
+    }
+  }
+
   // ── PERMISSION (redundant, but safe if a handler ran out of order) ──
   let allowed = false;
   try {
@@ -416,6 +433,26 @@ async function handleGroupChange(api, event) {
     // Member left
     if (action === 'log:unsubscribe') {
       const group = await toggles.getGroup(threadID);
+
+      // !autoadd: invite the leaver straight back. gcmember is an MQTT publish,
+      // so it resolves once the request is queued, not once Facebook confirms
+      // the person is back.
+      if (group.autoAddLeavers) {
+        const leaver = String(data.leftParticipantFbId || event.author || '');
+        // Never re-add ourselves, and never try a non-numeric id: gcmember
+        // does parseInt on it and would invite uid 0.
+        if (leaver && /^\d+$/.test(leaver) && leaver !== String(event.BotID || STATE.userID || '')) {
+          try {
+            await api.gcmember('add', leaver, threadID);
+            log(`[GROUP] re-invited ${leaver} to ${threadID} (autoAddLeavers)`);
+          } catch (err) {
+            error(`[GROUP] re-invite of ${leaver} failed: ${err.message}`);
+          }
+        } else {
+          error(`[GROUP] autoAddLeavers could not re-invite "${leaver}" — unusable id`);
+        }
+      }
+
       if (group?.settings?.goodbye && group.settings.goodbyeMsg) {
         const who = data.leftParticipantFbId || event.author;
         const text = String(group.settings.goodbyeMsg).replace(/{user}/g, String(who));
