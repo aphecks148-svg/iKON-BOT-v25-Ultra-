@@ -46,14 +46,27 @@ async function reply(api, threadID, msg, messageID = null) {
 
 /**
  * Attach a reaction to a message. Swallows every error — reactions are cosmetic.
+ *
+ * ws3-fca exposes this as `setMessageReaction(reaction, messageID)`, positional
+ * arguments, not `api.react({ ... })`. The react() form is what fca-unofficial
+ * used; against ws3-fca it does not exist and every reaction silently vanished.
+ * Both are tried so the mocked api in the tests still works.
+ *
  * @returns {Promise<boolean>} whether the reaction was sent
  */
 async function react(api, messageID, emoji = '✅') {
-  if (!api || typeof api.react !== 'function') return false;
-  if (!messageID || !emoji) return false;
+  if (!api || !messageID || !emoji) return false;
+  const e = String(emoji);
   try {
-    await api.react({ type: 'message', messageID, reaction: String(emoji) });
-    return true;
+    if (typeof api.setMessageReaction === 'function') {
+      await api.setMessageReaction(e, messageID);
+      return true;
+    }
+    if (typeof api.react === 'function') {
+      await api.react({ type: 'message', messageID, reaction: e });
+      return true;
+    }
+    return false;
   } catch (err) {
     error(`[HELPER] react failed on message ${messageID}: ${err.message}`);
     return false;

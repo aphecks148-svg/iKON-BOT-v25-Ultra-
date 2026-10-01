@@ -49,6 +49,7 @@ function mockApi() {
       sent.push(rec);
       return { messageID: `mid_${sent.length}` };
     },
+    async setMessageReaction(reaction, messageID) { reactions.push({ messageID, reaction }); return true; },
     async react({ messageID, reaction }) { reactions.push({ messageID, reaction }); return true; },
     async getUserInfo(uid) { return { name: `E2E ${uid.slice(-2)}` }; },
     async getThreadInfo() { return { adminIDs: ['e2e_admin'] }; },

@@ -40,6 +40,32 @@ let client = null; // ws3-fca client (set by attachClient)
 let registry = new Map();
 let aliases = new Map();
 
+// Module-level so a boot retry reuses the listening server instead of throwing
+// EADDRINUSE on the second call.
+let server = null;
+let housekeeping = null;
+let retryTimer = null;
+
+/**
+ * Re-run boot() after a delay.
+ *
+ * Facebook login fails for reasons that clear on their own: an expired
+ * appstate, a rate limit, a network blip. Exiting makes Render mark the deploy
+ * dead; retrying in place keeps the process (and /health) alive until the
+ * account links again.
+ */
+function scheduleRetry() {
+  if (retryTimer) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    boot().catch((err) => {
+      error(`[BOOT] Retry failed: ${err && err.message ? err.message : err}`);
+      scheduleRetry();
+    });
+  }, 30000);
+  if (typeof retryTimer.unref === 'function') retryTimer.unref();
+}
+
 // ─────────────────────────────────────────────────────────────
 // EXPRESS
 // ─────────────────────────────────────────────────────────────
@@ -61,12 +87,18 @@ function startServer() {
     });
   });
 
+  // Render polls this to decide whether the deploy is alive. It must answer 200
+  // even while the bot is still logging in: a 503 during a slow Facebook login
+  // makes Render mark the deploy failed and restart it, which restarts the
+  // login that was about to finish.
   app.get('/health', (req, res) => {
-    res.status(STATE.loggedIn && mongo.isReady() ? 200 : 503).json({
-      ok: STATE.loggedIn && mongo.isReady(),
+    res.json({
+      ok: true,
+      cmds: registry.size,
+      aliases: aliases.size,
       loggedIn: STATE.loggedIn,
       db: mongo.status().readyState === 1,
-      commands: registry.size,
+      uptime: Math.floor((Date.now() - STATE.startedAt) / 1000),
     });
   });
 
@@ -310,28 +342,29 @@ function reloadCommands() {
 // ─────────────────────────────────────────────────────────────
 async function handleGroupChange(api, event) {
   const threadID = event.threadID;
-  const action = event.type;
+  // ws3-fca reports joins/leaves as log:subscribe / log:unsubscribe.
+  const action = event.logMessageType;
+  const data = event.logMessageData || {};
 
   try {
     // New member joined
-    if (action === 'event_thread_member_join' || action === 'event_thread_join') {
-      await toggles.getGroup(threadID);
+    if (action === 'log:subscribe') {
       const group = await toggles.getGroup(threadID);
       if (group.settings?.welcome && group.settings.welcomeMsg) {
-        const who = event.added || event.actorID;
+        const added = Array.isArray(data.addedParticipants) ? data.addedParticipants : [];
+        const who = added[0] || event.author;
         const text = String(group.settings.welcomeMsg)
           .replace(/{user}/g, String(who))
           .replace(/{group}/g, String(threadID));
         await reply(api, threadID, text, null);
       }
-      if (config.REACTIONS_ENABLED && event.messageID) react(api, event.messageID, '👋');
     }
 
     // Member left
-    if (action === 'event_thread_member_leave' || action === 'event_thread_leave') {
+    if (action === 'log:unsubscribe') {
       const group = await toggles.getGroup(threadID);
       if (group?.settings?.goodbye && group.settings.goodbyeMsg) {
-        const who = event.removed || event.actorID;
+        const who = data.leftParticipantFbId || event.author;
         const text = String(group.settings.goodbyeMsg).replace(/{user}/g, String(who));
         await reply(api, threadID, text, null);
       }
@@ -346,149 +379,153 @@ async function handleGroupChange(api, event) {
 // ─────────────────────────────────────────────────────────────
 function attachClient(api) {
   client = api;
+}
 
-  api.on('message', (event) => {
-    // Ignore our own messages and non-text events.
+/**
+ * Route ws3-fca MQTT events into the command chain.
+ *
+ * ws3-fca does NOT expose `api.on(...)`. Events arrive on the EventEmitter
+ * that `api.listenMqtt()` returns, so that is what this subscribes to. The
+ * emitter is also the only place a disconnect is signalled.
+ *
+ * @param {object} api ws3-fca client
+ * @param {EventEmitter} emitter emitter returned by api.listenMqtt()
+ */
+function attachEvents(api, emitter) {
+  client = api;
+
+  emitter.on('message', (event) => {
     if (!event || !event.threadID) return;
-    if (event.isSelf === true) return;
-    if (typeof event.body !== 'string' || !event.body) return;
 
-    safe(() => handleMessage(api, event), api, event.threadID, event.messageID, 'message');
+    // Text messages from other people are the only thing commands care about.
+    if (event.type === 'message') {
+      if (event.isSelf === true) return;
+      if (typeof event.body !== 'string' || !event.body) return;
+      safe(() => handleMessage(api, event), api, event.threadID, event.messageID, 'message');
+      return;
+    }
+
+    // Group joins/leaves arrive as `type: 'event'` with a logMessageType.
+    if (event.type === 'event' && /^log:(subscribe|unsubscribe)$/.test(event.logMessageType || '')) {
+      safe(() => handleGroupChange(api, event), api, event.threadID, null, event.logMessageType);
+    }
   });
 
-  // Group joins/leaves
-  const groupEvents = [
-    'event_thread_member_join',
-    'event_thread_member_leave',
-    'event_thread_join',
-    'event_thread_leave',
-  ];
-  for (const evt of groupEvents) {
-    api.on(evt, (event) => {
-      if (!event || !event.threadID) return;
-      safe(() => handleGroupChange(api, event), api, event.threadID, null, evt);
-    });
-  }
-
-  // Bot disconnected
-  api.on('disconnect', () => {
+  emitter.on('error', (err) => {
     STATE.loggedIn = false;
-    error('[LOGIN] Disconnected from Facebook');
-  });
-
-  api.on('error', (err) => {
     error(`[FCA] ${(err && err.message) || err}`);
   });
+
+  emitter.on('stop', () => {
+    STATE.loggedIn = false;
+    error('[MQTT] Listener stopped');
+  });
 }
 
-async function login() {
+/**
+ * Log into Facebook and start the MQTT listener.
+ *
+ * ws3-fca exports `{ login }` — a function, NOT a constructor. Calling
+ * `new fca(...)` throws "fca is not a constructor", which is what used to kill
+ * the process here. The real shape is:
+ *
+ *   login(credentials, options, (err, api) => ...)
+ *
+ * Options are passed to login() (there is no api.setOptions), events come from
+ * the emitter api.listenMqtt() returns (there is no api.on), and the account id
+ * comes from api.getCurrentUserID() (there is no api.getOwnUserId).
+ *
+ * @returns {Promise<object|null>} the api, or null if login failed
+ */
+function login() {
   if (!config.APPSTATE.length) {
     error('[LOGIN] APPSTATE is empty — set it in .env before starting.');
-    return null;
+    return Promise.resolve(null);
   }
 
-  // ws3-fca ships both CJS and ESM builds; prefer the classic build.
-  let fca;
+  let fcaLogin;
   try {
     // eslint-disable-next-line global-require
-    fca = require('ws3-fca');
+    ({ login: fcaLogin } = require('ws3-fca'));
   } catch (err) {
     error(`[LOGIN] ws3-fca not installed: ${err.message}`);
-    return null;
+    return Promise.resolve(null);
   }
 
-  const client_ = new fca({
-    appState: config.APPSTATE,
-    logLevel: config.NODE_ENV === 'production' ? 'error' : 'warn',
-    listen: false, // MQTT is wired separately so listeners attach cleanly
-  });
-
-  client_.on('qr', (qr) => {
-    if (qr) log('[LOGIN] QR code received — scan it to link the account if the appstate expired.');
-  });
+  if (typeof fcaLogin !== 'function') {
+    error('[LOGIN] ws3-fca did not export login() — check the installed version.');
+    return Promise.resolve(null);
+  }
 
   return new Promise((resolve) => {
+    let settled = false;
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(failTimer);
+      resolve(value);
+    };
+
     const failTimer = setTimeout(() => {
       error('[LOGIN] Timed out after 2 minutes — check APPSTATE.');
-      resolve(null);
+      done(null);
     }, 120000);
 
-    client_.on('ready', async () => {
-      clearTimeout(failTimer);
-      STATE.loggedIn = true;
-      try {
-        STATE.userID = await client_.getOwnUserId();
-      } catch { STATE.userID = null; }
-      log(`[LOGIN] ${config.BOT_NAME} logged in as ${STATE.userID || 'unknown'}`);
-
-      attachClient(client_);
-      startMqtt(client_);
-
-      // Persist a fresh appstate so restarts stay linked.
-      try {
-        client_.on('apstate', (state) => {
-          // Never log cookies — only acknowledge.
-          if (Array.isArray(state) && state.length) log('[LOGIN] Appstate refreshed.');
-        });
-      } catch { /* optional */ }
-
-      clearTimeout(failTimer);
-      resolve(client_);
-    });
-
-    client_.on('error', (err) => {
-      clearTimeout(failTimer);
-      error(`[LOGIN] ${(err && err.message) || err}`);
-      resolve(null);
-    });
+    const options = {
+      listenEvents: true,
+      listenTyping: false,
+      autoMarkRead: true,
+      updatePresence: true,
+      selfListen: false,
+      online: true,
+    };
 
     try {
-      client_.login({ appState: config.APPSTATE, listen: false })
-        .then(() => {
-          try { client_.listenMqtt(true); } catch { /* ready handler covers it */ }
-        })
-        .catch((err) => {
-          clearTimeout(failTimer);
-          error(`[LOGIN] Failed: ${err.message}`);
-          resolve(null);
-        });
+      fcaLogin({ appState: config.APPSTATE }, options, async (err, api) => {
+        if (err || !api) {
+          error(`[LOGIN] ${(err && err.message) || 'no api returned'}`);
+          done(null);
+          return;
+        }
+
+        STATE.loggedIn = true;
+        try {
+          STATE.userID = api.getCurrentUserID();
+        } catch { STATE.userID = null; }
+        log(`[LOGIN] ${config.BOT_NAME} logged in as ${STATE.userID || 'unknown'}`);
+
+        // startListening resolves with the emitter once the MQTT connection is
+        // up. Failing to listen is not fatal: the HTTP server and commands stay
+        // available, so the deploy is not restarted over a flaky socket.
+        try {
+          const emitter = await api.listenMqtt();
+          attachEvents(api, emitter);
+          log('[MQTT] Listening');
+        } catch (err) {
+          error(`[MQTT] listener failed to start: ${err.message}`);
+        }
+
+        done(api);
+      });
     } catch (err) {
-      clearTimeout(failTimer);
       error(`[LOGIN] Threw: ${err.message}`);
-      resolve(null);
+      done(null);
     }
   });
-}
-
-/** Start MQTT with a backoff guard so a flaky network cannot spin the CPU. */
-function startMqtt(api) {
-  let attempts = 0;
-  const start = () => {
-    try {
-      api.listenMqtt(true);
-      attempts += 1;
-      log(`[MQTT] Listening (attempt ${attempts})`);
-    } catch (err) {
-      attempts += 1;
-      error(`[MQTT] failed to start: ${err.message}`);
-      if (attempts < 5) setTimeout(start, 5000 * attempts);
-    }
-  };
-  start();
 }
 
 // ─────────────────────────────────────────────────────────────
 // BOOT
 // ─────────────────────────────────────────────────────────────
 async function boot() {
-  log(`=================================================`);
+  log('=================================================');
   log(` ${config.BOT_NAME} v${config.VERSION}`);
   log(` Owner: ${config.OWNER}`);
   log(` Node ${process.version} — env ${config.NODE_ENV}`);
-  log(`=================================================`);
+  log('=================================================');
 
-  // 1. SERVER
-  startServer();
+  // 1. SERVER — first thing, so /health answers even if every later step fails.
+  if (!server) server = startServer();
 
   // 2. LOADER — runs first so the bot is command-ready even if the DB is slow.
   const loaded = loader.loadCommands();
@@ -512,17 +549,20 @@ async function boot() {
   // 5. LOGIN
   const api = await login();
   if (!api) {
-    error('[BOOT] Login failed — check APPSTATE. Express server stays up for /health.');
+    error('[BOOT] Login failed — retrying in 30s. /health stays up meanwhile.');
+    scheduleRetry();
   } else {
     log(`[BOOT] ${config.BOT_NAME} is online with ${registry.size} commands. Try \`${config.PREFIX}ping\``);
   }
 
   // 6. HOUSEKEEPING
-  const housekeeping = setInterval(() => {
-    cooldown.sweep();
-    cache.sweep();
-  }, 60 * 1000);
-  if (typeof housekeeping.unref === 'function') housekeeping.unref();
+  if (!housekeeping) {
+    housekeeping = setInterval(() => {
+      cooldown.sweep();
+      cache.sweep();
+    }, 60 * 1000);
+    if (typeof housekeeping.unref === 'function') housekeeping.unref();
+  }
 
   return { registry, aliases, api };
 }
@@ -548,8 +588,10 @@ process.on('uncaughtException', (err) => {
 
 if (require.main === module) {
   boot().catch((err) => {
+    // Never process.exit on a boot failure: the HTTP server is already up and
+    // Render only needs /health to answer. Retry instead.
     error(`[BOOT] Fatal: ${err && err.stack ? err.stack : err}`);
-    process.exit(1);
+    scheduleRetry();
   });
 }
 
@@ -560,6 +602,7 @@ module.exports = {
   handleMessage,
   handleGroupChange,
   attachClient,
+  attachEvents,
   reloadCommands,
   findCommand: (name) => loader.findCommand(name, registry, aliases),
   listCommands: (category) => loader.listCommands(category, registry),
