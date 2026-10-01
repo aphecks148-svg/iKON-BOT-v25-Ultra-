@@ -1,0 +1,141 @@
+'use strict';
+
+/**
+ * Thin, lazy wrapper around @napi-rs/canvas.
+ * @napi-rs/canvas ships prebuilt native binaries — there is no node-gyp build step,
+ * so it works on Render and Android out of the box.
+ *
+ * Used later for profile cards, leaderboards and welcome images.
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+let canvas = null;
+let loadError = null;
+
+/** Load the library on first use so a missing binary never breaks startup. */
+function lib() {
+  if (canvas || loadError) return canvas;
+  try {
+    // eslint-disable-next-line global-require
+    canvas = require('@napi-rs/canvas');
+  } catch (err) {
+    loadError = err;
+    console.warn(`[CANVAS] unavailable: ${err.message}`);
+  }
+  return canvas;
+}
+
+const available = () => Boolean(lib());
+const error = () => loadError;
+
+/**
+ * Create a canvas and expose a 2D context.
+ * @param {number} width
+ * @param {number} height
+ * @returns {{canvas:object, ctx:object}|null} null when the library is unavailable
+ */
+function create(width, height) {
+  const c = lib();
+  if (!c) return null;
+  try {
+    const surface = c.createCanvas(width, height);
+    const ctx = surface.getContext('2d');
+    return { canvas: surface, ctx };
+  } catch (err) {
+    console.warn(`[CANVAS] create failed: ${err.message}`);
+    return null;
+  }
+}
+
+/** Render a canvas to a PNG buffer, ready for api.sendMessage. */
+async function toBuffer(canvasObj) {
+  if (!canvasObj) return null;
+  try {
+    // @napi-rs/canvas exposes Canvas#toBuffer(); there is no encode() helper.
+    const buf = canvasObj.toBuffer('image/png');
+    if (Buffer.isBuffer(buf)) return buf;
+    return Buffer.from(buf);
+  } catch (err) {
+    console.warn(`[CANVAS] toBuffer failed: ${err.message}`);
+    return null;
+  }
+}
+
+/** Load a font from disk (optional — falls back to the default face). */
+async function loadFont(name, file) {
+  const c = lib();
+  if (!c) return false;
+  try {
+    await c.GlobalFonts.registerFromPath(file, name);
+    return true;
+  } catch (err) {
+    console.warn(`[CANVAS] font "${name}" failed: ${err.message}`);
+    return false;
+  }
+}
+
+/**
+ * Register the best font available for labels.
+ * Android containers ship almost no system fonts, so a missing font must
+ * degrade to shapes-and-gradients rather than crash or render blank text.
+ */
+async function registerDefaultFont(dir = path.join(__dirname, 'fonts')) {
+  const c = lib();
+  if (!c) return false;
+  try {
+    const files = fs.existsSync(dir)
+      ? fs.readdirSync(dir).filter((f) => /\.(ttf|otf)$/i.test(f))
+      : [];
+    if (!files.length) return false;
+    let loadedAny = false;
+    for (const f of files) {
+      // eslint-disable-next-line no-await-in-loop
+      if (await loadFont('iKonSans', path.join(dir, f))) loadedAny = true;
+    }
+    return loadedAny;
+  } catch {
+    return false;
+  }
+}
+
+/** Send a canvas as a Messenger attachment. */
+async function sendImage(api, threadID, canvasObj, messageID) {
+  const buffer = await toBuffer(canvasObj);
+  if (!buffer || !api) return null;
+  const payload = { attachment: { type: 'image', data: { url: `data:image/png;base64,${buffer.toString('base64')}` } } };
+  if (messageID) payload.messageID = messageID;
+  try {
+    return await api.sendMessage(payload, threadID);
+  } catch (err) {
+    console.warn(`[CANVAS] sendImage failed: ${err.message}`);
+    return null;
+  }
+}
+
+/** Common brand colours. */
+const FONT = 'iKonSans';
+
+const theme = {
+  bg1: '#0f0f1a',
+  bg2: '#1a1030',
+  accent: '#00d4ff',
+  accent2: '#b14bff',
+  gold: '#ffcc00',
+  text: '#ffffff',
+  muted: '#9aa0b5',
+};
+
+module.exports = {
+  available,
+  error,
+  create,
+  toBuffer,
+  loadFont,
+  registerDefaultFont,
+  sendImage,
+  theme,
+  FONT,
+  lib,
+};

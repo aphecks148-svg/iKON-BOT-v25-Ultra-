@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+appstate.json
+appstate.json.txt
+.cache/
+.tmp/
+coverage/
+.DS_Store
+.idea/
+.vscode/

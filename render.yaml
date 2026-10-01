@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: ikon-bot
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install --omit=dev
+    startCommand: node index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: APPSTATE
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: PORT
+        value: "3000"
+      - key: PREFIX
+        value: "!"

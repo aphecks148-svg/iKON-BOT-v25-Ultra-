@@ -1,0 +1,37 @@
+{
+  "name": "ikon-bot",
+  "version": "2.0.0",
+  "description": "iKON-BOT v2 — clean modular Facebook Messenger RPG/social bot (ws3-fca, MongoDB, Express, @napi-rs/canvas, Gemini)",
+  "main": "index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node bot/test.js",
+    "check": "node bot/check.js"
+  },
+  "keywords": [
+    "facebook",
+    "messenger",
+    "bot",
+    "rpg",
+    "mongodb",
+    "mongoose",
+    "ws3-fca",
+    "gemini",
+    "render"
+  ],
+  "author": "Aphecks iKon Klerk",
+  "license": "MIT",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "@napi-rs/canvas": "^1.0.9",
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.9.5",
+    "ws3-fca": "^3.5.2"
+  }
+}
