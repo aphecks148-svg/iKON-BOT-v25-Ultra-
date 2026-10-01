@@ -103,6 +103,27 @@ checks in `bot/test.js`.
 2. Add env vars: `APPSTATE`, `MONGO_URI`, `ADMIN_IDS`, `GEMINI_API_KEY` (optional).
 3. Health check path: `/health`.
 
+### Admin uids
+
+Admin ids come from the environment only — nothing is hard-coded, so changing
+who is an admin is an env change plus a redeploy, not a code change.
+
+| Variable | Purpose |
+|---|---|
+| `ADMIN_IDS` | Comma separated Facebook numeric ids. Grants owner on every owner-only command (`!ban`, `!eval`, `!reload`, …) and exempts them from `!kick`/`!gcmute` in every group. |
+| `OWNER_ID` | Optional single-owner shorthand. Folded into `ADMIN_IDS`; set either or both. |
+
+With both empty, every owner-only command refuses everyone and the bot logs
+`[CONFIG] ADMIN_IDS (and OWNER_ID) are empty` at boot — check the Render logs
+first if an admin command never answers.
+
+`bot/permissions.js` is the only place "is this person an admin" is decided:
+
+- `isOwner(uid)` — env-driven, owner-level everywhere.
+- `canModerate(api, event)` — env admins plus this thread's admins.
+- `protectedIds(api, threadID)` — who must never be moderated. Deliberately does
+  **not** include the sender; use `protectedIdsFor` for a target-exemption list.
+
 ### Gemini
 
 The 35 AI commands in module 8 share one client, `bot/gemini.js`, which calls

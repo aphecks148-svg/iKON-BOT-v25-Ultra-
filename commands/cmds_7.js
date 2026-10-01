@@ -30,6 +30,7 @@ const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
 const { fmt } = require('../bot/helpers');
+const permissions = require('../bot/permissions');
 
 const CASH = 'K-Cash';
 const ULTRA = 'iKON-BOT v2 Ultra';
@@ -2330,15 +2331,15 @@ const commands = [];
       }
       const t = g(userDoc);
 
-      // Admin only, and only for the group founder. A war is expensive for
-      // everyone in the chat, so it is not a thing any member can start.
-      let info = null;
-      try { info = await api.getThreadInfo(event.threadID); } catch { info = null; }
-      const admins = (info && (info.adminIDs || [])) || [];
-      const isAdmin = String(event.senderID) === String(userDoc.uid)
-        ? true
-        : admins.map(String).includes(String(event.senderID));
-      if (!isAdmin) {
+      // Admin only: a bot admin from ADMIN_IDS/OWNER_ID, or an admin of this
+      // chat. A war is expensive for everyone in the chat, so it is not a thing
+      // any member can start.
+      //
+      // This used to read `event.senderID === userDoc.uid`, which is always
+      // true — userDoc IS the sender's own profile — so every member could start
+      // a war. canModerate() is the one place "is this person an admin here" is
+      // decided, so no command can re-derive it and get it tautologically true.
+      if (!await permissions.canModerate(api, event)) {
         await reply('⚔️ **Only an admin can start a war.**', event.messageID);
         return;
       }

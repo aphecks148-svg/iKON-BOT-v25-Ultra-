@@ -23,6 +23,7 @@ const mongo = require('../bot/mongo');
 const canvas = require('../bot/canvas');
 const loader = require('../bot/loader');
 const { fmt } = require('../bot/helpers');
+const permissions = require('../bot/permissions');
 
 const BOT_ICON = '🤖';
 const OWNER_ICON = '👑';
@@ -335,10 +336,15 @@ module.exports = [
     cooldown: 5,
     permission: 'all',
     execute: async ({ api, event, config, reply }) => guard(reply, event.messageID, 'adminlist', async () => {
+      // Read through permissions.ownerIds() rather than config.ADMIN_IDS alone:
+      // that folds in the optional OWNER_ID, so this list is exactly the set the
+      // permission check uses. If the two ever disagree, an operator reading
+      // this would be told the wrong thing about who can run what.
+      const owners = permissions.ownerIds();
       const lines = [
-        `${OWNER_ICON} Bot admins (${config.ADMIN_IDS.length})`,
+        `${OWNER_ICON} Bot admins (${owners.length})`,
         '━━━━━━━━━━━━━━━',
-        ...(config.ADMIN_IDS.length ? config.ADMIN_IDS.map((id) => `• ${id}`) : ['• none configured']),
+        ...(owners.length ? owners.map((id) => `• ${id}`) : ['• none configured — set ADMIN_IDS in the Render environment']),
       ];
 
       if (event.isGroup) {
@@ -793,7 +799,10 @@ module.exports = [
         + `Host: ${maskHost(config.MONGO_URI)}\n`
         + '──── facebook ────\n'
         + `Cookies: ${config.APPSTATE.length} loaded (values hidden)\n`
-        + `Admins: ${config.ADMIN_IDS.length}\n`
+        + `Admins: ${permissions.ownerIds().length}\n`
+        // Loud when empty, because with no ADMIN_IDS every owner-only command
+        // is silently unreachable and the bot looks broken rather than locked.
+        + (permissions.ownerIds().length ? '' : '⚠️ none configured — set ADMIN_IDS in the Render environment\n')
         + '──── ai ────\n'
         + `Gemini: ${config.GEMINI_API_KEY ? 'configured' : 'not set'}\n`
         // The live model, not just the configured one: the client falls back

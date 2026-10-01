@@ -169,6 +169,116 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     return 'all / owner / groupAdmin / deny';
   });
 
+  await step('admin ids come from the environment, with no hard-coded fallback', () => {
+    // config.OWNER_ID is read by permissions.isOwner but was never defined in
+    // config.js, so the comparison ran against String(undefined) and never
+    // matched. Assert the key exists so that gap cannot reopen.
+    assert.ok('OWNER_ID' in config, 'config must define OWNER_ID');
+    assert.ok(Array.isArray(config.ADMIN_IDS), 'ADMIN_IDS must be an array');
+    assert.ok(config.ADMIN_IDS.length, 'the test seeds ADMIN_IDS, so it must parse');
+
+    const savedIds = config.ADMIN_IDS;
+    const savedOwner = config.OWNER_ID;
+    try {
+      // Both the list and the singular form must grant owner.
+      config.ADMIN_IDS = ['env_admin_1'];
+      config.OWNER_ID = '';
+      assert.strictEqual(permissions.isOwner('env_admin_1'), true, 'ADMIN_IDS entry must grant owner');
+      assert.strictEqual(permissions.isOwner('env_admin_2'), false);
+
+      config.ADMIN_IDS = [];
+      config.OWNER_ID = 'env_owner_1';
+      assert.strictEqual(permissions.isOwner('env_owner_1'), true, 'OWNER_ID must grant owner');
+      assert.strictEqual(permissions.isOwner('someone_else'), false);
+
+      // ownerIds() is what the moderation exemptions use; it must merge both.
+      assert.deepStrictEqual(permissions.ownerIds().sort(), ['env_owner_1']);
+
+      config.ADMIN_IDS = ['env_admin_1'];
+      assert.deepStrictEqual(permissions.ownerIds().sort(), ['env_admin_1', 'env_owner_1'],
+        'ownerIds must merge ADMIN_IDS and OWNER_ID without duplicates');
+
+      // An empty OWNER_ID must never match a sender. String(undefined) === 'undefined'
+      // was the original bug shape.
+      config.OWNER_ID = '';
+      assert.strictEqual(permissions.isOwner('undefined'), false);
+      assert.strictEqual(permissions.isOwner(''), false);
+    } finally {
+      config.ADMIN_IDS = savedIds;
+      config.OWNER_ID = savedOwner;
+    }
+    return 'ADMIN_IDS + OWNER_ID resolve from env';
+  });
+
+  await step('protectedIds exempts env admins from moderation', async () => {
+    const savedIds = config.ADMIN_IDS;
+    const savedOwner = config.OWNER_ID;
+    try {
+      config.ADMIN_IDS = ['bot_admin_env'];
+      config.OWNER_ID = 'solo_owner_env';
+      // getThreadInfo fails: the env admins must still be protected, because
+      // degrading to "protect nobody" is how an owner gets muted by their own
+      // !gcmuteall.
+      const broken = { getThreadInfo: async () => { throw new Error('no api'); } };
+      const set = await permissions.protectedIds(broken, 't_1');
+      assert.ok(set.has('bot_admin_env'), 'ADMIN_IDS admin must be exempt');
+      assert.ok(set.has('solo_owner_env'), 'OWNER_ID admin must be exempt');
+      assert.ok(!set.has('random_member'), 'an ordinary member must not be exempt');
+      // The acting user is NOT in here. Including it and then testing membership
+      // is the tautology that let any member pass an admin gate.
+      assert.ok(!set.has('acting_admin'), 'protectedIds must not auto-include the sender');
+
+      // Thread admins are additive on top of the env list.
+      const api = { getThreadInfo: async () => ({ adminIDs: ['thread_admin'] }) };
+      const merged = await permissions.protectedIds(api, 't_1');
+      assert.ok(merged.has('thread_admin') && merged.has('bot_admin_env'));
+
+      // protectedIdsFor is the target-exemption variant, and does add the sender.
+      const forSender = await permissions.protectedIdsFor(api, 't_1', 'acting_admin');
+      assert.ok(forSender.has('acting_admin'), 'protectedIdsFor must include the sender');
+    } finally {
+      config.ADMIN_IDS = savedIds;
+      config.OWNER_ID = savedOwner;
+    }
+    return 'env admins exempt even when thread lookup fails';
+  });
+
+  await step('canModerate grants env admins and thread admins, denies members', async () => {
+    const savedIds = config.ADMIN_IDS;
+    const savedOwner = config.OWNER_ID;
+    try {
+      config.ADMIN_IDS = ['bot_admin_env'];
+      config.OWNER_ID = 'solo_owner_env';
+      const api = { getThreadInfo: async () => ({ adminIDs: ['thread_admin'] }) };
+
+      assert.strictEqual(await permissions.canModerate(api, { senderID: 'bot_admin_env', threadID: 't_1' }), true,
+        'ADMIN_IDS admin must moderate');
+      assert.strictEqual(await permissions.canModerate(api, { senderID: 'solo_owner_env', threadID: 't_1' }), true,
+        'OWNER_ID admin must moderate');
+      assert.strictEqual(await permissions.canModerate(api, { senderID: 'thread_admin', threadID: 't_1' }), true,
+        'thread admin must moderate');
+      assert.strictEqual(await permissions.canModerate(api, { senderID: 'random_member', threadID: 't_1' }), false,
+        'an ordinary member must NOT moderate');
+
+      // A failing lookup must deny, never grant.
+      const broken = { getThreadInfo: async () => { throw new Error('no api'); } };
+      assert.strictEqual(await permissions.canModerate(broken, { senderID: 'thread_admin', threadID: 't_1' }), false);
+      // Env admins still pass when the thread lookup fails.
+      assert.strictEqual(await permissions.canModerate(broken, { senderID: 'bot_admin_env', threadID: 't_1' }), true);
+
+      // A private chat has no thread admins, so nobody moderates there.
+      assert.strictEqual(
+        await permissions.canModerate(api, { senderID: 'thread_admin', threadID: 't_1', isGroup: false }),
+        false,
+        'thread admins must not moderate in a DM',
+      );
+    } finally {
+      config.ADMIN_IDS = savedIds;
+      config.OWNER_ID = savedOwner;
+    }
+    return 'owner / thread admin allowed, member and DM denied';
+  });
+
   // ── 7. helpers ────────────────────────────────────────────
   await step('helpers reply + react + safe() error boundary', async () => {
     const api = mockApi();

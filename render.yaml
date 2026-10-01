@@ -20,6 +20,10 @@ services:
         sync: false
       - key: ADMIN_IDS
         sync: false
+      # Optional single-owner shorthand, folded into ADMIN_IDS by
+      # bot/permissions.js. Set one or both; both are read from the environment.
+      - key: OWNER_ID
+        sync: false
       - key: PORT
         value: "3000"
       - key: PREFIX

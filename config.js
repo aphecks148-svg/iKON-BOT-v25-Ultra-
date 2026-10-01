@@ -80,6 +80,11 @@ const config = {
   // ── facebook / ws3-fca ────────────────────────────────────
   APPSTATE: parseAppState(env('APPSTATE')),
   ADMIN_IDS: parseAdminIds(env('ADMIN_IDS', '')),
+  // Singular form of the same thing. bot/permissions.js compared senders against
+  // this key, but it was never defined here, so the comparison was against
+  // `String(undefined)` === "undefined" and never matched. Optional: ADMIN_IDS
+  // alone is enough to grant owner.
+  OWNER_ID: env('OWNER_ID', '').trim(),
 
   // ── messenger behaviour ───────────────────────────────────
   PREFIX: resolvePrefix(),
@@ -111,6 +116,13 @@ const config = {
 // Helpful startup sanity warnings (never print secret values).
 if (!config.APPSTATE.length) console.warn('[CONFIG] APPSTATE missing — bot cannot log into Facebook.');
 if (!config.MONGO_URI) console.warn('[CONFIG] MONGO_URI missing — database features disabled.');
+// Every owner-only command is refused without an admin id, and the bot gives no
+// hint that the operator forgot it, so say so once at boot rather than letting
+// an operator wonder why !ban and !eval never answer. Computed here rather than
+// via permissions.ownerIds() because that module requires this one.
+if (!config.ADMIN_IDS.length && !config.OWNER_ID) {
+  console.warn('[CONFIG] ADMIN_IDS (and OWNER_ID) are empty — every owner-only command will refuse everyone.');
+}
 
 module.exports = config;
 module.exports._internals = { env, envBool, envInt, parseAdminIds, parseAppState, resolvePrefix };

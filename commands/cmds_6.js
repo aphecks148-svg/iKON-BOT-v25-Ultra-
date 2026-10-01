@@ -31,6 +31,7 @@ const Economy = require('../models/Economy');
 const canvasKit = require('../bot/canvas');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
+const permissions = require('../bot/permissions');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -252,7 +253,9 @@ function bar(level) {
   return `${'█'.repeat(filled)}${'░'.repeat(10 - filled)}`;
 }
 
-/** Admin list for this thread, best effort. Never grants on a failed lookup. */
+/**
+ * Admin list for this thread, best effort. Never grants on a failed lookup.
+ */
 async function threadAdmins(api, event) {
   try {
     const info = await api.getThreadInfo(event.threadID);
@@ -260,6 +263,18 @@ async function threadAdmins(api, event) {
   } catch {
     return [];
   }
+}
+
+/**
+ * Who must never be muted or kicked here: this chat's admins, the bot admins
+ * from ADMIN_IDS/OWNER_ID, and the acting user.
+ *
+ * This keeps a bot admin from moderating themselves in a group they do not
+ * administrate — the moderation commands gate on permission, but the target
+ * exemption previously only knew about the thread's own admins.
+ */
+async function exemptIds(api, event) {
+  return permissions.protectedIdsFor(api, event.threadID, event.senderID);
 }
 
 /**
@@ -602,8 +617,11 @@ const commands = [];
       const target = await targetOr(reply, event.messageID, args[0], event, 'kick');
       if (!target) return;
 
-      const admins = await threadAdmins(api, event);
-      if (admins.includes(String(target.uid))) {
+      // Bot admins from ADMIN_IDS/OWNER_ID count as admins here too, not just
+      // this thread's admins: an owner must not be kickable from a group they
+      // moderate on the bot's behalf.
+      const admins = await exemptIds(api, event);
+      if (admins.has(String(target.uid))) {
         await reply('❌ That person is an admin here. Demote them first.', event.messageID);
         return;
       }
@@ -1043,8 +1061,10 @@ const commands = [];
       const expires = new Date(Date.now() + mins * 60 * 1000);
       prune(cfg.mutes);
 
-      const admins = await threadAdmins(api, event);
-      const exempt = new Set([...admins, String(event.senderID)]);
+      // Admins from ADMIN_IDS/OWNER_ID are exempt along with this chat's own
+      // admins, so a bot admin running !gcmuteall in a group they do not
+      // administrate cannot mute themselves.
+      const exempt = await exemptIds(api, event);
       const members = await safeMembers(api, event);
 
       if (!members.length) {
@@ -1640,8 +1660,14 @@ const commands = [];
       };
       const rows = admins.map((uid, i) => `${i + 1}. ${nameOf(uid)}`).join('\n');
 
+      // These are the admins Messenger reports for this chat. Bot admins from
+      // ADMIN_IDS/OWNER_ID can also run the moderator commands anywhere, so they
+      // are listed here too — otherwise this reads as "nobody else is an admin"
+      // and sends people to re-demote someone who outranks them.
+      const owners = permissions.ownerIds();
       await reply(
         `🛡️ **THE ADMIN BENCH**\n━━━━━━━━━━━━━━━\n${rows}\n`
+        + (owners.length ? `\n👑 Bot admins (ADMIN_IDS): ${owners.join(', ')}\n` : '')
         + `📖 ${OWNER} outranks all of them.`,
         event.messageID,
       );
