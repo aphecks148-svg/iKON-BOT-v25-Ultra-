@@ -178,17 +178,22 @@ const NEVER = [
 ];
 
 /** Toxic facts. Generated from what is actually known, never invented. */
+/**
+ * These receive the fun record itself (f(userDoc)), not the user document, so
+ * every field is read bare. They interpolate nothing that is not already a
+ * counter on the target's own account.
+ */
 const FACT_TEMPLATES = [
-  (t) => `has run ${num(t.fun.roasts)} roasts. That is not a personality, that is a job.`,
-  (t) => `has been slapped ${num(t.fun.slaps)} times and still comes back to this chat.`,
-  (t) => `has ${num(t.fun.hugs)} hugs on record and still cannot ask for one out loud.`,
-  (t) => `has flexed ${num(t.fun.flexes)} times. The confidence is real. The balance is not.`,
-  (t) => `has failed ${num(t.fun.daresFailed)} dares and paid for every single one.`,
-  (t) => `has ${num(t.fun.kills)} fake kills. Nobody has ever been actually killed. This is a bot.`,
-  (t) => `has done ${num(t.fun.dares)} dares, which is more commitment than most people show.`,
-  (t) => `has ${num(t.fun.stabs)} stabs on record. All of them were messages.`,
-  (t) => `has been the target of ${num(t.fun.giftsIn)} gifts and the source of ${num(t.fun.giftsOut)}. The maths is damning.`,
-  (t) => `has ${num(t.fun.cuddles)} cuddles logged. Nobody has verified any of them.`,
+  (t) => `has run ${num(t.roasts)} roast(s). That is not a personality, that is a job.`,
+  (t) => `has been slapped ${num(t.slaps)} time(s) and still comes back to this chat.`,
+  (t) => `has ${num(t.giftsIn)} hug(s) on record and still cannot ask for one out loud.`,
+  (t) => `has flexed ${num(t.flexes)} time(s). The confidence is real. The balance is not.`,
+  (t) => `has failed ${num(t.daresFailed)} dare(s) and paid for every single one.`,
+  (t) => `has ${num(t.kills)} fake kill(s). Nobody has ever been actually killed. This is a bot.`,
+  (t) => `has issued ${num(t.dares)} dare(s), which is more commitment than most people show.`,
+  (t) => `has ${num(t.stabs)} stab(s) on record. All of them were messages.`,
+  (t) => `has received ${num(t.giftsIn)} gift(s) and sent ${num(t.giftsOut)}. The maths is damning.`,
+  (t) => `has ${num(t.cuddles)} cuddle(s) logged. Nobody has verified any of them.`,
 ];
 
 /** Pick up lines aimed at somebody. */
@@ -513,6 +518,11 @@ function meter(pct, label) {
 // ───────────────────────────────────────────────────────────
 // SMALL HELPERS
 // ───────────────────────────────────────────────────────────
+
+/** A dare is a plain string; this keeps the reply code readable. */
+function open_dare_line(dare) {
+  return String(dare || '').trim();
+}
 
 /** Run a handler with a user-facing safety net. */
 async function guard(reply, messageID, label, fn) {
@@ -1867,6 +1877,436 @@ const commands = [];
         + `💸 -${kc(FEES.flexultra)} to post this\n\n`
         + `${brags.map((b) => `• ${b}`).join('\n')}\n\n`
         + '📖 _Your real balance and your real pet. The flex is the only fiction._',
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// PARTY GAMES AND THE LAST WORD
+//
+// Games are thread-scoped in cache with an empty uid, so two groups playing at
+// the same time never see each other's board. Everything expires on its own in
+// two minutes: an abandoned game must not outlive the conversation that started
+// it, and nothing here bans anybody.
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'dareultra',
+    aliases: ['dare2'],
+    category: 'fun',
+    description: '🎯 Dare somebody. They reply `!darego` to do it, `!gostop` to weasel and pay 500',
+    usage: '!dareultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'dareultra', async () => {
+      await react('🎯');
+
+      // One command, three jobs. The spec allows exactly one dare command, so
+      // the game has to resolve itself: no tag opens your current dare, and the
+      // words done / no settle it. Otherwise a dare could be issued and never
+      // closed, which is the worst way for a party game to end.
+      const open = cache.getPendingGame('dare', event.threadID, String(userDoc.uid));
+      const word = String(args[0] || '').toLowerCase();
+
+      // done / no with nothing open is a real answer, not a missing tag. Without
+      // this the word falls through to target resolution and tells the player
+      // that a person called "done" does not exist here.
+      if ((word === 'done' || word === 'no') && !open) {
+        await reply(
+          `🎯 You have no dare open, so there is nothing to ${word === 'done' ? 'do' : 'fail'}.\n`
+          + '😈 `!dareultra @you` to start one.',
+          event.messageID,
+        );
+        return;
+      }
+
+      if (!args[0] && open) {
+        await reply(
+          `🎯 **YOU HAVE A DARE OPEN**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `😈 **${open.dare}**\n`
+          + `🎯 ${open.by} dared you.\n`
+          + `⏱️ ${Math.max(1, Math.ceil((open.expires - Date.now()) / 1000))}s left.\n\n`
+          + `✅ \`!dareultra done\` when you have done it\n`
+          + '💸 \`!dareultra no\` to chicken out for 500',
+          event.messageID,
+        );
+        return;
+      }
+
+      if ((word === 'done' || word === 'no') && open) {
+        if (word === 'done') {
+          cache.takePendingGame('dare', event.threadID, String(userDoc.uid));
+          f(userDoc).daresDone += 1;
+          await save(userDoc);
+          await reply(
+            `✅ **DARE DONE.**\n`
+            + '━━━━━━━━━━━━━━━\n'
+            + `😈 It was: *${open.dare}*\n`
+            + `🎯 ${open.by} dared you and you did it.\n`
+            + '📖 _Nobody checked. You are trusted, which is a mistake but an honest one._',
+            event.messageID,
+          );
+          return;
+        }
+
+        const paid = await fee(userDoc, 500, 'fun:dare_fail');
+        if (!paid.ok) {
+          await reply(`${paid.reason}\n💸 Failing costs 500. Do the dare or save up.`, event.messageID);
+          return;
+        }
+        // Cleared only after the payment lands, so a broke player keeps the dare
+        // open instead of losing it for free.
+        cache.takePendingGame('dare', event.threadID, String(userDoc.uid));
+        f(userDoc).daresFailed += 1;
+        await save(userDoc);
+        await reply(
+          `💸 **WEASELLED OUT.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `😈 It was: *${open.dare}*\n`
+          + `💸 -500 to ${open.by}\n`
+          + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+          + '📖 _No ban. No timeout. Just 500 coins and a permanent record._',
+          event.messageID,
+        );
+        return;
+      }
+
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'dareultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.dareultra, 'fun:dareultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const dare = pick1(DARES);
+      // setPendingGame refuses to overwrite, so one person cannot be spammed
+      // with dares while an old one is still open.
+      const opened = cache.setPendingGame('dare', event.threadID, String(who.uid), {
+        dare,
+        by: userDoc.name,
+        from: String(userDoc.uid),
+      });
+      if (!opened) {
+        await reply(`🎯 ${who.name} already has a dare open. Finish that one first.`, event.messageID);
+        return;
+      }
+
+      f(userDoc).dares += 1;
+      await save(userDoc);
+
+      await react('😈');
+      await reply(
+        `🎯 **${userDoc.name} DARES ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `😈 **${open_dare_line(dare)}**\n\n`
+        + `⏱️ 2 minutes.\n`
+        + `▶️ \`!dareultra done\` to do it, \`!dareultra no\` to weasel out for 500.\n`
+        + '📖 _Nobody is ever forced to do anything. Weaseling costs coins and nothing else._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'truthultra',
+    aliases: ['truth2'],
+    category: 'fun',
+    description: '🫢 One truth question for the chat. Replying costs nothing and hides nothing',
+    usage: '!truthultra',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'truthultra', async () => {
+      await react('🫢');
+      const q = pick1(TRUTHS);
+
+      // Thread-scoped with an empty uid, so the newest question replaces the old
+      // one and two groups never collide.
+      cache.putPendingGame('truth', event.threadID, '', { q, by: userDoc.name });
+      await reply(
+        `🫢 **TRUTH**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `❓ **${q}**\n\n`
+        + `👤 ${userDoc.name} asked.\n`
+        + '📖 _Answer in the chat. There is no enforcement and no punishment._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'wouldyourather',
+    aliases: ['wyr', 'wouldurather'],
+    category: 'fun',
+    description: '🤔 Two options, one answer. Votes are counted from cache and expire in 2 minutes',
+    usage: '!wouldyourather',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'wouldyourather', async () => {
+      await react('🤔');
+
+      // Same self-resolving trick as dareultra: with only one command allowed,
+      // the first call opens the vote and the second closes it. Otherwise a
+      // would-you-rather could never report a result.
+      const open = cache.getPendingGame('wyr', event.threadID, '');
+
+      if (open && open.pair) {
+        const votes = open.votes || {};
+        let one = 0;
+        let two = 0;
+        for (const v of Object.values(votes)) {
+          if (v === 1) one += 1;
+          else if (v === 2) two += 1;
+        }
+        const total = one + two;
+        cache.takePendingGame('wyr', event.threadID, '');
+        if (!total) {
+          await reply(
+            `📊 **NOBODY VOTED.**\n`
+            + '━━━━━━━━━━━━━━━\n'
+            + `1️⃣ ${open.pair[0]}\n`
+            + `2️⃣ ${open.pair[1]}\n\n`
+            + 'The chat has chosen nothing, loudly.',
+            event.messageID,
+          );
+          return;
+        }
+        const winner = one === two ? null : one > two ? 1 : 2;
+        const pct = Math.round((Math.max(one, two) / total) * 100);
+        await reply(
+          `📊 **THE CHAT HAS SPOKEN**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `1️⃣ ${open.pair[0]} — ${num(one)} vote(s)\n`
+          + `2️⃣ ${open.pair[1]} — ${num(two)} vote(s)\n\n`
+          + (winner === null
+            ? `🤷 Dead heat. ${num(total)} vote(s), no winner, no decision.`
+            : `${meter(pct, `OPTION ${winner} WINS WITH ${pct}%`)}\n🏆 **${open.pair[winner - 1]}**`)
+          + `\n\n📖 _${num(total)} vote(s) counted. Nobody is named._`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const pair = pick1(WYR);
+      cache.putPendingGame('wyr', event.threadID, '', { pair, votes: {} });
+      await reply(
+        `🤔 **WOULD YOU RATHER**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `1️⃣ ${pair[0]}\n`
+        + `2️⃣ ${pair[1]}\n\n`
+        + `👤 ${userDoc.name} started it. 2 minutes. Neither option is safe.\n`
+        + '▶️ Reply with just `1` or `2`, then run `!wouldyourather` again to close it.\n'
+        + '📖 _The bot does not record who voted._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'neverhaveiever',
+    aliases: ['neverhave', 'nhi'],
+    category: 'fun',
+    description: '🍻 Never have I ever — the group answers with a number, 1 to 5',
+    usage: '!neverhaveiever',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'neverhaveiever', async () => {
+      await react('🍻');
+
+      // One command, so the tally has to live in the same command. With no args
+      // it closes whatever is open; with any args it starts a custom item.
+      const open = cache.getPendingGame('nhi', event.threadID, '');
+      if (open && open.item && !args.length) {
+        cache.takePendingGame('nhi', event.threadID, '');
+        const answered = clamp(open.answered);
+        await reply(
+          `📊 **THE TALLY**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `❓ *${open.item}*\n`
+          + `🙋 ${num(answered)} people said they were still here.\n\n`
+          + `${answered === 0 ? 'The silence is the answer.' : 'And the chat continues regardless.'}\n`
+          + '📖 _This bot does not collect or store who pressed what._',
+          event.messageID,
+        );
+        return;
+      }
+
+      const item = args.length ? args.join(' ').trim() : pick1(NEVER);
+      cache.putPendingGame('nhi', event.threadID, '', { item, by: userDoc.name, answered: 0 });
+      await reply(
+        `🍻 **NEVER HAVE I EVER**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `❓ Never have I ever **${item}**?\n\n`
+        + `👤 ${userDoc.name} asked. 2 minutes.\n`
+        + '📖 _Self-reporting only. There is no way to check anybody._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: '2truth1lie',
+    aliases: ['twotruthline', '2t1l'],
+    category: 'fun',
+    description: '🃏 Three statements, two true. The group works out the lie',
+    usage: '!2truth1lie',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, '2truth1lie', async () => {
+      await react('🃏');
+      // Built from the caller's OWN counters, so the two truths are true by
+      // construction and only the third is fiction. It is a lie detector that
+      // cannot lie.
+      const t = f(userDoc);
+      const truths = [
+        `You have run ${num(t.roasts)} roast(s) in this chat.`,
+        `You have hugged ${num(t.giftsOut)} times.`,
+        `You have been killed ${num(t.kills)} time(s), all of them messages.`,
+        `You are holding ${kc(userDoc.coins)}.`,
+        `You have failed ${num(t.daresFailed)} dare(s).`,
+        `You have cuddled ${num(t.cuddles)} time(s).`,
+      ];
+      const picked = [...truths].sort(() => Math.random() - 0.5).slice(0, 2);
+      const lies = [
+        'You have never been married in this bot. (Probably a lie.)',
+        'You have never slapped anybody. (Nobody believes this.)',
+        'You have never cuddled a pet in this chat.',
+        'You have never flexed. (Deeply implausible.)',
+        'You have never been bonked.',
+      ];
+      const line = pick1(lies);
+      const order = [...picked, line].sort(() => Math.random() - 0.5);
+
+      cache.putPendingGame('2t1l', event.threadID, '', { order, truths: picked, lie: line });
+      await reply(
+        `🃏 **TWO TRUTHS, ONE LIE**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${order.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n`
+        + `👤 ${userDoc.name}. Pick the lie.\n`
+        + '📖 _The first two are read from your own record. Only one of the three is invented._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'factultra',
+    aliases: ['fact2', 'toxicfact'],
+    category: 'fun',
+    description: '🧾 One true, unkind fact about somebody — assembled from their own counters',
+    usage: '!factultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'factultra', async () => {
+      await react('🧾');
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'factultra') : userDoc;
+      if (!who) return;
+
+      const fact = pick1(FACT_TEMPLATES)(f(who));
+      await reply(
+        `🧾 **FACT ABOUT ${who.name.toUpperCase()}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${fact}\n\n`
+        + `👛 Their wallet: ${kc(who.coins)}\n`
+        + '📖 _True, in the sense that it is a number from their own account._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'pickuplineultra',
+    aliases: ['pickupl', 'rizzline'],
+    category: 'fun',
+    description: '💘 A pickup line aimed at somebody. Costs 50, because embarrassment is a service',
+    usage: '!pickuplineultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pickuplineultra', async () => {
+      await react('💘');
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'pickuplineultra') : userDoc;
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.pickuplineultra || 50, 'fun:pickuplineultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const line = pick1(PICKUP_LINES);
+      await reply(
+        `💘 **${userDoc.name} → ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `"${line}"\n\n`
+        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+        + '📖 _Pre-written. There is no AI in this module._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'ikonfamily',
+    aliases: ['ikonsystem3', 'thefamily'],
+    category: 'fun',
+    description: '👨‍👩‍👧‍👦 The iKON family tree — owner, god-mode winners, and where you sit in it',
+    usage: '!ikonfamily',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'ikonfamily', async () => {
+      await react('👨‍👩‍👧‍👦');
+      if (!mongo.isReady()) {
+        await reply('👨‍👩‍👧‍👦 The family tree is asleep. Adopt a database.', event.messageID);
+        return;
+      }
+
+      const group = await groupOf(event);
+      let married = 0;
+      let pets = 0;
+      try {
+        married = (await User.countDocuments({ spouse: { $nin: ['', null] } })) || 0;
+        pets = (await User.countDocuments({})) || 0;
+      } catch {
+        married = 0;
+        pets = 0;
+      }
+
+      const you = f(userDoc);
+      const pet = await petOf(userDoc);
+      // Where you sit: above the average wallet or below it. It is a rank, not
+      // a compliment, and both halves are true.
+      const rich = clamp(userDoc.coins) >= (married > 0 ? 50000 : 0);
+      const seat = clamp(userDoc.coins) > 1000000
+        ? 'Front row, aisle seat, holding the vault.'
+        : clamp(userDoc.coins) > 100000
+          ? 'Middle of the family photo. Comfortable.'
+          : clamp(userDoc.coins) > 1000
+            ? 'Back row. Visible, technically.'
+            : 'Standing outside the door pretending to check a phone.';
+
+      await react('📸');
+      const art = await card({
+        title: '👨‍👩‍👧‍👦 iKON FAMILY',
+        subtitle: `HEAD: ${OWNER}`,
+        body: `${num(married / 2)} marriage(s) on file\n${num(pets)} member(s) in the database\n\nYou: ${seat}`,
+        footer: pet ? `${pet.emoji || '🐾'} ${pet.name} IS ALSO HERE` : 'NO PET. THAT IS YOUR LEGACY.',
+        accent: canvasKit.theme.accent2,
+      });
+      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+
+      await reply(
+        `👨‍👩‍👧‍👦 **THE iKON FAMILY**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `👑 **${OWNER}** — founder, and the only person who cannot be removed.\n`
+        + `💍 ${num(Math.floor(married / 2))} married couple(s) in the database.\n`
+        + `👥 ${num(pets)} hunter(s) on record.\n\n`
+        + `👤 **YOUR SEAT: ${seat}**\n`
+        + `🤗 Hugs ${num(you.hugs)} · 🔪 Stabs ${num(you.stabs)} · 💀 Kills ${num(you.kills)}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + '📖 _Your seat is derived from your balance. It is not a metaphor._',
         event.messageID,
       );
     }),
