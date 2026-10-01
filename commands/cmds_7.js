@@ -467,4 +467,250 @@ async function carCard(car, power, wanted, extra = '') {
 /** Every command in this module, in registration order. */
 const commands = [];
 
+// ───────────────────────────────────────────────────────────
+// THE LIFE — start, stats, missions
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'gtastart',
+    aliases: [],
+    category: 'gta',
+    description: '🚗 Start your life of crime. Everything after this costs money',
+    usage: '!gtastart',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtastart', async () => {
+      await react('🚗');
+      const t = g(userDoc);
+      if (t.started) {
+        await reply(`🚗 You are already in the life, level ${t.level}.\n📖 ${story()}`, event.messageID);
+        return;
+      }
+
+      t.started = true;
+      t.level = 1;
+      t.xp = 0;
+      t.money = 0;
+      t.wanted = 0;
+      t.cars = [];
+      t.weapons = [];
+      // Everyone starts with a beater and a sidearm. The garage does the rest.
+      t.cars.push({ id: 'sultanrs', fuel: 100, nitro: false, tuned: false, crashed: false, color: '#9aa0b5' });
+      t.weapons.push({ id: 'pistol', ammo: 12 });
+      t.activeCar = 'sultanrs';
+      t.activeWeapon = 'pistol';
+      await save(userDoc);
+      await bank(userDoc, 0);
+
+      await reply(
+        `🚗 **YOU ARE IN THE LIFE.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🎖️ Level 1 · ⭐ ${stars(0)}\n`
+        + `🚙 You are handed a Sultan RS and a Pistol.\n`
+        + `💵 Wallet: ${kc(userDoc.coins)}\n\n`
+        + 'Missions pay. Cars cost. Fuel costs. The maths is the game.\n'
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtastats',
+    aliases: ['gtaprof'],
+    category: 'gta',
+    description: '📊 Your GTA record — level, wanted, garage, armoury, winnings',
+    usage: '!gtastats',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtastats', async () => {
+      await react('📊');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+
+      const car = ownedCar(userDoc);
+      const base = car ? CAR_BY_ID.get(car.id) : null;
+      const need = XP_FOR_LEVEL(t.level);
+      const pct = need ? Math.min(100, Math.round((clamp(t.xp) / need) * 100)) : 0;
+
+      await reply(
+        `📊 **${userDoc.name} — GTA RECORD**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🎖️ Level ${t.level} · XP ${num(t.xp)}/${num(need)} (${pct}%)\n`
+        + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
+        + `💰 GTA winnings: ${kc(t.money)}\n`
+        + `💸 Lifetime spend: ${kc(t.spent)}\n`
+        + `💼 Wallet: ${kc(userDoc.coins)}\n`
+        + `🚙 Garage: ${t.cars.length} car(s)${base ? ` — active ${base.name} (${num(carPower(userDoc))} pwr${car.tuned ? ' +20 tuned' : ''})` : ''}\n`
+        + `🔫 Armoury: ${t.weapons.length} weapon(s) — ${t.activeWeapon || 'none equipped'}\n`
+        + `🏁 Races ${num(t.racesWon)}W/${num(t.racesLost)}L · Missions ${num(t.missions)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtamission',
+    aliases: ['gta', 'gtam'],
+    category: 'gta',
+    description: '🎯 Take a job — drive, shoot, escape, and hope the heat stays off you',
+    usage: '!gtamission',
+    cooldown: 120,
+    permission: 'all',
+    execute: async ({ event, userDoc, reply, react }) => guard(reply, event.messageID, 'gtamission', async () => {
+      await react('🎯');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (jailed(userDoc)) {
+        await reply(`🔒 **Still in the cell.** ${jailLeft(userDoc)} minutes left.\nNothing in this city is worth that.`, event.messageID);
+        return;
+      }
+
+      // Cars are not just a flex: power below the mission floor makes the job
+      // meaningfully harder, which is what keeps the garage worth buying.
+      const power = carPower(userDoc);
+      const m = pick(MISSIONS);
+      const risk = power > 0 ? Math.min(0.85, m.risk + (power < 200 ? 0.10 : 0)) : m.risk + 0.15;
+
+      await reply(`🎯 **${m.name.toUpperCase()}**\n━━━━━━━━━━━━━━━\n📍 Risk ${Math.round(risk * 100)}% · Reward ${kc(m.reward[0])}-${kc(m.reward[1])}\n📖 ${story()}`, event.messageID);
+
+      for (const step of m.steps) {
+        await sleep(700);
+        await reply(`▸ ${step}`);
+      }
+
+      const failed = Math.random() < risk;
+      t.missions = clamp(t.missions) + 1;
+      await save(userDoc);
+
+      if (failed) {
+        const stars2 = await addWanted(userDoc, m.wanted);
+        await reply(
+          `💥 **IT WENT WRONG.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `⭐ Wanted ${stars(stars2)} (${stars2}/5)\n`
+          + `💸 Nothing paid. The car is scratched.\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const pet = await petBonus(userDoc);
+      let reward = rand(m.reward[0], m.reward[1]);
+      reward = Math.floor(reward * pet.mult);
+      const tax = await cartelTax(userDoc, event, reward);
+      const net = Math.max(0, reward - tax);
+
+      await earn(userDoc, net, 'gta:mission', { mission: m.id, reward: net });
+      await bank(userDoc, net);
+      const ups = await grantXp(userDoc, 120 + reward);
+      // A clean run still leaves a little heat, which is the tax on greed.
+      const stars2 = await addWanted(userDoc, 1);
+
+      await reply(
+        `✅ **CLEAN GETAWAY.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💰 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
+        + `⭐ Wanted ${stars(stars2)} (${stars2}/5)\n`
+        + `🎖️ XP +${num(120 + reward)}${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + (pet.note ? `${pet.note}\n` : '')
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtamissionhard',
+    aliases: ['gtahard', 'gtacoup'],
+    category: 'gta',
+    description: '💀 The vault coup — 400 power car and a real gun required, 60% bust rate',
+    usage: '!gtamissionhard',
+    cooldown: 600,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtamissionhard', async () => {
+      await react('💀');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (jailed(userDoc)) {
+        await reply(`🔒 **Still in the cell.** ${jailLeft(userDoc)} minutes left.`, event.messageID);
+        return;
+      }
+
+      // The gates are checked before the roll, so a player without the hardware
+      // is told exactly what to buy instead of watching a 60% bust.
+      const power = carPower(userDoc);
+      if (power < 400) {
+        const need = CARS.filter((c) => c.power + 20 >= 400).map((c) => c.name).join(', ');
+        await reply(`❌ **Not the car for this.** You have ${num(power)} power, this needs 400.\n🏎️ ${need}`, event.messageID);
+        return;
+      }
+      const dmg = weaponDmg(userDoc);
+      if (dmg < 150) {
+        const need = WEAPONS.filter((w) => w.dmg >= 150).map((w) => w.name).join(', ');
+        await reply(`❌ **Not the gun for this.** You have ${num(dmg)} damage, this needs 150.\n🔫 ${need}`, event.messageID);
+        return;
+      }
+
+      await reply('💀 **THE VAULT COUP**\n━━━━━━━━━━━━━━━\n📍 60% bust rate\n📖 Somebody in here is definitely watching.', event.messageID);
+      for (const step of HARD_MISSION.steps) {
+        await sleep(700);
+        await reply(`▸ ${step}`);
+      }
+
+      t.missions = clamp(t.missions) + 1;
+      await save(userDoc);
+
+      if (Math.random() < HARD_MISSION.risk) {
+        const stars2 = await addWanted(userDoc, 5);
+        t.copsHuntUntil = new Date(Date.now() + 10 * 60 * 1000);
+        await save(userDoc);
+        await reply(
+          `🚨 **THE COPS ARE ALL OVER YOU.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `⭐ Wanted ${stars(stars2)} (5/5)\n`
+          + `👮 They will take half your coins unless you bribe or run.\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const pet = await petBonus(userDoc);
+      let reward = rand(HARD_MISSION.reward[0], HARD_MISSION.reward[1]);
+      reward = Math.floor(reward * pet.mult);
+      const tax = await cartelTax(userDoc, event, reward);
+      const net = Math.max(0, reward - tax);
+
+      await earn(userDoc, net, 'gta:mission_hard', { reward: net });
+      await bank(userDoc, net);
+      const ups = await grantXp(userDoc, 900);
+      const stars2 = await addWanted(userDoc, 2);
+
+      await reply(
+        `🏆 **THE COUP LANDED.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💰 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
+        + `⭐ Wanted ${stars(stars2)} (${stars2}/5)\n`
+        + `🎖️ XP +900${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + (pet.note ? `${pet.note}\n` : '')
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
 module.exports = commands;
