@@ -59,6 +59,32 @@ const UserSchema = new mongoose.Schema(
       invites: { type: Number, default: 0 },
     },
 
+    // module 9 — the social half. Everything here is a counter or a score that
+    // some meter in the fun module reads back out. Kept in one subdocument so
+    // it is obvious which fields the fun commands own.
+    spouse: { type: String, default: '' },
+    marriedAt: { type: Date, default: null },
+    fun: {
+      hugs: { type: Number, default: 0, min: 0 },
+      slaps: { type: Number, default: 0, min: 0 },
+      kisses: { type: Number, default: 0, min: 0 },
+      pats: { type: Number, default: 0, min: 0 },
+      cuddles: { type: Number, default: 0, min: 0 },
+      kills: { type: Number, default: 0, min: 0 },
+      stabs: { type: Number, default: 0, min: 0 },
+      bonks: { type: Number, default: 0, min: 0 },
+      yeets: { type: Number, default: 0, min: 0 },
+      shipped: { type: Number, default: 0, min: 0 },
+      roasts: { type: Number, default: 0, min: 0 },
+      compliments: { type: Number, default: 0, min: 0 },
+      dares: { type: Number, default: 0, min: 0 },
+      daresDone: { type: Number, default: 0, min: 0 },
+      daresFailed: { type: Number, default: 0, min: 0 },
+      flexes: { type: Number, default: 0, min: 0 },
+      giftsIn: { type: Number, default: 0, min: 0 },
+      giftsOut: { type: Number, default: 0, min: 0 },
+    },
+
     // iKON Hunter Academy (module 3).
     rpg: {
       className: { type: String, default: '' },

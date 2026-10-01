@@ -24,6 +24,21 @@ const GroupSchema = new mongoose.Schema(
     maintenance: { type: Boolean, default: false },
 
     // module 4 — per-chat pet arena record
+    // module 9 — GC-wide social state. Ships and boards live on the group so
+    // they survive a restart, unlike the in-memory party games.
+    fun: {
+      // { a, b, score, by } — a is always the lexicographically smaller uid so
+      // shipping A+B and B+A is one ship, not two.
+      ships: { type: [Object], default: [] },
+      // { a, b, score, by } — same ordering rule as ships.
+      besties: { type: [Object], default: [] },
+      // { a, b, score, by } — enemies, same ordering rule.
+      enemies: { type: [Object], default: [] },
+      hugs: { type: Number, default: 0, min: 0 },
+      slaps: { type: Number, default: 0, min: 0 },
+      kills: { type: Number, default: 0, min: 0 },
+    },
+
     petArena: {
       battles: { type: Number, default: 0 },
       wins: { type: Number, default: 0 },
