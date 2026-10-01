@@ -977,4 +977,259 @@ const commands = [];
     }),
   });
 
+// ───────────────────────────────────────────────────────────
+// FAKE VIOLENCE AND HATE — all of it is a message
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'killultra',
+    aliases: ['kill2'],
+    category: 'fun',
+    description: '💀 Fake kill somebody — and their unsafe pet dies with them, also fake',
+    usage: '!killultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'killultra', async () => {
+      await react('💀');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'killultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.killultra, 'fun:killultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const method = pick1(KILL_METHODS);
+      const lost = await take(who, 100, 'fun:kill_victim', { from: userDoc.name });
+      f(userDoc).kills += 1;
+      await save(userDoc);
+
+      // An UNSAFE pet is the only thing this module ever "kills". Safe pets are
+      // explicitly unattackable in module 4 and that rule is respected here:
+      // a safe pet gets sympathy, an unsafe one gets dragged into the roleplay.
+      const pet = await petOf(who);
+      let petLine = '';
+      if (pet && pet.isSafe === false) {
+        petLine = `\n🐾 **${pet.emoji || '🐾'} ${pet.name} was unsafe mode.** It was dragged along and did not survive the story.`;
+        pet.isDead = true;
+        pet.diedAt = new Date();
+        try { await pet.save(); } catch { /* roleplay damage only */ }
+      } else if (pet) {
+        petLine = `\n🐾 ${pet.emoji || '🐾'} ${pet.name} is in safe mode and walked out of this one untouched.`;
+      }
+
+      const group = await groupOf(event);
+      if (group) {
+        group.fun.kills = clamp(group.fun.kills) + 1;
+        try { await group.save(); } catch { /* cosmetic */ }
+      }
+
+      await react('⚰️');
+      await reply(
+        `💀 **${userDoc.name} KILLED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🔪 Cause of death: ${method[0]}. ${method[1]}.\n`
+        + `💸 They lost ${kc(lost.took)}\n`
+        + `👛 Their wallet: ${kc(who.coins)}\n`
+        + `${petLine}\n`
+        + '📖 _Nobody was killed. This is a message with a sad emoji._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'kickultra',
+    aliases: ['kick2'],
+    category: 'fun',
+    description: '🚪 Fake kick somebody out of the chat — costs them 120, not an admin action',
+    usage: '!kickultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kickultra', async () => {
+      await react('🚪');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'kickultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.kickultra, 'fun:kickultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const reasons = [
+        'posting in the wrong thread',
+        'a grammar-based offence',
+        'existing',
+        'saying "lol" twice in a row',
+        'the vibe being wrong for reasons nobody can explain',
+        'being too online on a day off',
+      ];
+      const lost = await take(who, 120, 'fun:kick_victim', { from: userDoc.name });
+
+      await react('🪓');
+      await reply(
+        `🚪 **${userDoc.name} KICKED ${who.name} FROM THE CHAT**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `📄 Reason: ${pick1(reasons)}.\n`
+        + `💸 They lost ${kc(lost.took)}\n`
+        + `👛 Their wallet: ${kc(who.coins)}\n`
+        + '📖 _Nobody was kicked. They can still read this. It is not an admin command._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'yeetultra',
+    aliases: ['yeet2'],
+    category: 'fun',
+    description: '🚀 Yeet somebody out of the group entirely — the loudest way to lose 100',
+    usage: '!yeetultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'yeetultra', async () => {
+      await react('🚀');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'yeetultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.yeetultra, 'fun:yeetultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const lost = await take(who, 100, 'fun:yeet_victim', { from: userDoc.name });
+      f(userDoc).yeets += 1;
+      await save(userDoc);
+
+      await react('💫');
+      await reply(
+        `🚀 **${userDoc.name} YEETED ${who.name} INTO THE SUN**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + '📍 Trajectory: up and to the left, mostly.\n'
+        + `💸 They lost ${kc(lost.took)}\n`
+        + `👛 Their wallet: ${kc(who.coins)}\n`
+        + '📖 _They are still here. They were never anywhere else._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'roastultra',
+    aliases: ['roast2'],
+    category: 'fun',
+    description: '🔥 Roast somebody using 20 hand-written roasts. No AI, on purpose',
+    usage: '!roastultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'roastultra', async () => {
+      await react('🔥');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'roastultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.roastultra, 'fun:roastultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // Hand-written on purpose: an AI roast is either milquetoast or invents a
+      // fact about a real person, and both are worse than a bit about punctuation.
+      const line = pick1(ROASTS);
+      f(userDoc).roasts += 1;
+      await save(userDoc);
+
+      await react('💀');
+      await reply(
+        `🔥 **${userDoc.name} ROASTED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${line}\n\n`
+        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+        + '📖 _Pre-written. No AI was involved in this one._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'complimentultra',
+    aliases: ['compliment2'],
+    category: 'fun',
+    description: '🪞 Compliment somebody. The compliment is real, the backhand is too',
+    usage: '!complimentultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'complimentultra', async () => {
+      await react('🪞');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'complimentultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.complimentultra, 'fun:complimentultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const line = pick1(BACKHANDED);
+      f(userDoc).compliments += 1;
+      await save(userDoc);
+
+      await react('🙃');
+      await reply(
+        `🪞 **${userDoc.name} COMPLIMENTED ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${line}\n\n`
+        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+        + '📖 _Mean it however you want._',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'exposeultra',
+    aliases: ['expose2'],
+    category: 'fun',
+    description: '🕵️ Expose somebody — every number on their record, none of it flattering',
+    usage: '!exposeultra @user',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'exposeultra', async () => {
+      await react('🕵️');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'exposeultra');
+      if (!who) return;
+
+      const paid = await fee(userDoc, FEES.exposeultra, 'fun:exposeultra');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const t = f(who);
+      const pet = await petOf(who);
+      const couple = who.spouse ? await User.findOne({ uid: String(who.spouse) }) : null;
+      const exposure = couple
+        ? `They are married to ${couple.name}. That is public record now.`
+        : 'They are not married to anyone, which explains a lot about this chat.';
+
+      await react('📂');
+      await reply(
+        `🕵️ **EXPOSED: ${who.name}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💀 Kills: ${num(t.kills)} · Stabs: ${num(t.stabs)} · Slaps dealt: ${num(t.slaps)}\n`
+        + `🔥 Roasts: ${num(t.roasts)} · Dares failed: ${num(t.daresFailed)}\n`
+        + `🤗 Hugs received: ${num(t.giftsIn)} · Given: ${num(t.giftsOut)}\n`
+        + `💸 Spent on this module: ${num(t.giftsOut + t.daresFailed * 500)}\n`
+        + `🐾 Pet: ${pet ? `${pet.emoji || '🐾'} ${pet.name} (${num(petPower(pet))} pwr)` : 'none. Suspicious.'}\n`
+        + `💍 ${exposure}\n`
+        + `👛 Their wallet: ${kc(who.coins)}\n`
+        + '📖 _All of this is from their own command history. Nothing here is invented._',
+        event.messageID,
+      );
+    }),
+  });
+
 module.exports = commands;
