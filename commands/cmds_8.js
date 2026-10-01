@@ -49,6 +49,7 @@ const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 const POLLINATIONS = 'https://image.pollinations.ai/prompt/';
+const OPENLIGADB = 'https://www.openligadb.de/api/getmatchdata';
 
 /**
  * The persona prefix. Injected into every prompt so that a raw Gemini call and
@@ -1557,6 +1558,302 @@ const commands = [];
         },
         event.messageID,
       );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// LIVE DATA — scores, weather, news
+//
+// Every free sports/weather endpoint here is unauthenticated and unreliable, so
+// none of these commands can depend on a fetch succeeding. The pattern is the
+// same in all eight: try the real API, hand whatever came back to Gemini for
+// interpretation, and if there is nothing to interpret say so plainly.
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'football',
+    aliases: ['scores', 'fixures'],
+    category: 'downloader',
+    description: '⚽ Football scores right now — Gemini says who is winning and why',
+    usage: '!football',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'football', async () => {
+      await react('⚽');
+      const paid = await charge(userDoc, FEES.football, 'downloader:football');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const fixtures = await fetchJson(`${OPENLIGADB}?matches`);
+      const read = await askGemini(
+        `Here are football fixtures: ${JSON.stringify(fixtures || [])}. `
+        + `Say who is winning, what the story is, and give one prediction for the day. `
+        + `If the list is empty, say plainly that no fixtures were available.`,
+        'Style: a commentator who has seen the numbers.',
+      );
+      await reply(`⚽ **FOOTBALL**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.football)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'livefootball',
+    aliases: ['livefix', 'livescores'],
+    category: 'downloader',
+    description: '🔴 Live football by league — Gemini breaks down what it is watching',
+    usage: '!livefootball <league>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'livefootball', async () => {
+      await react('🔴');
+      const league = args.join(' ').trim();
+      if (!league) {
+        await reply('❌ Usage: `!livefootball EPL`\nTry: EPL, La Liga, Serie A, Bundesliga', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.livefootball, 'downloader:livefootball');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // OpenLigaDB keys on a numeric league id; ask Gemini to map the word to
+      // one rather than hard-coding a table that goes stale.
+      const id = await askGemini(
+        `Which OpenLigaDB numeric league id is "${league}"? Answer with the number only, `
+        + `or 0 if you are not sure. EPL is 1, La Liga is 2, Serie A is 3, Bundesliga is 4.`,
+        'Style: numbers only.',
+      );
+      const code = parseInt((id.match(/\d+/) || [])[0], 10);
+      const matches = code > 0
+        ? await fetchJson(`${OPENLIGADB}?matches&league=${encodeURIComponent(String(code))}`)
+        : null;
+
+      const read = await askGemini(
+        `Live ${league} matches: ${JSON.stringify(matches || [])}. `
+        + `Give the scorelines, who is in control, and the one match worth watching. `
+        + `If there is no data, say so.`,
+        'Style: urgent, clipped, like a live blog.',
+      );
+      await reply(`🔴 **LIVE ${league.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.livefootball)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'score',
+    aliases: ['teamscore', 'whowon'],
+    category: 'downloader',
+    description: '📊 One team, one number — Gemini puts a probability on it',
+    usage: '!score <team>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'score', async () => {
+      await react('📊');
+      const team = args.join(' ').trim();
+      if (!team) {
+        await reply('❌ Usage: `!score Real Madrid`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.score, 'downloader:score');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const matches = await fetchJson(`${OPENLIGADB}?matches`);
+      const read = await askGemini(
+        `Find any match involving "${team}" in this data: ${JSON.stringify(matches || [])}. `
+        + `Report the score. If the team is not in it, say the data does not cover them and `
+        + `give your honest win probability for their next fixture instead.`,
+        'Style: scoreboard voice, then one line of opinion.',
+      );
+      await reply(`📊 **${team.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.score)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'footballnews',
+    aliases: ['footballheadlines', 'footballdrama'],
+    category: 'downloader',
+    description: '📰 Football news — Gemini finds the story and roasts it',
+    usage: '!footballnews',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'footballnews', async () => {
+      await react('📰');
+      const paid = await charge(userDoc, FEES.footballnews, 'downloader:footballnews');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // No free football news API that stays up, so the headlines come from
+      // Gemini. It is told to write them as summaries rather than fabricating
+      // specific transfer fees and quotes.
+      const news = await askGemini(
+        `Give the 5 biggest football stories right now. For each: a one line headline and one `
+        + `line on why it matters. If you are not certain something is real today, mark it `
+        + `"(unverified)" rather than inventing a fee or a quote.`,
+        'Style: tabloid energy, honest about uncertainty.',
+      );
+      await reply(`📰 **FOOTBALL NEWS**\n━━━━━━━━━━━━━━━\n${news}\n💸 ${kc(FEES.footballnews)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'matchpredict',
+    aliases: ['predict', 'predictmatch'],
+    category: 'downloader',
+    description: '🔮 "Real vs Barca" — Gemini picks a winner and shows its reasoning',
+    usage: '!matchpredict <teamA> vs <teamB>',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'matchpredict', async () => {
+      await react('🔮');
+      const fixture = args.join(' ').replace(/\s+vs\.?\s+/i, ' vs ').trim();
+      if (!fixture || !/vs/i.test(fixture)) {
+        await reply('❌ Usage: `!matchpredict Real Madrid vs Barcelona`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.matchpredict, 'downloader:matchpredict');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const read = await askGemini(
+        `Predict: ${fixture}. Give win/draw/loss percentages that add to 100, then 3 short `
+        + `reasons, then one "dark horse" line. Base it on form and squad strength, `
+        + `and say it is a prediction, not a fact.`,
+        'Style: pundit who wants to be right and admits he might not be.',
+      );
+      const card = await captionCard({
+        title: 'MATCH PREDICTION',
+        subtitle: fixture.toUpperCase(),
+        body: read,
+        footer: `${OWNER} · Gemini`,
+        accent: canvasKit.theme.gold,
+      });
+      if (card) {
+        await reply({ body: `🔮 **${fixture.toUpperCase()}**\n\n${read}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(`🔮 **${fixture.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'cricketscore',
+    aliases: ['cricket', 'cricketscores'],
+    category: 'downloader',
+    description: '🏏 Cricket score and situation — Gemini reads the game',
+    usage: '!cricketscore',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'cricketscore', async () => {
+      await react('🏏');
+      const paid = await charge(userDoc, FEES.cricketscore, 'downloader:cricketscore');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // No keyless cricket feed, so the situation comes from Gemini, which is
+      // told to be explicit that it is working from memory of the format.
+      const read = await askGemini(
+        `Describe the current state of international cricket: who is playing, the format, `
+        + `and what the interesting story is right now. If you do not know a live score, `
+        + `say that clearly and talk about the series instead of guessing a number.`,
+        'Style: cricket writer who knows the formats cold.',
+      );
+      await reply(`🏏 **CRICKET**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.cricketscore)}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'weatherai',
+    aliases: ['weather', 'outfitai'],
+    category: 'downloader',
+    description: '🌦️ Real weather for anywhere, plus Gemini outfit advice with an attitude',
+    usage: '!weatherai <place>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'weatherai', async () => {
+      await react('🌦️');
+      const place = args.join(' ').trim();
+      if (!place) {
+        await reply('❌ Usage: `!weatherai Amman`', event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.weatherai, 'downloader:weatherai');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      // Open-Meteo needs coordinates, and geocoding needs its own free call.
+      const geo = await fetchJson(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(place)}&count=1`,
+      );
+      const spot = geo && geo.results && geo.results[0];
+      const wx = spot
+        ? await fetchJson(
+          `https://api.open-meteo.com/v1/forecast?latitude=${spot.latitude}&longitude=${spot.longitude}`
+          + '&current=temperature_2m,wind_speed_10,weather_code&daily=temperature_2m_max,temperature_2m_min',
+        )
+        : null;
+
+      const cur = (wx && wx.current) || {};
+      const max = (wx && wx.daily && wx.daily.temperature_2m_max && wx.daily.temperature_2m_max[0]) || '?';
+      const min = (wx && wx.daily && wx.daily.temperature_2m_min && wx.daily.temperature_2m_min[0]) || '?';
+
+      const read = await askGemini(
+        `Weather data for ${place}${spot ? ` (${spot.latitude}, ${spot.longitude})` : ''}: `
+        + `now ${cur.temperature_2m ?? 'unknown'}C, wind ${cur.wind_speed_10 ?? 'unknown'} km/h, `
+        + `day high ${max}C low ${min}C. Give the outfit call: what to wear, and one savage `
+        + `line about it. WMO code ${cur.weather_code ?? 'unknown'}.`,
+        'Style: fashion editor who does not care about your feelings.',
+      );
+
+      await reply(
+        `🌦️ **${String(spot && spot.name ? spot.name : place).toUpperCase()}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🌡️ Now: ${cur.temperature_2m ?? '—'}C · High ${max}C / Low ${min}C\n`
+        + `💨 Wind: ${cur.wind_speed_10 ?? '—'} km/h\n\n`
+        + `${read}\n💸 ${kc(FEES.weatherai)}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'newsai',
+    aliases: ['news', 'newsgc'],
+    category: 'downloader',
+    description: '🌍 The world right now — Gemini summarises it in the iKON register',
+    usage: '!newsai',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'newsai', async () => {
+      await react('🌍');
+      const paid = await charge(userDoc, FEES.newsai, 'downloader:newsai');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const read = await askGemini(
+        `Give the 5 biggest world stories right now. One line each: what happened, and why `
+        + `anyone should care. If you are not certain a story is current, mark it `
+        + `"(unverified)". Never invent a named quote or a specific number.`,
+        'Style: sharp, weary, allergic to filler.',
+      );
+      await reply(`🌍 **THE WORLD**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.newsai)}`, event.messageID);
     }),
   });
 
