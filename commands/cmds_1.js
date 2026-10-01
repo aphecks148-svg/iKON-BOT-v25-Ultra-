@@ -177,14 +177,14 @@ module.exports = [
   // 5
   // ─────────────────────────────────────────────────────────
   {
-    name: 'stats',
+    name: 'dbstats',
     aliases: [],
     category: 'system',
     description: 'Total users and groups stored in the database',
-    usage: '!stats',
+    usage: '!dbstats',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'stats', async () => {
+    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'dbstats', async () => {
       if (!mongo.isReady()) {
         await reply('💾 Database is offline — no stats right now.', event.messageID);
         return;
@@ -237,7 +237,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'userinfo',
-    aliases: ['whois', 'profile'],
+    aliases: ['whois', 'ui'],
     category: 'system',
     description: 'Show your RPG profile and live Facebook name',
     usage: '!userinfo',

@@ -20,10 +20,38 @@ const UserSchema = new mongoose.Schema(
       hourly: { type: Date, default: null },
       weekly: { type: Date, default: null },
       monthly: { type: Date, default: null },
+      healme: { type: Date, default: null },
+      quest: { type: Date, default: null },
     },
 
     reputation: { type: Number, default: 0 },
     prestige: { type: Number, default: 0, min: 0 },
+
+    // iKON Hunter Academy (module 3).
+    rpg: {
+      className: { type: String, default: '' },
+      skills: { type: [String], default: [] },
+      bio: { type: String, default: '' },
+      titles: { type: [String], default: [] },
+      // itemId -> true for whatever is currently swung/worn in battle.
+      equipped: { type: Map, of: Boolean, default: {} },
+      // Defence stance from !defend, consumed by the next battle.
+      defending: { type: Date, default: null },
+      // Energy spent by adventure/quest; +1 every 10 minutes up to the cap.
+      stamina: { type: Number, default: 10, min: 0 },
+      lastStamina: { type: Date, default: Date.now },
+      stats: {
+        battles: { type: Number, default: 0 },
+        wins: { type: Number, default: 0 },
+        losses: { type: Number, default: 0 },
+        quests: { type: Number, default: 0 },
+        bosses: { type: Number, default: 0 },
+        heals: { type: Number, default: 0 },
+        duelsWon: { type: Number, default: 0 },
+        duelsLost: { type: Number, default: 0 },
+        monstersSlain: { type: Number, default: 0 },
+      },
+    },
 
     // moderation
     isBanned: { type: Boolean, default: false },

@@ -196,12 +196,16 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     const doc = new User({ uid: 'schema_test' });
     assert.strictEqual(doc.level, 1);
     assert.strictEqual(doc.xp, 0);
-    assert.strictEqual(doc.coins, 1000);
+    assert.strictEqual(doc.coins, 10000);
     assert.strictEqual(doc.bank, 0);
     assert.strictEqual(doc.reputation, 0);
     assert.strictEqual(doc.prestige, 0);
     assert.strictEqual(doc.stats.messages, 0);
     assert.strictEqual(doc.stats.commandsUsed, 0);
+    assert.strictEqual(doc.rpg.className, '');
+    assert.strictEqual(doc.rpg.stats.battles, 0);
+    assert.strictEqual(doc.rpg.stats.wins, 0);
+    assert.strictEqual(doc.rpg.stamina, 10);
 
     const paths = Object.keys(User.schema.paths);
     for (const f of ['uid', 'name', 'level', 'xp', 'coins', 'bank', 'reputation', 'prestige', 'createdAt', 'updatedAt']) {
@@ -292,7 +296,7 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
       assert.strictEqual(u.uid, uid);
       assert.strictEqual(u.level, 1);
       assert.strictEqual(u.xp, 0);
-      assert.strictEqual(u.coins, 1000);
+      assert.strictEqual(u.coins, 10000);
       assert.strictEqual(u.bank, 0);
       assert.strictEqual(u.reputation, 0);
       assert.strictEqual(u.prestige, 0);
