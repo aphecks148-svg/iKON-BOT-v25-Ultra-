@@ -291,6 +291,33 @@ function jailLeft(userDoc) {
   return Math.ceil((new Date(t.jailedUntil).getTime() - Date.now()) / 60000);
 }
 
+/**
+ * Settle an expired five-star hunt.
+ *
+ * The hunt is a debt that matures: when the ten minutes run out the cops take
+ * half the wallet. This is called from the commands that surface heat, because
+ * there is no scheduler behind the bot to run it on a timer, and it must not
+ * run from g(), which is a pure backfill.
+ *
+ * Returns a description when it collected, so the caller can tell the player.
+ */
+async function settleHunt(userDoc) {
+  const t = g(userDoc);
+  if (!t.copsHuntUntil) return null;
+  if (new Date(t.copsHuntUntil).getTime() > Date.now()) return null;
+
+  t.copsHuntUntil = null;
+  const due = Math.floor(clamp(userDoc.coins) * 0.5);
+  if (due > 0) {
+    userDoc.coins = clamp(userDoc.coins - due);
+    await save(userDoc);
+    await ledger(userDoc.uid, 'gta:cops_theft', -due, userDoc.coins, { stolen: due });
+  }
+  // The hunt is over either way. The stars are not: they cool down on their own
+  // or by bribe, which is the whole reason gtawanted tells you to sit still.
+  return due > 0 ? `👮 The hunt ran out. They took ${kc(due)} — half of what you were carrying.` : '';
+}
+
 async function jail(userDoc, minutes, action) {
   const t = g(userDoc);
   t.jailedUntil = new Date(Date.now() + minutes * 60000);
@@ -531,6 +558,7 @@ const commands = [];
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtastats', async () => {
       await react('📊');
       const t = g(userDoc);
+      await settleHunt(userDoc);
       if (!t.started) {
         await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
         return;
@@ -1380,6 +1408,305 @@ const commands = [];
       }
 
       await reply(`💨 **Nothing but noise.** ⭐ Wanted ${stars(stars2)} (${stars2}/5)\n📖 ${story()}`, event.messageID);
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// THE HEAT — cops, bribes, escape
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'gtawanted',
+    aliases: ['gtawantedlevel', 'gtaheat'],
+    category: 'gta',
+    description: '⭐ Your wanted level, what the heat is doing, and what it will cost',
+    usage: '!gtawanted',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtawanted', async () => {
+      await react('⭐');
+      const t = g(userDoc);
+      const collected = await settleHunt(userDoc);
+      const wanted = clamp(t.wanted);
+      const hunting = t.copsHuntUntil && new Date(t.copsHuntUntil).getTime() > Date.now();
+      const jailedNow = jailed(userDoc);
+
+      let status = '🟢 **CLEAR.** Nobody is looking for you.';
+      if (jailedNow) status = `🔒 **IN THE CELL.** ${jailLeft(userDoc)} minutes left.`;
+      else if (wanted >= 5) status = '🚨 **FIVE STARS.** The whole department is out.';
+      else if (wanted >= 3) status = '🟠 **UNIT LOOKING.** They will find you soon.';
+      else if (wanted > 0) status = '🟡 **SUSPICIOUS.** They have a description, not a name.';
+
+      const heatLines = [];
+      if (wanted > 0 && t.wantedAt) {
+        heatLines.push(`⏱️ Heat has been on for ${Math.max(0, Math.round((Date.now() - new Date(t.wantedAt).getTime()) / 60000))} min.`);
+      }
+      if (hunting) {
+        const mins = Math.ceil((new Date(t.copsHuntUntil).getTime() - Date.now()) / 60000);
+        const due = Math.floor((userDoc.coins || 0) * 0.5);
+        heatLines.push(`🚨 **ACTIVE HUNT — ${mins} min left.** They take ${kc(due)} unless you \`!gtabribe\` or \`!gtaescape\`.`);
+      }
+      if (wanted >= 5) heatLines.push('💀 Five stars and a bust puts you in the cell for 10 minutes.');
+
+      await reply(
+        `⭐ **WANTED ${stars(wanted)}**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `${wanted}/5 · ${status}\n`
+        + (collected ? `${collected}\n` : '')
+        + (heatLines.length ? `${heatLines.join('\n')}\n` : '')
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + (wanted > 0 ? '📖 Hold still long enough and the heat cools on its own.' : '📖 Nobody is looking. Keep it that way.'),
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtacops',
+    aliases: ['gtacopshunt', 'gtapolice'],
+    category: 'gta',
+    description: '👮 The hunt is on. At five stars they take half your coins in 10 minutes',
+    usage: '!gtacops',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacops', async () => {
+      await react('👮');
+      const t = g(userDoc);
+      const collected = await settleHunt(userDoc);
+      const wanted = clamp(t.wanted);
+
+      // Cops only take the cut when the hunt is actually live. Wanted, hunted
+      // and jailed are separate states on purpose: five stars is the trigger,
+      // copsHuntUntil is the countdown, jailedUntil is the sentence.
+      const hunting = t.copsHuntUntil && new Date(t.copsHuntUntil).getTime() > Date.now();
+      if (jailed(userDoc)) {
+        await reply(`🔒 **Still in the cell.** ${jailLeft(userDoc)} minutes left. The cops have already won this one.`, event.messageID);
+        return;
+      }
+      if (wanted < 5) {
+        await reply(`👮 **No active hunt.** You need five stars. You are on ${stars(wanted)}.`, event.messageID);
+        return;
+      }
+      if (!hunting) {
+        t.copsHuntUntil = new Date(Date.now() + 10 * 60 * 1000);
+        await save(userDoc);
+        await reply(
+          `🚨 **UNITS DISPATCHED.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `⭐ Five stars. The hunt runs for 10 minutes.\n`
+          + `💸 If it expires they take ${kc(Math.floor((userDoc.coins || 0) * 0.5))}.\n`
+          + `🛡️ \`!gtabribe\` to pay it off, \`!gtaescape\` to run.\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const mins = Math.ceil((new Date(t.copsHuntUntil).getTime() - Date.now()) / 60000);
+      await reply(
+        `🚨 **THE HUNT IS ON.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `⏱️ ${mins} min left.\n`
+        + `💸 Due: ${kc(Math.floor((userDoc.coins || 0) * 0.5))} — half of what you are carrying.\n`
+        + `🛡️ \`!gtabribe\` or \`!gtaescape\`.\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtabribe',
+    aliases: ['gtapaybribe'],
+    category: 'gta',
+    description: '🛡️ Buy your way out of a hunt — the heat clears completely',
+    usage: '!gtabribe',
+    cooldown: 120,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtabribe', async () => {
+      await react('🛡️');
+      const t = g(userDoc);
+      if (jailed(userDoc)) {
+        await reply(`🔒 **Bribery does not work through bars.** ${jailLeft(userDoc)} minutes left.`, event.messageID);
+        return;
+      }
+      const hunting = t.copsHuntUntil && new Date(t.copsHuntUntil).getTime() > Date.now();
+      if (clamp(t.wanted) < 5 && !hunting) {
+        await reply(`🛡️ Nobody is asking for a bribe. You are wanted ${stars(t.wanted)}.`, event.messageID);
+        return;
+      }
+
+      // 20% of the wallet, on a floor, so a rich crook cannot buy silence for
+      // pocket change and a broke one is not left with no way out.
+      const price = Math.max(2000, Math.floor((userDoc.coins || 0) * 0.2));
+      const paid = await spend(userDoc, price, 'gta:bribe', { price });
+      if (!paid.ok) {
+        await reply(
+          `${paid.reason}\n🛡️ The bribe is ${kc(price)}. \`!gtaescape\` is free if your car is fast.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      t.wanted = 0;
+      t.wantedAt = null;
+      t.copsHuntUntil = null;
+      await save(userDoc);
+
+      await reply(
+        `🛡️ **THE HUNT IS OFF.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 -${kc(price)}\n`
+        + `⭐ Wanted ${stars(0)} (0/5)\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `📖 Nobody says anything. That is how you know it worked.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtaescape',
+    aliases: ['gtaflee', 'gtarun'],
+    category: 'gta',
+    description: '🏃 Outrun the police — the faster the car, the better the odds',
+    usage: '!gtaescape',
+    cooldown: 120,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaescape', async () => {
+      await react('🏃');
+      const t = g(userDoc);
+      if (jailed(userDoc)) {
+        await reply(`🔒 **You are not going anywhere.** ${jailLeft(userDoc)} minutes left.`, event.messageID);
+        return;
+      }
+      const hunting = t.copsHuntUntil && new Date(t.copsHuntUntil).getTime() > Date.now();
+      if (clamp(t.wanted) < 5 && !hunting) {
+        await reply(`🏃 Nobody is chasing you. Go and start something.`, event.messageID);
+        return;
+      }
+
+      const rec = ownedCar(userDoc);
+      if (!rec) {
+        await reply('🔑 No car. You cannot outrun a police car on foot. `!gtaescape` needs the garage.', event.messageID);
+        return;
+      }
+      if (rec.crashed) {
+        await reply(`💥 The ${CAR_BY_ID.get(rec.id).name} is on a lift. \`!gtarepair\` first.`, event.messageID);
+        return;
+      }
+
+      const pwr = carPower(userDoc);
+      // Nitro buys a flat 15 points, tuning 5. At 1500 power with nitro this is
+      // close to certain, which is exactly what a million-coin car should feel.
+      const bonus = (rec.nitro ? 15 : 0) + (rec.tuned ? 5 : 0);
+      const chance = Math.max(0.02, Math.min(0.95, pwr / 1200 + bonus / 100));
+
+      await reply(`🏃 Tearing off from the sirens with the ${CAR_BY_ID.get(rec.id).name}...`, event.messageID);
+      await sleep(800);
+
+      t.racesLost = clamp(t.racesLost) + (Math.random() < chance ? 0 : 1);
+      await save(userDoc);
+
+      if (Math.random() < chance) {
+        t.wanted = Math.max(0, clamp(t.wanted) - 2);
+        t.copsHuntUntil = null;
+        if (t.wanted === 0) t.wantedAt = null;
+        await save(userDoc);
+        await reply(
+          `🏆 **YOU LOST THEM.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
+          + `🚨 The hunt is called off.\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // Caught, not busted: the sentence is what a failed escape buys.
+      await jail(userDoc, 10, 'gta:jail_escape');
+      t.wanted = 0;
+      t.wantedAt = null;
+      t.copsHuntUntil = null;
+      await save(userDoc);
+      await reply(
+        `🚔 **BOXED IN ON WHEELER AVENUE.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🔒 10 minutes in the cell.\n`
+        + `⭐ The heat is off your record.\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtabankrob',
+    aliases: ['gtabank', 'gtaheistbank'],
+    category: 'gta',
+    description: '🏦 Rob a bank — heavy heat either way, one good payout if it holds',
+    usage: '!gtabankrob',
+    cooldown: 300,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtabankrob', async () => {
+      await react('🏦');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (jailed(userDoc)) {
+        await reply(`🔒 **Still in the cell.** ${jailLeft(userDoc)} minutes left.`, event.messageID);
+        return;
+      }
+
+      const pwr = carPower(userDoc);
+      // Car power scales the take and shrinks the risk. Without a car this is a
+      // 65% walk into a bank on foot, which should never be tempting.
+      const risk = Math.max(0.25, Math.min(0.85, 0.65 - pwr / 4000));
+      await reply(`🏦 **THE BANK**\n━━━━━━━━━━━━━━━\n📍 Risk ${Math.round(risk * 100)}% · ⭐ +2 stars minimum\n📖 ${story()}`, event.messageID);
+      for (const step of ['Case the front...', 'The teller stops talking...', 'Back to the car...', 'Running the checkpoints...']) {
+        await sleep(650);
+        await reply(`▸ ${step}`);
+      }
+
+      await addWanted(userDoc, 2);
+      if (Math.random() < risk) {
+        await jail(userDoc, 5, 'gta:jail_bank');
+        await reply(
+          `🚔 **YOU GOT THE DOOR BUT NOT THE STREET.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `🔒 5 minutes in the cell.\n`
+          + `💸 Nothing taken.\n`
+          + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const pet = await petBonus(userDoc);
+      let reward = rand(20000, 60000) + Math.floor(pwr * 4);
+      reward = Math.floor(reward * pet.mult);
+      const tax = await cartelTax(userDoc, event, reward);
+      const net = Math.max(0, reward - tax);
+
+      await earn(userDoc, net, 'gta:bankrob', { reward: net });
+      await bank(userDoc, net);
+      const ups = await grantXp(userDoc, 600);
+
+      await reply(
+        `💰 **THE VAULT WAS LIGHT.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💵 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
+        + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
+        + `🎖️ XP +600${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + (pet.note ? `${pet.note}\n` : '')
+        + `📖 ${story()}`,
+        event.messageID,
+      );
     }),
   });
 
