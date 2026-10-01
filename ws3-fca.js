@@ -12,7 +12,6 @@
  */
 
 const express = require('express');
-const axios = require('axios');
 
 const config = require('./config');
 const mongo = require('./bot/mongo');
@@ -23,6 +22,7 @@ const permissions = require('./bot/permissions');
 const toggles = require('./bot/toggles');
 const cache = require('./bot/cache');
 const canvas = require('./bot/canvas');
+const geminiClient = require('./bot/gemini');
 const helpers = require('./bot/helpers');
 
 const { log, error, reply, react, safe } = helpers;
@@ -113,33 +113,20 @@ function startServer() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// GEMINI — integration point (future AI commands)
+// GEMINI — thin facade over bot/gemini.js
+//
+// The HTTP call, model selection and auth all live in that module so the engine
+// and the AI commands cannot drift apart. This object only keeps the shape the
+// command handlers expect.
 // ─────────────────────────────────────────────────────────────
 const gemini = {
-  available: () => Boolean(config.GEMINI_API_KEY),
-  /**
-   * Ask Gemini for a completion. Returns null when unconfigured or on failure.
-   * @param {string} prompt
-   * @param {{system?:string, maxOutputTokens?:number}} [opts]
-   */
-  async ask(prompt, opts = {}) {
-    if (!gemini.available()) return null;
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${config.GEMINI_MODEL}:generateContent?key=${config.GEMINI_API_KEY}`;
-    try {
-      const res = await axios.post(endpoint, {
-        contents: [{ role: 'user', parts: [{ text: String(prompt) }] }],
-        systemInstruction: opts.system ? { parts: [{ text: opts.system }] } : undefined,
-        generationConfig: { maxOutputTokens: opts.maxOutputTokens || 400, temperature: 0.9 },
-      }, { timeout: 20000 });
-
-      const parts = res?.data?.candidates?.[0]?.content?.parts;
-      const text = Array.isArray(parts) ? parts.map((p) => p.text || '').join('').trim() : '';
-      return text || null;
-    } catch (err) {
-      error(`[GEMINI] request failed: ${err.message}`);
-      return null;
-    }
-  },
+  available: geminiClient.available,
+  ask: (prompt, opts = {}) => geminiClient.ask(prompt, {
+    maxOutputTokens: opts.maxOutputTokens || 2048,
+    system: opts.system,
+  }),
+  activeModel: geminiClient.activeModel,
+  lastErrorMessage: geminiClient.lastErrorMessage,
 };
 
 // ─────────────────────────────────────────────────────────────

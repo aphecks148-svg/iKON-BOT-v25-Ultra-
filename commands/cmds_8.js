@@ -42,12 +42,12 @@ const User = require('../models/User');
 const Economy = require('../models/Economy');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
+const gemini = require('../bot/gemini');
 
 const config = require('../config');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 const POLLINATIONS = 'https://image.pollinations.ai/prompt/';
 const OPENLIGADB = 'https://www.openligadb.de/api/getmatchdata';
 
@@ -67,51 +67,35 @@ const LORE = [
 // GEMINI
 // ───────────────────────────────────────────────────────────
 
-/** Is a Gemini key configured at all? */
-const hasGemini = () => Boolean(String(config.GEMINI_API_KEY || '').trim());
-
 /**
  * Ask Gemini a question.
  *
+ * The HTTP call lives in bot/gemini.js so the engine and these commands share
+ * one client. This wrapper only adds the iKON persona and the offline
+ * placeholder, so every AI command keeps its existing behaviour: a real answer
+ * when Gemini answers, an honest placeholder when it cannot.
+ *
  * @param {string} prompt the user-facing question, already worded
  * @param {string} style extra persona instruction for this kind of task
- * @returns {Promise<string>} the answer, or a mock when the key is absent,
- *   the network fails, or the API returns nothing usable. Never throws.
+ * @returns {Promise<string>} never throws
  */
 async function askGemini(prompt, style = '') {
   const text = String(prompt || '').trim();
   if (!text) return geminiMock('', style);
 
-  if (!hasGemini()) {
-    // No key. The mock is built from the same prompt so the reply still tells
-    // the user what happened instead of failing silently.
-    return geminiMock(text, style);
-  }
+  const answer = await gemini.ask(text, {
+    system: LORE,
+    style,
+    maxOutputTokens: 2048,
+  });
+  if (answer) return answer;
 
-  try {
-    const gemRes = await axios.post(`${GEMINI_URL}?key=${config.GEMINI_API_KEY}`, {
-      contents: [{
-        parts: [{
-          text: [LORE, style, `Task: ${text}`].filter(Boolean).join('\n'),
-        }],
-      }],
-      generationConfig: {
-        maxOutputTokens: 900,
-        temperature: 0.9,
-      },
-    });
-    const out = gemRes.data
-      && gemRes.data.candidates
-      && gemRes.data.candidates[0]
-      && gemRes.data.candidates[0].content
-      && gemRes.data.candidates[0].content.parts;
-    const answer = Array.isArray(out) ? out.map((p) => (p && p.text) || '').join('').trim() : '';
-    if (!answer) return geminiMock(text, style);
-    return answer;
-  } catch (err) {
-    // Rate limits and outages are normal. A 429 must not surface as a crash.
-    return `${geminiMock(text, style)}\n\n_(Gemini said no: ${err.message})_`;
-  }
+  // Distinguish "no key" from "key present but Gemini refused": telling a user
+  // with a working key to go set GEMINI_API_KEY sends them nowhere.
+  const why = gemini.available()
+    ? `Gemini did not answer: ${gemini.lastErrorMessage() || 'no response'}`
+    : 'no GEMINI_API_KEY on the bot';
+  return `${geminiMock(text, style)}\n\n_(⚠️ ${why})_`;
 }
 
 /**
@@ -123,11 +107,10 @@ function geminiMock(prompt, style = '') {
   const short = topic.length > 90 ? `${topic.slice(0, 87)}...` : topic;
   const tagged = /roast|insult|diss/i.test(style);
   return [
-    '⚠️ **GEMINI OFFLINE** — no API key on the bot, so this is a placeholder.',
+    '⚠️ **GEMINI OFFLINE** — this is a placeholder, not a real answer.',
     tagged
-      ? `iKON would have roasted "${short}" into the ground. It did not happen, because there is no key.`
+      ? `iKON would have roasted "${short}" into the ground. It did not happen, because Gemini is not answering.`
       : `You asked: *"${short}"*`,
-    tagged ? '' : 'Set GEMINI_API_KEY in .env and this command starts working for real.',
   ].filter(Boolean).join('\n');
 }
 

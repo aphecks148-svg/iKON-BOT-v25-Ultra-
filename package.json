@@ -28,7 +28,6 @@
   "author": "Aphecks iKon Klerk",
   "license": "MIT",
   "dependencies": {
-    "@google/generative-ai": "^0.24.0",
     "@napi-rs/canvas": "^1.0.9",
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",

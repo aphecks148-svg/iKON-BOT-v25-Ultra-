@@ -796,7 +796,9 @@ module.exports = [
         + `Admins: ${config.ADMIN_IDS.length}\n`
         + '──── ai ────\n'
         + `Gemini: ${config.GEMINI_API_KEY ? 'configured' : 'not set'}\n`
-        + `Model: ${config.GEMINI_MODEL}`,
+        // The live model, not just the configured one: the client falls back
+        // when the configured model is unavailable to the key's project.
+        + `Model: ${require('../bot/gemini').activeModel()}`,
         event.messageID,
       );
     }),

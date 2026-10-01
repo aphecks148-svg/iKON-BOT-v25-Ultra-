@@ -92,8 +92,13 @@ const config = {
   MONGO_URI: env('MONGO_URI', 'mongodb://127.0.0.1:27017/ikon-bot'),
 
   // ── ai ────────────────────────────────────────────────────
+  // Keys moved from AIza... to AQ... Auth keys. Both are accepted by the native
+  // generativelanguage endpoint; the client never switches to an
+  // OpenAI-compatible route, which rejects AQ keys as "invalid_api_key".
   GEMINI_API_KEY: env('GEMINI_API_KEY', ''),
-  GEMINI_MODEL: env('GEMINI_MODEL', 'gemini-1.5-flash'),
+  // gemini-1.5-flash is shut down. bot/gemini.js treats this stale value as
+  // unset and uses its own current default, so an old env var cannot 404.
+  GEMINI_MODEL: env('GEMINI_MODEL', 'gemini-3.8-flash'),
 
   // ── server ────────────────────────────────────────────────
   PORT: envInt('PORT', 3000),

@@ -11,6 +11,7 @@
  */
 
 const assert = require('assert');
+const fs = require('fs');
 const path = require('path');
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
@@ -28,6 +29,7 @@ const toggles = require('./toggles');
 const cache = require('./cache');
 const canvas = require('./canvas');
 const helpers = require('./helpers');
+const gemini = require('./gemini');
 const config = require('../config');
 
 const User = require('../models/User');
@@ -447,6 +449,149 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
       return 'closed';
     });
   }
+
+  // ── 13. gemini (offline — no network) ─────────────────────
+  await step('gemini targets a live model, not the shut-down 1.5 family', () => {
+    const model = gemini.preferredModel();
+    // gemini-1.5-flash and gemini-1.5-pro are fully shut down: every call 404s.
+    assert.ok(!/gemini-1\.5/.test(model), `model "${model}" is shut down`);
+    for (const m of gemini.FALLBACK_MODELS) {
+      assert.ok(!/gemini-1\.5/.test(m), `fallback "${m}" is shut down`);
+    }
+    return `${model}, fallbacks: ${gemini.FALLBACK_MODELS.join(', ')}`;
+  });
+
+  await step('gemini sends no parameter Gemini 3.x rejects', async () => {
+    // Intercept the real request instead of grepping the source: this asserts
+    // what actually goes over the wire.
+    const axios = require('axios');
+    const saved = config.GEMINI_API_KEY;
+    const realPost = axios.post;
+    let sent = null;
+    config.GEMINI_API_KEY = 'AQ.test-key';
+    axios.post = async (url, body, opts) => {
+      sent = { url, body, opts };
+      return { data: { candidates: [{ content: { parts: [{ text: 'ok' }] } }] } };
+    };
+    try {
+      const answer = await gemini.ask('what is up');
+      assert.strictEqual(answer, 'ok');
+    } finally {
+      axios.post = realPost;
+      config.GEMINI_API_KEY = saved;
+      gemini._reset();
+    }
+
+    assert.ok(sent, 'no request was made');
+    const cfg = sent.body.generationConfig;
+    // temperature/top_p/top_k were removed in Gemini 3.x and cause degraded
+    // output when set.
+    assert.ok(!('temperature' in cfg), 'must not send temperature');
+    assert.ok(!('top_p' in cfg), 'must not send top_p');
+    assert.ok(!('top_k' in cfg), 'must not send top_k');
+    assert.ok(!('candidateCount' in cfg), 'candidateCount is unsupported in Gemini 3+');
+    // thinkingBudget (a token count) was replaced by the thinkingLevel enum.
+    assert.ok(!('thinkingBudget' in cfg.thinkingConfig), 'thinkingBudget is replaced by thinkingLevel');
+    assert.ok(['low', 'medium', 'high'].includes(cfg.thinkingConfig.thinkingLevel),
+      `thinkingLevel must be a supported enum, got ${cfg.thinkingConfig.thinkingLevel}`);
+    // maxOutputTokens counts thinking tokens too, so a small cap makes a
+    // thinking model return an empty string.
+    assert.ok(cfg.maxOutputTokens >= 2048, `maxOutputTokens ${cfg.maxOutputTokens} leaves no room for thinking tokens`);
+    assert.ok(!/gemini-1\.5/.test(sent.url), `shut-down model in url: ${sent.url}`);
+    return `thinkingLevel=${cfg.thinkingConfig.thinkingLevel}, maxOutputTokens=${cfg.maxOutputTokens}`;
+  });
+
+  await step('gemini uses the native route with no key-prefix assumptions', async () => {
+    const axios = require('axios');
+    const saved = config.GEMINI_API_KEY;
+    const realPost = axios.post;
+    let sent = null;
+    // An AQ... Auth key must be sent as a header on the native endpoint. AQ
+    // keys are rejected by OpenAI-compatible routes with a misleading
+    // "invalid_api_key", so neither the transport nor the key handling may
+    // branch on the prefix.
+    config.GEMINI_API_KEY = 'AQ.Ab12-example-auth-key';
+    axios.post = async (url, body, opts) => {
+      sent = { url, body, opts };
+      return { data: { candidates: [{ content: { parts: [{ text: 'ok' }] } }] } };
+    };
+    try {
+      await gemini.ask('hi');
+    } finally {
+      axios.post = realPost;
+      config.GEMINI_API_KEY = saved;
+      gemini._reset();
+    }
+
+    assert.ok(sent, 'no request was made');
+    assert.ok(/generativelanguage\.googleapis\.com/.test(sent.url), `not the native endpoint: ${sent.url}`);
+    assert.ok(!/openai/i.test(sent.url), `AQ keys cannot use an OpenAI-compatible route: ${sent.url}`);
+    assert.strictEqual(sent.opts.headers['x-goog-api-key'], 'AQ.Ab12-example-auth-key');
+    // Key must not ride in the URL, where proxies log it.
+    assert.ok(!sent.url.includes('key='), 'API key must not be in the query string');
+    return 'native route, x-goog-api-key header, no prefix branch';
+  });
+
+  await step('gemini extracts text and drops thought parts', () => {
+    const body = {
+      candidates: [{
+        content: {
+          parts: [
+            { text: 'internal scratchpad', thought: true },
+            { text: 'the actual ' },
+            { text: 'answer' },
+          ],
+        },
+      }],
+    };
+    // A thinking model interleaves thought parts. Shipping them would leak the
+    // model's reasoning into chat and corrupt the prompt-rewriting commands.
+    assert.strictEqual(gemini.extractText(body), 'the actual answer');
+    assert.strictEqual(gemini.extractText({}), '');
+    assert.strictEqual(gemini.extractText(null), '');
+    return 'thought parts filtered';
+  });
+
+  await step('gemini falls back to a live model when one 404s', async () => {
+    const axios = require('axios');
+    const saved = config.GEMINI_API_KEY;
+    const realPost = axios.post;
+    const urls = [];
+    config.GEMINI_API_KEY = 'AQ.fallback-key';
+    // The configured model is unavailable to this project; the client must walk
+    // its fallback list instead of leaving all 35 AI commands dead.
+    axios.post = async (url) => {
+      urls.push(url);
+      const err = new Error('not found');
+      err.response = { status: 404, data: { error: { message: 'models/x is not found' } } };
+      throw err;
+    };
+    let answer;
+    try {
+      answer = await gemini.ask('hello');
+    } finally {
+      axios.post = realPost;
+      config.GEMINI_API_KEY = saved;
+      gemini._reset();
+    }
+    assert.strictEqual(answer, '', 'an unreachable Gemini must return empty, not throw');
+    assert.ok(urls.length > 1, 'must try more than one model');
+    for (const u of urls) assert.ok(!/gemini-1\.5/.test(u), `shut-down model tried: ${u}`);
+    return `tried ${urls.length} models`;
+  });
+
+  await step('gemini returns empty with no key instead of throwing', async () => {
+    const saved = config.GEMINI_API_KEY;
+    config.GEMINI_API_KEY = '';
+    try {
+      assert.strictEqual(gemini.available(), false);
+      assert.strictEqual(await gemini.ask('hello'), '');
+    } finally {
+      config.GEMINI_API_KEY = saved;
+      gemini._reset();
+    }
+    return 'no key = empty answer, no crash';
+  });
 
   // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');

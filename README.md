@@ -99,9 +99,25 @@ checks in `bot/test.js`.
 
 ## Deploying on Render
 
-1. New → Web Service → connect the repo, Node 20.
+1. New → Web Service → connect the repo, Node 22.
 2. Add env vars: `APPSTATE`, `MONGO_URI`, `ADMIN_IDS`, `GEMINI_API_KEY` (optional).
 3. Health check path: `/health`.
+
+### Gemini
+
+The 35 AI commands in module 8 share one client, `bot/gemini.js`, which calls
+the native `generativelanguage.googleapis.com` endpoint directly.
+
+- Keys may be the newer `AQ...` Auth keys or the older `AIza...` keys. Both work
+  on this endpoint. An `AQ...` key is rejected by OpenAI-compatible routes with
+  a misleading "invalid_api_key", so the client stays on the native route and
+  sends the key in the `x-goog-api-key` header.
+- Default model is `gemini-3.8-flash` (`GEMINI_MODEL` overrides). If that model
+  is unavailable to your project the client falls back automatically instead of
+  failing every AI command.
+- Thinking is on by default in Gemini 3.x, so `maxOutputTokens` counts thinking
+  tokens as well as the answer. The client also strips thought parts from the
+  response so the model's reasoning never reaches the chat.
 
 ## Current progress
 
