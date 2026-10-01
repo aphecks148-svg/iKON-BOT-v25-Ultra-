@@ -123,6 +123,8 @@ const UserSchema = new mongoose.Schema(
       copsHuntUntil: { type: Date, default: null },
       racesWon: { type: Number, default: 0, min: 0 },
       racesLost: { type: Number, default: 0, min: 0 },
+      pvpWins: { type: Number, default: 0, min: 0 },
+      pvpLosses: { type: Number, default: 0, min: 0 },
       missions: { type: Number, default: 0, min: 0 },
       busts: { type: Number, default: 0, min: 0 },
     },

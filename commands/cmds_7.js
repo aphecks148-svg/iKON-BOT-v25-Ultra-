@@ -187,7 +187,8 @@ function g(userDoc) {
   if (!userDoc.gta || typeof userDoc.gta !== 'object') userDoc.gta = {};
   const t = userDoc.gta;
   for (const f of [
-    'level', 'xp', 'money', 'spent', 'wanted', 'racesWon', 'racesLost', 'missions', 'busts',
+    'level', 'xp', 'money', 'spent', 'wanted', 'racesWon', 'racesLost', 'pvpWins', 'pvpLosses',
+    'missions', 'busts',
   ]) {
     if (!Number.isFinite(t[f])) t[f] = f === 'level' ? 1 : 0;
   }
@@ -1932,6 +1933,268 @@ const commands = [];
         + '━━━━━━━━━━━━━━━\n'
         + `💰 +${kc(reward)} (level ${t.level})\n`
         + `🎖️ XP +200${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ───────────────────────────────────────────────────────────
+// RACING AND PVP
+// ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'gtarace',
+    aliases: ['gtaracing', 'gtastreetrace'],
+    category: 'gta',
+    description: '🏁 Street race — 300 stake, the faster car usually wins',
+    usage: '!gtarace [bet]',
+    cooldown: 120,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtarace', async () => {
+      await react('🏁');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+
+      const rec = ownedCar(userDoc);
+      if (!rec) {
+        await reply('🔑 No active car. `!gtagarage <name>` to pick one.', event.messageID);
+        return;
+      }
+      const base = CAR_BY_ID.get(rec.id);
+      if (rec.crashed) {
+        await reply(`💥 The ${base.name} is on a lift. \`!gtarepair\` first.`, event.messageID);
+        return;
+      }
+
+      // Floor 50, ceiling 5000, and never more than the player actually has.
+      let stake = Math.floor(clamp(args[0]) / 50) * 50;
+      if (!stake) stake = 300;
+      stake = Math.max(50, Math.min(5000, stake));
+      if (stake > (userDoc.coins || 0)) {
+        await reply(`💸 You cannot cover a ${kc(stake)} stake. You have ${kc(userDoc.coins)}.`, event.messageID);
+        return;
+      }
+
+      const pwr = carPower(userDoc);
+      const bonus = (rec.nitro ? 15 : 0) + (rec.tuned ? 5 : 0);
+      // 45% at the bottom of the range, 95% on a maxed Phantom Prime.
+      const chance = Math.max(0.35, Math.min(0.95, 0.45 + (pwr - 300) / 1600 + bonus / 100));
+
+      await reply(`🏁 **STREET RACE**\n━━━━━━━━━━━━━━━\n🚙 ${base.name} · ${num(pwr)} pwr\n💰 Staked: ${kc(stake)}\n📖 Two lanes, one working brake light.`, event.messageID);
+      await sleep(700);
+      await reply('▸ Green light...');
+      await sleep(700);
+
+      const won = Math.random() < chance;
+      if (won) {
+        t.racesWon = clamp(t.racesWon) + 1;
+        await save(userDoc);
+        await earn(userDoc, stake, 'gta:race_win', { stake });
+        await bank(userDoc, stake);
+        await grantXp(userDoc, 150);
+        await reply(
+          `🏆 **YOU TOOK THE RACE.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `💰 +${kc(stake)}\n`
+          + `🏁 Record: ${t.racesWon}W/${t.racesLost}L\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      t.racesLost = clamp(t.racesLost) + 1;
+      await save(userDoc);
+      const paid = await spend(userDoc, stake, 'gta:race_loss', { stake });
+      await reply(
+        `💥 **YOU LOST THE RACE.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 -${kc(stake)}${paid.ok ? '' : ' (you could not cover it)'}\n`
+        + `🏁 Record: ${t.racesWon}W/${t.racesLost}L\n`
+        + `📖 The other car did not have a working brake light either.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtaduel',
+    aliases: ['gtacarduel', 'gta1v1'],
+    category: 'gta',
+    description: '⚔️ Car duel against another player — the better car takes it',
+    usage: '!gtaduel @user',
+    cooldown: 180,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaduel', async () => {
+      await react('⚔️');
+      const mine = g(userDoc);
+      if (!mine.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+
+      const foe = await targetOr(reply, event.messageID, args[0], event, 'gtaduel');
+      if (!foe) return;
+      if (String(foe.uid) === String(userDoc.uid)) {
+        await reply('⚔️ You cannot duel yourself. The police tried that too.', event.messageID);
+        return;
+      }
+
+      const theirs = g(foe);
+      if (!theirs.started) {
+        await reply(`⚔️ ${foe.name} is not in the life yet. They have to \`!gtastart\` first.`, event.messageID);
+        return;
+      }
+
+      const myRec = ownedCar(userDoc);
+      const foRec = ownedCar(foe);
+      if (!myRec || myRec.crashed) {
+        await reply('🔑 You have no usable car. `!gtagarage` then `!gtarepair`.', event.messageID);
+        return;
+      }
+      if (!foRec || foRec.crashed) {
+        await reply(`🔑 ${foe.name} has no usable car. Nothing to duel.`, event.messageID);
+        return;
+      }
+
+      const myPwr = carPower(userDoc);
+      const foPwr = carPower(foe);
+      await reply(
+        `⚔️ **DUEL**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `🚙 ${CAR_BY_ID.get(myRec.id).name} — ${num(myPwr)} pwr\n`
+        + `vs\n`
+        + `🚙 ${CAR_BY_ID.get(foRec.id).name} — ${num(foPwr)} pwr\n`
+        + `💀 Loser gets 2 stars and a fine.`,
+        event.messageID,
+      );
+      await sleep(800);
+
+      const total = myPwr + foPwr || 1;
+      const won = Math.random() < myPwr / total;
+
+      if (won) {
+        mine.racesWon = clamp(mine.racesWon) + 1;
+        await save(userDoc);
+        const fine = 1500;
+        const took = await spend(foe, fine, 'gta:duel_fine', { from: userDoc.name });
+        await addWanted(foe, 2);
+        await addWanted(userDoc, 1);
+        await save(foe);
+        await reply(
+          `🏆 **YOU TOOK THE RACE.**\n`
+          + '━━━━━━━━━━━━━━━\n'
+          + `${foe.name} pays ${kc(fine)}${took.ok ? '' : ' — they cannot cover it'}.\n`
+          + `⭐ They are wanted ${stars(foe.gta.wanted)} (${foe.gta.wanted}/5)\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      mine.racesLost = clamp(mine.racesLost) + 1;
+      await save(userDoc);
+      const fine = 1500;
+      const took = await spend(userDoc, fine, 'gta:duel_fine', { from: foe.name });
+      await addWanted(userDoc, 2);
+      await addWanted(foe, 1);
+      await save(foe);
+      await reply(
+        `💥 **YOU LOST THE DUEL.**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💸 Fine: ${kc(fine)}${took.ok ? '' : ' — you cannot cover it'}\n`
+        + `⭐ Wanted ${stars(mine.wanted)} (${mine.wanted}/5)\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gtapvp',
+    aliases: ['gtapvpareal', 'gtacheat'],
+    category: 'gta',
+    description: '🔫 PvP — damage rolls against the other player, coins change hands',
+    usage: '!gtapvp @user',
+    cooldown: 180,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtapvp', async () => {
+      await react('🔫');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚗 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (jailed(userDoc)) {
+        await reply(`🔒 **Still in the cell.** ${jailLeft(userDoc)} minutes left.`, event.messageID);
+        return;
+      }
+
+      const foe = await targetOr(reply, event.messageID, args[0], event, 'gtapvp');
+      if (!foe) return;
+      if (String(foe.uid) === String(userDoc.uid)) {
+        await reply('🔫 Shooting yourself is not PvP, and the armoury charges full price for it.', event.messageID);
+        return;
+      }
+
+      const rec = ownedWeapon(userDoc);
+      if (!rec) {
+        await reply('🔫 No gun equipped. `!gtabuyweapon pistol` first.', event.messageID);
+        return;
+      }
+      if (clamp(rec.ammo) <= 0) {
+        await reply(`🈳 **EMPTY.** The ${WEAPON_BY_ID.get(rec.id).name} is dry.`, event.messageID);
+        return;
+      }
+
+      const myDmg = weaponDmg(userDoc);
+      const theirRec = ownedWeapon(foe);
+      const theirDmg = theirRec ? weaponDmg(foe) : 25; // unarmed is a valid target
+      rec.ammo = clamp(rec.ammo) - 1;
+      await save(userDoc);
+
+      await reply(`🔫 **PVP**\n━━━━━━━━━━━━━━━\n🎯 Your ${myDmg} dmg vs their ${theirDmg} dmg\n📖 No weapons on the ground.`, event.messageID);
+      await sleep(800);
+
+      const total = myDmg + theirDmg || 1;
+      const won = Math.random() < myDmg / total;
+
+      // Winner takes a percentage of the loser's wallet. Capped by what the
+      // loser actually has, so the transfer can never mint coins.
+      const taken = won ? Math.floor(clamp(foe.coins) * 0.1) : Math.floor(clamp(userDoc.coins) * 0.1);
+      await addWanted(foe, won ? 2 : 0);
+      await addWanted(userDoc, won ? 1 : 2);
+      await save(foe);
+
+      let line;
+      if (won) {
+        const ok = await spend(foe, taken, 'gta:pvp_loss', { from: userDoc.name });
+        await earn(userDoc, taken, 'gta:pvp_win', { from: foe.name });
+        await bank(userDoc, taken);
+        t.pvpWins = clamp(t.pvpWins) + 1;
+        line = `🏆 **YOU WON THE FIGHT.**\n💰 +${kc(taken)} taken from ${foe.name}${taken ? '' : ' — they had nothing on them'}`;
+      } else {
+        const ok = await spend(userDoc, taken, 'gta:pvp_loss', { from: foe.name });
+        await earn(foe, taken, 'gta:pvp_win', { from: userDoc.name });
+        foe.gta.pvpWins = clamp(foe.gta.pvpWins) + 1;
+        await save(foe);
+        line = `💀 **YOU LOST THE FIGHT.**\n💸 -${kc(taken)} to ${foe.name}${taken ? '' : ' — you had nothing on you'}`;
+      }
+      t.pvpLosses = clamp(t.pvpLosses) + (won ? 0 : 1);
+      await grantXp(userDoc, 200);
+      await save(userDoc);
+
+      await reply(
+        `${line}\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `⭐ They are wanted ${stars(foe.gta.wanted)} (${foe.gta.wanted}/5)\n`
+        + `⭐ You are wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
+        + `🔫 ${num(rec.ammo)} rounds left\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + `📖 ${story()}`,
         event.messageID,
