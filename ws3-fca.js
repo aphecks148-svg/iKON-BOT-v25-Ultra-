@@ -18,6 +18,7 @@ const mongo = require('./bot/mongo');
 const router = require('./bot/router');
 const loader = require('./bot/loader');
 const cooldown = require('./bot/cooldown');
+const lock = require('./bot/lock');
 const permissions = require('./bot/permissions');
 const toggles = require('./bot/toggles');
 const cache = require('./bot/cache');
@@ -292,57 +293,87 @@ async function handleMessage(api, event) {
     return;
   }
 
-  // ── COOLDOWN ──────────────────────────────────────────────
-  const cd = Number.isFinite(Number(cmd.cooldown)) ? Number(cmd.cooldown) : config.DEFAULT_COOLDOWN;
-  const left = cooldown.check(senderID, cmd.name, cd);
-  if (left > 0) {
-    await say(`⏳ Cooldown: wait ${helpers.fmt.dur(left)}.`);
+  // ── ONE COMMAND AT A TIME ─────────────────────────────────
+  // Message handling is fired off without being awaited, so two of the same
+  // command a second apart both reach here together. A per-user lock settles
+  // that: the second is refused rather than racing the first.
+  const release = lock.acquire(senderID);
+  if (!release) {
+    await say(`⏳ Still finishing your last command. Give it a second, then try again.`);
     return;
   }
 
-  // ── PROFILE ───────────────────────────────────────────────
-  const userDoc = await cache.getUser(senderID, api);
-
-  // cache.getUser returns null when the lookup itself fails, not only when
-  // there is no profile: a dropped connection or a failed create lands there
-  // too. Every command reads userDoc.coins straight away, so handing them a
-  // null means either a stack trace in the chat or, worse, a command that
-  // quietly does nothing and looks broken. One honest message beats both.
-  if (!userDoc) {
-    await say('⚠️ I could not load your profile just now. Try again in a moment.');
-    return;
-  }
-
-  // ── MODERATION ────────────────────────────────────────────
-  if (userDoc.isBanned) {
-    await say(`🚫 You are banned from using the bot${userDoc.banReason ? `: ${userDoc.banReason}` : '.'}`);
-    return;
-  }
-
-  // ── REACTION (fast ack before the command runs) ────────────
-  if (config.REACTIONS_ENABLED) reactTo(config.REACT_EMOJI);
-
-  // ── EXECUTE ──────────────────────────────────────────────
   try {
-    await cmd.execute({
-      api,
-      event,
-      args: parsed.args,
-      config,
-      registry,
-      gemini,
-      reply: say,
-      react: reactTo,
-      userDoc,
-    });
-    STATE.commandsRun += 1;
+    // ── COOLDOWN ────────────────────────────────────────────
+    // Re-checked inside the lock, not before it. The first check is only a fast
+    // path; between it and here another message from this person may have taken
+    // the cooldown, and checking once outside the lock is a check that can be
+    // stale the instant it returns.
+    const cd = Number.isFinite(Number(cmd.cooldown)) ? Number(cmd.cooldown) : config.DEFAULT_COOLDOWN;
+    const left = cooldown.check(senderID, cmd.name, cd);
+    if (left > 0) {
+      await say(`⏳ Cooldown: wait ${helpers.fmt.dur(left)}.`);
+      return;
+    }
+
+    // ── COOLDOWN RESERVED, NOT STARTED ──────────────────────
+    // Taken before the command runs, not after. A slow command — heist sends
+    // two replies and writes the ledger — spends a second or two in here, and
+    // if the bucket were only written at the end the whole execution window
+    // would be cooldown-free. That is how one cooldown paid out twice.
     cooldown.set(senderID, cmd.name, cd);
-    await recordActivity(senderID, true, isGroupThread(threadID, event.isGroup) ? threadID : null);
-  } catch (err) {
-    STATE.errors += 1;
-    error(`[COMMAND] ${cmd.name} threw: ${err.message}`);
-    if (err && err.stack) console.error(err.stack);
-    await say(`⚠️ \`${cmd.name}\` crashed: ${err.message}`);
+
+    // ── PROFILE ─────────────────────────────────────────────
+    const userDoc = await cache.getUser(senderID, api);
+
+    // cache.getUser returns null when the lookup itself fails, not only when
+    // there is no profile: a dropped connection or a failed create lands there
+    // too. Every command reads userDoc.coins straight away, so handing them a
+    // null means either a stack trace in the chat or, worse, a command that
+    // quietly does nothing and looks broken. One honest message beats both.
+    if (!userDoc) {
+      cooldown.clear(senderID, cmd.name);
+      await say('⚠️ I could not load your profile just now. Try again in a moment.');
+      return;
+    }
+
+    // ── MODERATION ────────────────────────────────────────────
+    if (userDoc.isBanned) {
+      cooldown.clear(senderID, cmd.name);
+      await say(`🚫 You are banned from using the bot${userDoc.banReason ? `: ${userDoc.banReason}` : '.'}`);
+      return;
+    }
+
+    // ── REACTION (fast ack before the command runs) ────────────
+    if (config.REACTIONS_ENABLED) reactTo(config.REACT_EMOJI);
+
+    // ── EXECUTE ──────────────────────────────────────────────
+    try {
+      await cmd.execute({
+        api,
+        event,
+        args: parsed.args,
+        config,
+        registry,
+        gemini,
+        reply: say,
+        react: reactTo,
+        userDoc,
+      });
+      STATE.commandsRun += 1;
+      await recordActivity(senderID, true, isGroupThread(threadID, event.isGroup) ? threadID : null);
+    } catch (err) {
+      // Hand the cooldown back. A database blip or a failed upload is not the
+      // person's fault, and burning the cooldown on it means they wait out a
+      // command that never actually ran.
+      cooldown.clear(senderID, cmd.name);
+      STATE.errors += 1;
+      error(`[COMMAND] ${cmd.name} threw: ${err.message}`);
+      if (err && err.stack) console.error(err.stack);
+      await say(`⚠️ \`${cmd.name}\` crashed: ${err.message}`);
+    }
+  } finally {
+    release();
   }
 }
 

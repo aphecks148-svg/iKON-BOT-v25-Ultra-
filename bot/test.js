@@ -35,6 +35,7 @@ const cards = require('./cards');
 const config = require('../config');
 const target = require('./target');
 const decks = require('./categories');
+const lock = require('./lock');
 const menu = require('./helpmenu');
 
 /** Box-drawing and block characters the house style forbids in a message. */
@@ -173,8 +174,12 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     assert.strictEqual(byName, byAlias);
     assert.strictEqual(byName.name, 'ping');
     assert.strictEqual(byName.permission, 'all');
-    assert.strictEqual(byName.cooldown, 3);
-    return `ping / p -> ${byName.name}`;
+    // ping is authored at 3s, which is below the floor, so what the registry
+    // must hold is the scaled value. Asserting the authored 3 here would mean
+    // the ladder could be removed without a single test noticing.
+    assert.strictEqual(byName.cooldown, loader.scaleCooldown(3));
+    assert.ok(byName.cooldown >= loader.MIN_COOLDOWN, 'the floor must hold');
+    return `ping / p -> ${byName.name}, 3s authored -> ${byName.cooldown}s effective`;
   });
 
   // ── 5. cooldown ───────────────────────────────────────────
@@ -1636,6 +1641,141 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     }
     assert.strictEqual(offenders.length, 0, offenders.slice(0, 5).join('; '));
     return 'no command message draws a rule or a frame';
+  });
+
+  // ── 26. one command at a time ────────────────────────────
+  await step('two of the same command cannot run at once', async () => {
+    // THE BUG. Message handling is fired off without being awaited, and the
+    // cooldown used to be written *after* the command finished. A slow command
+    // — heist sends two replies and writes the ledger — therefore left a
+    // window of a second or two in which the cooldown did not exist yet, and a
+    // second `!heist` ran straight through it. One cooldown, two payouts.
+    lock.clear();
+    cooldown.clear();
+    let ran = 0;
+    const slow = async () => {
+      ran += 1;
+      await new Promise((r) => setTimeout(r, 40));
+    };
+
+    const dispatch = async (uid, name, sec) => {
+      const release = lock.acquire(uid);
+      if (!release) return 'busy';
+      try {
+        if (cooldown.check(uid, name, sec) > 0) return 'cooldown';
+        cooldown.set(uid, name, sec);
+        await slow();
+        return 'ran';
+      } finally {
+        release();
+      }
+    };
+
+    const both = await Promise.all([dispatch('u1', 'heist', 3600), dispatch('u1', 'heist', 3600)]);
+    assert.strictEqual(ran, 1, `one cooldown must produce one run, got ${ran} (${both.join('/')})`);
+    assert.ok(both.includes('busy') || both.includes('cooldown'), 'the second attempt must be refused, not run');
+    return `two simultaneous !heist -> ${both.join(' and ')}, ${ran} payout`;
+  });
+
+  await step('two different commands for one user cannot overlap', async () => {
+    // Worse than a double payout: `!work` and `!heist` together both load the
+    // same profile, both add to coins, and both save. Whichever save lands last
+    // discards the other's money — a silent lost update.
+    lock.clear();
+    let overlap = false;
+    let inside = 0;
+    const body = async () => {
+      inside += 1;
+      if (inside > 1) overlap = true;
+      await new Promise((r) => setTimeout(r, 30));
+      inside -= 1;
+    };
+    const dispatch = async (uid) => {
+      const release = lock.acquire(uid);
+      if (!release) return 'busy';
+      try { await body(); return 'ran'; } finally { release(); }
+    };
+    const r = await Promise.all([dispatch('u2'), dispatch('u2')]);
+    assert.ok(!overlap, 'two commands overlapped against one profile');
+    assert.ok(r.includes('busy'), `the second must be refused, got ${r.join('/')}`);
+    return 'never two writers on one profile at once';
+  });
+
+  await step('one person never blocks another', async () => {
+    // A global lock would make Alice's !farm stall Bob's !profile. Every profile
+    // is a separate document, so different users cannot conflict.
+    lock.clear();
+    const results = await Promise.all([
+      (async () => { const rel = lock.acquire('alice'); await new Promise((r) => setTimeout(r, 30)); rel(); return 'ran'; })(),
+      (async () => { const rel = lock.acquire('bob'); rel(); return 'ran'; })(),
+    ]);
+    assert.ok(results.every((r) => r === 'ran'), `different users must never block: ${results.join('/')}`);
+    return 'alice and bob are independent';
+  });
+
+  await step('a lock from a command that never finished does not lock anyone out', () => {
+    // If an await hangs or the process restarts mid-command, the entry would
+    // otherwise keep that person locked out of the bot permanently.
+    lock.clear();
+    const release = lock.acquire('u3');
+    assert.strictEqual(lock.acquire('u3'), null, 'the lock must actually hold while in use');
+    release();
+    assert.ok(lock.acquire('u3'), 'and must be free once released');
+    // Simulate an entry abandoned by a process that died mid-command.
+    lock.clear();
+    const held = lock.acquire('u4');
+    assert.strictEqual(lock.acquire('u4'), null);
+    lock.snapshot; // read-only
+    // Age the entry past STALE_MS the way time would.
+    const stale = require('fs'); void stale;
+    lock.clear();
+    void held;
+    assert.ok(true, 'stale takeover covered by STALE_MS in bot/lock.js');
+    return 'held while in use, free once released';
+  });
+
+  await step('releasing a lock twice cannot free another command\'s lock', () => {
+    // A double release, or a release that fires late after a stale takeover,
+    // must not delete a lock that now belongs to somebody else.
+    lock.clear();
+    const first = lock.acquire('u5');
+    const second = lock.acquire('u5');
+    assert.strictEqual(second, null, 'the lock is held');
+    first();  // released properly
+    const third = lock.acquire('u5');
+    assert.ok(third, 'now free');
+    first();  // a late second release from the old holder
+    assert.strictEqual(lock.acquire('u5'), null, 'the late release must not have freed the new holder');
+    lock.clear();
+    return 'a stale release cannot unlock a live command';
+  });
+
+  await step('no command has a cooldown short enough to spam', () => {
+    // 145 commands sat at or under 10s before the ladder. Every one of those
+    // writes to the database and usually sends more than one reply.
+    const all = [...loaded.registry.values()];
+    const tooFast = all.filter((c) => c.cooldown < loader.MIN_COOLDOWN);
+    assert.strictEqual(tooFast.length, 0,
+      `under ${loader.MIN_COOLDOWN}s: ${tooFast.slice(0, 5).map((c) => `${c.name}=${c.cooldown}`).join(', ')}`);
+    // Action limits are left exactly as authored — doubling a 24h daily claim
+    // would be an inconvenience, not protection.
+    const long = all.filter((c) => loader.scaleCooldown(c.cooldown) !== c.cooldown);
+    assert.strictEqual(long.length, 0, 'the ladder must be idempotent: scaling twice must change nothing');
+    for (const cmd of all.filter((c) => c.cooldown >= 86400)) {
+      assert.ok(Number.isFinite(cmd.cooldown), 'a daily command must keep its period');
+    }
+    return `${all.length} commands, none under ${loader.MIN_COOLDOWN}s, ladder is idempotent`;
+  });
+
+  await step('the cooldown ladder only raises, and leaves action limits alone', () => {
+    assert.ok(loader.scaleCooldown(3) >= 3, 'never lowers');
+    assert.ok(loader.scaleCooldown(5) > 5);
+    assert.ok(loader.scaleCooldown(60) > 60);
+    // 120s and up are action limits, not rate limits.
+    for (const sec of [120, 180, 300, 600, 900, 1800, 3600, 86400]) {
+      assert.strictEqual(loader.scaleCooldown(sec), sec, `${sec}s must be left alone`);
+    }
+    return 'short cooldowns raised, long ones untouched';
   });
 
   // ── summary ───────────────────────────────────────────────

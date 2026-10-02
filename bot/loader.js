@@ -18,6 +18,64 @@ const deckMeta = require('./categories');
 const MODULE_COUNT = 10;
 const COMMANDS_DIR = path.join(__dirname, '..', 'commands');
 
+/**
+ * Minimum seconds a command is allowed to carry.
+ *
+ * The old floor was 3s, and 145 of the 352 commands sat at or under 10s. That is
+ * short enough to be spam in a busy group: every one of those commands writes to
+ * the database and usually sends more than one reply, so a person holding down
+ * a key produces a burst of messages and a burst of writes — and, before the
+ * per-user lock, a burst of payouts.
+ *
+ * 8s is not arbitrary. It is about the time it takes to notice a wrong number in
+ * a reply and decide not to run it again, which is the cost a cooldown is
+ * actually meant to charge.
+ */
+const MIN_COOLDOWN = 8;
+
+/**
+ * The cooldown ladder, as an exact authored value -> effective value map.
+ *
+ * Two rules this table has to obey, and both were learned the hard way:
+ *
+ * 1. Exact keys, never thresholds. A threshold ladder ("anything <= 10 becomes
+ *    20") is not idempotent, and the loader runs on `!reload`.
+ * 2. No output may also be an input. If 15 is both "a value somebody wrote" and
+ *    "a value the ladder produces", then scaling 3 gives 15 and scaling again
+ *    gives 25 — and the number creeps upward on every pass. The rungs below are
+ *    therefore chosen so that {outputs} and {inputs} are disjoint, which makes
+ *    the ladder idempotent by construction: scaling 3 twice gives 12 twice.
+ *
+ * Anything at or above two minutes is an action limit rather than a rate limit —
+ * `!daily` (24h), `!heist` (1h) — and is absent from this table on purpose, so
+ * it is never touched.
+ */
+const COOLDOWN_TIERS = new Map([
+  [3, 12],    // !help and other trivial queries
+  [5, 12],
+  [10, 18],   // the bulk of the casual commands
+  [15, 18],
+  [20, 24],
+  [30, 36],
+  [45, 50],
+  [60, 70],   // gambling and the slower economy commands
+]);
+
+/**
+ * Apply the ladder and the floor.
+ *
+ * @param {number} sec as authored
+ * @returns {number}
+ */
+function scaleCooldown(sec) {
+  const n = Number.isFinite(Number(sec)) ? Number(sec) : 5;
+  const scaled = COOLDOWN_TIERS.get(n);
+  if (scaled !== undefined) return scaled;
+  // Not a rung on the ladder: an action limit, or a value somebody chose
+  // deliberately. Leave it, but hold it to the floor.
+  return Math.max(MIN_COOLDOWN, n);
+}
+
 /** Required fields every command must define. */
 const REQUIRED = ['name', 'category', 'execute'];
 
@@ -115,7 +173,7 @@ function loadCommands(dir = COMMANDS_DIR) {
       cmd.category = cmd.category || 'misc';
       cmd.description = cmd.description || 'No description yet';
       cmd.usage = cmd.usage || `${'!'}${cmd.name}`;
-      cmd.cooldown = Number.isFinite(Number(cmd.cooldown)) ? Number(cmd.cooldown) : 5;
+      cmd.cooldown = scaleCooldown(cmd.cooldown);
       cmd.permission = cmd.permission || 'all';
       cmd.module = file.replace('.js', '');
 
@@ -181,4 +239,7 @@ function listCommands(category, registry) {
   return all.filter((c) => c.category === category);
 }
 
-module.exports = { loadCommands, findCommand, listCommands, setHotReload, MODULE_COUNT, COMMANDS_DIR };
+module.exports = {
+  loadCommands, findCommand, listCommands, setHotReload, scaleCooldown,
+  MODULE_COUNT, COMMANDS_DIR, MIN_COOLDOWN, COOLDOWN_TIERS,
+};
