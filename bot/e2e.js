@@ -221,6 +221,115 @@ const EVENT = (body, over = {}) => ({
     }
   });
 
+  // ── 10. admin control covers every module, and cannot lock itself out ──
+  // This is the whole point of the gate. `!disablemod system` switches off every
+  // command in the system category, and that set contains !enablecmd,
+  // !enablemod, !listcmds and !listmods. Because the gate applied to admins as
+  // well, running it left the chat with no in-chat way back — not for the admin
+  // who ran it, not for the owner. Admins must therefore pass the switches they
+  // control, while members obey them.
+  await assertStep('ADMIN CONTROL: a member obeys the switches, an admin is never locked out', async () => {
+    const Group = require('../models/Group');
+    const mongo = require('./mongo');
+    const cache = require('./cache');
+    const realFindOne = Group.findOne;
+    const realReady = mongo.isReady;
+    const realGetUser = cache.getUser;
+    const realSaveUser = cache.saveUser;
+
+    // A uid the bot has never seen has to be created, and there is no database
+    // here. Without this the handler fails on the profile and the test ends up
+    // asserting on that failure instead of on the gate under test.
+    const stubProfile = async (uid) => ({
+      uid: String(uid),
+      name: `E2E ${String(uid).slice(-3)}`,
+      coins: 1000,
+      bank: 0,
+      level: 1,
+      xp: 0,
+      commandsUsed: 0,
+      async save() { return this; },
+      increment() { return this; },
+    });
+    cache.getUser = stubProfile;
+    cache.saveUser = async () => {};
+
+    const GROUP = {
+      tid: 'e2e_thread',
+      isEnabled: true,
+      maintenance: false,
+      adminsOnly: false,
+      // The nastiest realistic case: the system module is off, which takes out
+      // the very commands used to undo it.
+      disabledModules: ['system'],
+      disabledCommands: [],
+    };
+    Group.findOne = () => ({ lean: () => Promise.resolve(GROUP) });
+    mongo.isReady = () => true;
+
+    // api.getThreadInfo() reports e2e_admin as a thread admin (see mockApi).
+    const asMember = async (body, mid) => {
+      await ik.handleMessage(api, EVENT(body, { messageID: mid, senderID: 'e2e_plain_member' }));
+      return String(api.lastBody());
+    };
+    const asAdmin = async (body, mid) => {
+      await ik.handleMessage(api, EVENT(body, { messageID: mid, senderID: 'e2e_admin' }));
+      return String(api.lastBody());
+    };
+    const asOwner = async (body, mid) => {
+      await ik.handleMessage(api, EVENT(body, { messageID: mid, senderID: '999000111' }));
+      return String(api.lastBody());
+    };
+
+    try {
+      // A command in the disabled module. The member is refused...
+      const memberOut = await asMember('!ping', 'gate_m1');
+      assert.ok(memberOut.startsWith('⛔'), `member should be gated, got: ${memberOut}`);
+      assert.ok(/disabled here/.test(memberOut), 'and told why');
+
+      // ...while the thread admin and the owner both get through, which is the
+      // only reason the switch is reversible at all.
+      // !ping rather than !listcmds: both are in the disabled module, but ping
+      // needs no database profile, so this asserts the gate alone instead of
+      // silently testing the profile cache instead.
+      const adminOut = await asAdmin('!ping', 'gate_m2');
+      assert.ok(!adminOut.startsWith('⛔'), `admin must not be locked out, got: ${adminOut}`);
+      assert.ok(/Pong/.test(adminOut), `admin actually ran it -> ${JSON.stringify(adminOut)}`);
+
+      const ownerOut = await asOwner('!ping', 'gate_m3');
+      assert.ok(/Pong/.test(ownerOut), `owner actually ran it -> ${JSON.stringify(ownerOut)}`);
+
+      // The admin's view of their own chat has to count module kills, or
+      // !listcmds reports "356 enabled" in a chat with 38 commands switched off.
+      const view = await asAdmin('!listcmds', 'gate_m4');
+      assert.ok(/Modules off/.test(view), `the admin is shown which modules are off -> ${JSON.stringify(view.slice(0, 120))}`);
+      const enabled = Number((view.match(/Enabled: (\d+)/) || [])[1]);
+      assert.ok(enabled > 0 && enabled < 356, `enabled count accounts for module kills (got ${enabled})`);
+
+      // With the module switch off, a member keeps every command outside it:
+      // by default everybody can use the bot, and only the switches take
+      // anything away.
+      GROUP.disabledModules = [];
+      const untouched = await asMember('!ping', 'gate_m5');
+      assert.ok(/Pong/.test(untouched), `members keep the bot by default, got: ${untouched}`);
+
+      // Maintenance is a shutdown, not a switch — it holds for admins and the
+      // owner too, because it is the operator who asked for it.
+      GROUP.maintenance = true;
+      const maintAdmin = await asAdmin('!ping', 'gate_m6');
+      assert.ok(/under maintenance/.test(maintAdmin), `maintenance holds for admins, got: ${maintAdmin}`);
+      const maintOwner = await asOwner('!ping', 'gate_m7');
+      assert.ok(/under maintenance/.test(maintOwner), `maintenance holds for the owner, got: ${maintOwner}`);
+    } finally {
+      GROUP.maintenance = false;
+      GROUP.disabledModules = ['system'];
+      Group.findOne = realFindOne;
+      mongo.isReady = realReady;
+      cache.getUser = realGetUser;
+      cache.saveUser = realSaveUser;
+    }
+  });
+
   // ── 9. a message sent AS A REPLY must still be handled ────
   // ws3-fca labels a reply "message_reply" (listenMqtt.js:246). The listener
   // used to accept only "message", so replying to the bot produced a reaction

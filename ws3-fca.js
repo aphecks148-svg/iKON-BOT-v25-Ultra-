@@ -299,8 +299,31 @@ async function handleMessage(api, event) {
     return;
   }
   if (!gate.allowed) {
-    await say(`⛔ ${gate.reason}`);
-    return;
+    // An admin is never blocked by the switches an admin controls.
+    //
+    // This is what makes admin control total rather than self-destructive.
+    // !disablemod system disables every command in the system category, and that
+    // set includes !enablecmd, !enablemod, !listcmds and !listmods — the exact
+    // commands that undo it. Holding admins to the same gate they set meant one
+    // command left the chat with no in-chat way back: not the admin who ran it,
+    // not the bot owner. Recovering needed a direct edit of the group document.
+    // So admins pass the per-command and per-module gate, which guarantees
+    // whoever disabled something can always see it and turn it back.
+    //
+    // Maintenance deliberately does NOT bypass: it is a shutdown the operator
+    // asked for and it holds for the owner too.
+    let mayOverride = false;
+    if (gate.adminBypass) {
+      try {
+        mayOverride = await permissions.canModerate(api, event);
+      } catch {
+        mayOverride = false; // a failed lookup never grants
+      }
+    }
+    if (!mayOverride) {
+      await say(`⛔ ${gate.reason}`);
+      return;
+    }
   }
 
   // ── ADMINS-ONLY (!onlyadminon) ─────────────────────────────

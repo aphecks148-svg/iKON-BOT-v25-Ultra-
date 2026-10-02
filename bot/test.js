@@ -2779,6 +2779,119 @@ const PIKACHU = dex.find('pikachu');
     return 'preview sends nothing, a real send reaches everyone';
   });
 
+  // ── 36. the gate says which blocks an admin may override ──
+  // Not all blocks are equal. A disabled command is a switch an admin set, so
+  // an admin may override it — otherwise the switch that turns off `enablecmd`
+  // turns off the only way to undo it. Maintenance is an operator shutdown and
+  // holds for everyone, the owner included. Collapsing the two into a plain
+  // allowed/not-allowed is what produced a group nobody could un-wedge.
+  await step('the gate marks switches as overridable and maintenance as not', async () => {
+    const Group = require('../models/Group');
+    const mongo = require('./mongo');
+    const realFindOne = Group.findOne;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+
+    let GROUP = {
+      tid: 'gate', isEnabled: true, maintenance: false, adminsOnly: false, disabledCommands: [], disabledModules: [],
+    };
+    Group.findOne = () => ({ lean: () => Promise.resolve(GROUP) });
+
+    try {
+      // Baseline: no group at all is permissive, and overridable.
+      const none = await toggles.isCommandDisabled('gate_missing', 'ping', 'system');
+      assert.strictEqual(none.allowed, true, 'an unknown chat is allowed');
+      assert.strictEqual(none.adminBypass, true, 'and an admin may always act');
+
+      // A disabled command: blocked, but overridable.
+      GROUP = { ...GROUP, disabledCommands: ['ping'] };
+      const off = await toggles.isCommandDisabled('gate', 'ping', 'system');
+      assert.strictEqual(off.allowed, false, 'the command is off');
+      assert.strictEqual(off.adminBypass, true, 'an admin may still run it');
+      assert.ok(/disabled here/.test(off.reason), 'and is told why');
+
+      // A disabled module: same, including by category.
+      GROUP = { ...GROUP, disabledCommands: [], disabledModules: ['system'] };
+      const modOff = await toggles.isCommandDisabled('gate', 'ping', 'system');
+      assert.strictEqual(modOff.allowed, false, 'the module is off');
+      assert.strictEqual(modOff.adminBypass, true, 'an admin may still run it');
+      const otherCat = await toggles.isCommandDisabled('gate', 'ping', 'economy');
+      assert.strictEqual(otherCat.allowed, true, 'a command outside the module is untouched');
+
+      // Maintenance and a paused chat are NOT overridable.
+      GROUP = { ...GROUP, disabledModules: [], maintenance: true };
+      const maint = await toggles.isCommandDisabled('gate', 'ping', 'system');
+      assert.strictEqual(maint.allowed, false, 'maintenance blocks');
+      assert.strictEqual(maint.adminBypass, false, 'maintenance holds even for an admin');
+      GROUP = { ...GROUP, maintenance: false, isEnabled: false };
+      const p = await toggles.isCommandDisabled('gate', 'ping', 'system');
+      assert.strictEqual(p.allowed, false, 'a paused chat blocks');
+      assert.strictEqual(p.adminBypass, false, 'and a paused chat holds for admins too');
+    } finally {
+      Group.findOne = realFindOne;
+      mongo.isReady = realReady;
+    }
+    return 'switches are overridable, shutdowns are not';
+  });
+
+  // ── 37. the switch cannot be pointed at its own undo button ──
+  await step('disabling a command warns when it takes the undo command away', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const run = async (name, args) => {
+      const cmd = loaded.registry.get(name);
+      const said = [];
+      await cmd.execute({
+        api: {},
+        args,
+        event: { threadID: 't1', messageID: 'm', senderID: '111', isGroup: true },
+        registry: loaded.registry,
+        config,
+        reply: async (t) => { said.push(typeof t === 'string' ? t : t.body); },
+        react: async () => true,
+        userDoc: { uid: '111', name: 'Zee' },
+      });
+      return said.join('\n');
+    };
+
+    const Group = require('../models/Group');
+    const mongo = require('./mongo');
+    const realFindOne = Group.findOne;
+    const realCreate = Group.create;
+    const realReady = mongo.isReady;
+    const doc = {
+      tid: 't1', disabledCommands: [], disabledModules: [],
+      async save() { return doc; },
+    };
+    Group.findOne = () => Promise.resolve(doc);
+    Group.create = () => Promise.resolve(doc);
+    mongo.isReady = () => true;
+
+    try {
+      // An owner-only command cannot be disabled by a group admin: nobody in
+      // the group could run it anyway, so the switch would only misreport.
+      const ownerOnly = await run('disablecmd', ['broadcast']);
+      assert.ok(/owner-only/.test(ownerOnly), `owner-only commands are refused -> ${ownerOnly}`);
+
+      // Disabling the undo command is allowed — admins keep it — but it says so.
+      const selfHarm = await run('disablecmd', ['enablecmd']);
+      assert.ok(/Admins keep/.test(selfHarm), `the warning is given -> ${selfHarm}`);
+
+      // Disabling a whole module that contains the undo commands names them.
+      const modHarm = await run('disablemod', ['system']);
+      assert.ok(/enablecmd/.test(modHarm) && /listcmds/.test(modHarm), `the victims are named -> ${modHarm}`);
+      assert.ok(/Admins keep/.test(modHarm), 'and it is clear admins are unaffected');
+
+      // An ordinary command disables quietly and says how to undo it.
+      const plain = await run('disablecmd', ['heist']);
+      assert.ok(/Re-enable with/.test(plain), `the normal case still explains itself -> ${plain}`);
+    } finally {
+      Group.findOne = realFindOne;
+      Group.create = realCreate;
+      mongo.isReady = realReady;
+    }
+    return 'owner-only refused, self-harm warned, ordinary case unchanged';
+  });
+
   // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;

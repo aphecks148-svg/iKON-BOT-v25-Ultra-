@@ -584,10 +584,23 @@ module.exports = [
         await reply(`❌ \`${name}\` is not a known command.`, event.messageID);
         return;
       }
+      // Refused rather than disabled: these are already gated to the bot owner,
+      // so no member of this group could run them in the first place. Switching
+      // them off here does nothing except make the group look like it has
+      // quietly removed a feature it never had.
+      if (cmd.permission === 'owner') {
+        await reply(
+          `❌ \`${cmd.name}\` is owner-only — no member of this group can run it, so there is nothing to disable here.`,
+          event.messageID,
+        );
+        return;
+      }
       await toggles.toggleCommand(event.threadID, cmd.name, true);
       await react('🔇');
       await reply(
-        `🔇 \`${cmd.name}\` is disabled in this group.\nRe-enable with \`!enablecmd ${cmd.name}\``,
+        `🔇 \`${cmd.name}\` is disabled in this group.\n`
+        + escapeHatchNote(cmd.name, '!enablecmd')
+        + `Admins can still run it.`,
         event.messageID,
       );
     }),
@@ -656,7 +669,9 @@ module.exports = [
       await toggles.toggleModule(event.threadID, name, true);
       await react('🔇');
       await reply(
-        `🔇 Module \`${name}\` is disabled in this group.\nRe-enable with \`!enablemod ${name}\``,
+        `🔇 Module \`${name}\` is disabled in this group.\n`
+        + moduleEscapeHatchNote(registry, name)
+        + `Admins can still run everything.`,
         event.messageID,
       );
     }),
@@ -681,19 +696,32 @@ module.exports = [
       }
       const group = await toggles.findGroup(event.threadID);
       const disabled = new Set(group ? group.disabledCommands || [] : []);
+      const offModules = new Set(group ? group.disabledModules || [] : []);
       const all = [...registry.values()];
 
-      const enabled = all.filter((c) => !disabled.has(c.name));
-      const off = all.filter((c) => disabled.has(c.name));
+      // A module switch turns off everything it holds, so it has to be counted
+      // here too. Reading only disabledCommands reported "354 enabled" in a chat
+      // where the whole system module was switched off — the admin's own picture
+      // of their chat was wrong in the one direction that hides breakage.
+      const killedByModule = new Set(
+        all.filter((c) => offModules.has(c.module) || offModules.has(c.category)).map((c) => c.name),
+      );
+      const enabled = all.filter((c) => !disabled.has(c.name) && !killedByModule.has(c.name));
+      const off = all.filter((c) => disabled.has(c.name) || killedByModule.has(c.name));
 
       const lines = [
         `⚙️ Commands in this group (${all.length} total)`,
         '· · · · · · ·',
+        ...(offModules.size
+          ? [`📦 Modules off: ${[...offModules].map((m) => `\`${m}\``).join(', ')}`, '']
+          : []),
         `✅ Enabled: ${enabled.length}`,
         ...chunk(enabled.map((c) => `\`${c.name}\``), 4),
         '',
         `🔇 Disabled: ${off.length}`,
         ...(off.length ? chunk(off.map((c) => `\`${c.name}\``), 4) : ['• none']),
+        '',
+        '📖 Off means only for members — admins can still run all of it.',
       ];
       await reply(lines.join('\n'), event.messageID);
     }),
@@ -1493,6 +1521,45 @@ function chunk(items, size) {
   const rows = [];
   for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size).join('  '));
   return rows;
+}
+
+// The commands that undo the disable switches. Admins keep these regardless —
+// the engine lets an admin override any disabled command — so disabling one is
+// not a trap for the admin who did it. It is still worth saying out loud,
+// because it removes the ability from everybody else in the chat, and that is
+// the half of it an admin cannot take back with a bot command.
+const UNDO_COMMANDS = ['enablecmd', 'enablemod', 'listcmds', 'listmods'];
+
+/**
+ * Warn that a single command being switched off also takes the undo command
+ * away from ordinary members.
+ *
+ * @param {string} name the command about to be disabled
+ * @param {string} undo how to turn it back on
+ * @returns {string} an extra line, or '' when nothing important is lost
+ */
+function escapeHatchNote(name, undo) {
+  if (!UNDO_COMMANDS.includes(name)) return `Re-enable with \`${undo} ${name}\``;
+  return '⚠️ This is how admins turn commands back on, so members will lose the '
+    + `ability to undo it. Admins keep \`${undo}\`.`;
+}
+
+/**
+ * Same warning for a whole module: disabling the system module takes out every
+ * command an admin uses to manage the group.
+ *
+ * @param {Map} registry command registry
+ * @param {string} mod module or category key
+ * @returns {string}
+ */
+function moduleEscapeHatchNote(registry, mod) {
+  const victims = [...registry.values()]
+    .filter((c) => c.module === mod || c.category === mod)
+    .map((c) => c.name)
+    .filter((n) => UNDO_COMMANDS.includes(n));
+  if (!victims.length) return `Re-enable with \`!enablemod ${mod}\``;
+  return `⚠️ This takes out \`${victims.join('`, `')}\` — so members will have no way to undo this. `
+    + 'Admins keep them. Re-enable with `!enablemod ' + mod + '`';
 }
 
 /** Resolve a command name against the registry (name or alias). */

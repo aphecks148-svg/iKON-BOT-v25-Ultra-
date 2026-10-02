@@ -66,44 +66,67 @@ function findGroup(tid) {
  * whole bot down — maintenance is enforced from config.MAINTENANCE_MODE, which
  * needs no database at all.
  *
- * @returns {Promise<{allowed:boolean, reason:string, adminsOnly:boolean}>}
+ * @returns {Promise<{allowed:boolean, reason:string, adminsOnly:boolean, adminBypass:boolean}>}
+ *   `adminBypass` says whether an admin of the thread may run the command anyway.
+ *   It is true for the per-command and per-module switches — the things an admin
+ *   sets — and false for maintenance, which is a deliberate shutdown that has to
+ *   hold for everybody, including the owner who turned it on.
  */
 async function isCommandDisabled(tid, cmdName, category) {
   if (config.MAINTENANCE_MODE) {
-    return { allowed: false, reason: 'Bot is under maintenance. Back shortly.', adminsOnly: false };
+    return {
+      allowed: false, reason: 'Bot is under maintenance. Back shortly.', adminsOnly: false, adminBypass: false,
+    };
   }
 
   const group = await findGroup(tid);
-  if (!group) return { allowed: true, reason: '', adminsOnly: false };
+  if (!group) return {
+    allowed: true, reason: '', adminsOnly: false, adminBypass: true,
+  };
 
   // Reported rather than enforced here: only the engine knows the sender, and
   // this module has no api to resolve thread admins with.
   const adminsOnly = group.adminsOnly === true;
+  const bypass = { allowed: false, adminsOnly, adminBypass: true };
 
   if (group.isEnabled === false) {
-    return { allowed: false, reason: 'This group is paused.', adminsOnly };
+    // Paused holds for everybody, admin included: the whole point of pausing a
+    // chat is that the bot says nothing in it.
+    return {
+      allowed: false, reason: 'This group is paused.', adminsOnly, adminBypass: false,
+    };
   }
 
   if (group.maintenance) {
-    return { allowed: false, reason: 'This group is under maintenance.', adminsOnly };
+    return {
+      allowed: false, reason: 'This group is under maintenance.', adminsOnly, adminBypass: false,
+    };
   }
 
   const moduleKey = String(cmdName || '').split('_')[0];
   if (group.disabledModules?.length) {
     if (group.disabledModules.includes(moduleKey)) {
-      return { allowed: false, reason: `Module ${moduleKey} is disabled here.`, adminsOnly };
+      return {
+        ...bypass, reason: `Module ${moduleKey} is disabled here.`,
+      };
     }
     // A command may also declare its module by category.
     if (group.disabledModules.includes(category)) {
-      return { allowed: false, reason: `Category ${category} is disabled here.`, adminsOnly };
+      return {
+        ...bypass, reason: `Category ${category} is disabled here.`,
+      };
     }
   }
 
   if (cmdName && group.disabledCommands?.includes(cmdName)) {
-    return { allowed: false, reason: `Command ${cmdName} is disabled here.`, adminsOnly };
+    return {
+      ...bypass, reason: `Command ${cmdName} is disabled here.`,
+    };
   }
 
-  return { allowed: true, reason: '', adminsOnly };
+  return {
+    allowed: true, reason: '', adminsOnly, adminBypass: true,
+  };
 }
 
 /** Turn maintenance mode on/off for a group. */
