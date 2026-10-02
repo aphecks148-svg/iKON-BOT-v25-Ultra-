@@ -103,8 +103,8 @@ const config = {
   // half-working against the old endpoint.
   GROQ_API_KEY: env('GROQ_API_KEY', ''),
   // Empty means "use bot/groq.js's own ladder", which starts at
-  // llama-3.3-70b-versatile. Left blank on purpose so one model being retired
-  // does not require touching this file.
+  // openai/gpt-oss-120b. Left blank on purpose so one model being retired
+  // does not require touching this file — see FALLBACK_MODELS in bot/groq.js.
   GROQ_MODEL: env('GROQ_MODEL', ''),
 
   // ── server ────────────────────────────────────────────────

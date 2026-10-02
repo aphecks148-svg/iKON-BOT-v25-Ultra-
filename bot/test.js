@@ -699,23 +699,53 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
   }
 
   // ── 13. groq (offline — no network) ──────────────────────
-  await step('groq targets a model that exists on GroqCloud', () => {
+  await step('groq targets a model that still exists on GroqCloud', () => {
     const model = groq.preferredModel();
     assert.ok(model, 'a default model must exist');
-    // Every id must be a real GroqCloud model id, or the ladder 404s from the
-    // first rung and the failure looks like a key fault.
+    // Every id must be a real, CURRENT GroqCloud model id, or the ladder 404s
+    // from the first rung and the failure looks like a key fault.
+    //
+    // This list was the trap: it named llama-3.3-70b-versatile and
+    // llama-3.1-8b-instant as the known-good set, and Groq retired BOTH on
+    // 16 Aug 2026 for free and developer tiers. The test asserted the code
+    // agreed with itself and said nothing about Groq agreeing with either.
+    // When you touch this, check console.groq.com/docs/deprecations — a retired
+    // model is not "unknown", it is worse: it is a 404 on every single call.
     const KNOWN = new Set([
-      'llama-3.3-70b-versatile',
-      'llama-3.1-8b-instant',
       'openai/gpt-oss-120b',
       'openai/gpt-oss-20b',
+      'qwen/qwen3.8-27b',
+    ]);
+    // Names Groq has already shut down. Listed so a regression is loud rather
+    // than a silent return to a ladder that 404s on every request.
+    const RETIRED = new Set([
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'qwen/qwen3.6-27b',
+      'moonshotai/kimi-k2-instruct-0905',
+      'meta-llama/llama-4-scout-17b-16e-instruct',
+      'meta-llama/llama-4-maverick-17b-128e-instruct',
     ]);
     assert.ok(KNOWN.has(model), `unknown default model "${model}"`);
     assert.ok(groq.FALLBACK_MODELS.length > 1, 'a single-model ladder is not a ladder');
     for (const m of groq.FALLBACK_MODELS) {
+      assert.ok(!RETIRED.has(m), `"${m}" was shut down by Groq and answers nothing`);
       assert.ok(KNOWN.has(m), `unknown fallback model "${m}"`);
     }
     assert.ok(groq.FALLBACK_MODELS.includes(model), 'the default must be in the ladder');
+
+    // A ladder whose first rung is dead costs a doomed round trip on every AI
+    // command, so the default specifically must be a live production model.
+    assert.ok(
+      ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'].includes(model),
+      `the default should be a production model, not "${model}"`,
+    );
+
+    // And at least two rungs must be production models, so one family being
+    // withdrawn does not take the whole bot offline at once.
+    const production = groq.FALLBACK_MODELS.filter((m) => !m.startsWith('qwen/'));
+    assert.ok(production.length >= 2, 'two production rungs are needed to survive one family being retired');
+
     return `${model}, fallbacks: ${groq.FALLBACK_MODELS.join(', ')}`;
   });
 
@@ -752,12 +782,25 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
 
     // max_tokens is DEPRECATED; the current name is max_completion_tokens.
     assert.ok(!('max_tokens' in sent.body), 'max_tokens is deprecated on Groq');
-    assert.ok(sent.body.max_completion_tokens >= 2048,
-      `max_completion_tokens ${sent.body.max_completion_tokens} is tight for a chat reply`);
+    // Reasoning tokens are drawn from the SAME budget, so this has to cover
+    // thinking as well as the reply. gpt-oss with a 2048 cap answers a hard
+    // question with an empty content field and finish_reason "length", which
+    // reads as "the key is wrong" to everyone except the person debugging it.
+    assert.ok(sent.body.max_completion_tokens >= 4096,
+      `max_completion_tokens ${sent.body.max_completion_tokens} is tight once reasoning tokens are counted`);
+
+    // Every model on the ladder reasons, and Groq documents 0.5-0.7 for the
+    // gpt-oss family; the 1.0 default makes them repeat themselves. Sending no
+    // temperature at all leaves it to the server, which is not the tuned value.
+    assert.ok(
+      typeof sent.body.temperature === 'number' && sent.body.temperature <= 0.7,
+      `temperature ${sent.body.temperature} should be in Groq's 0.5-0.7 band for reasoning models`,
+    );
+
     // Gemini-only knobs do not exist here and are rejected with a 400.
     assert.ok(!('generationConfig' in sent.body), 'must not send Gemini generationConfig');
     assert.ok(!('thinkingConfig' in sent.body), 'must not send Gemini thinkingConfig');
-    return `max_completion_tokens=${sent.body.max_completion_tokens}, model=${sent.body.model}`;
+    return `max_completion_tokens=${sent.body.max_completion_tokens}, model=${sent.body.model}, temperature=${sent.body.temperature}`;
   });
 
   await step('groq authenticates with a bearer header and no key in the url', async () => {

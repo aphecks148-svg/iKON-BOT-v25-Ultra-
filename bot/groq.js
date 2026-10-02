@@ -19,12 +19,22 @@
  *   and a future key format must not be rejected by a regex.
  *
  * - Token cap. `max_tokens` is DEPRECATED in favour of `max_completion_tokens`,
- *   so this sends the new name. The cap counts reasoning tokens on the
- *   gpt-oss models, which is why the default is generous for a chat reply.
+ *   so this sends the new name. The cap counts REASONING tokens on the gpt-oss
+ *   family, so a cap that looks generous for the answer alone can be spent
+ *   entirely on thinking and come back empty. The default covers both, and an
+ *   empty answer reports its finish_reason so the cause is legible rather than
+ *   reading as a key fault.
+ *
+ * - Reasoning. Every model on the ladder is a reasoning model, and Groq returns
+ *   the deliberation in a separate `reasoning` field. extractText reads only
+ *   `content`, so none of it reaches the chat — a command that regexes the output
+ *   or drops it into an image prompt would otherwise ship the model's scratchpad.
+ *   For the same reason the persona is passed as a `system` message only when
+ *   there is one, and never as a preamble glued to the user's words.
  *
  * - No thinking config. Gemini's `thinkingLevel`/`thinkingBudget` do not exist
- *   here and are rejected with a 400. Reasoning models are reached by picking
- *   the model id instead, which is the supported route.
+ *   here and are rejected with a 400. Reasoning is reached by picking the model
+ *   and `reasoning_effort`, not by a Gemini-shaped config block.
  *
  * - Errors. Groq answers `{"error": {"message", "type", "code"}}`. A 400/401/
  *   403/404 is about this key or this model and is worth trying another model
@@ -47,17 +57,45 @@ const BASE = 'https://api.groq.com/openai/v1';
  * means "this model is not available to your key". The first that answers wins
  * and is cached for the rest of the process.
  *
- * All four are current production or preview models on GroqCloud. The 70B is
- * the default because a chat bot lives or dies on answer quality; the 8B
- * instant is the emergency fallback, since it is the fastest thing on the
- * platform and will still answer when the big model is rate limited.
+ * THIS LIST IS A LIVING THING. Groq retires models on a schedule and the
+ * shutdown returns an error to every request — it does not warn you at runtime.
+ *
+ * It already did once. This ladder used to start at `llama-3.3-70b-versatile`
+ * with `llama-3.1-8b-instant` second, and Groq retired BOTH on 16 Aug 2026 for
+ * free and developer tiers — which is exactly the tier a Render free service
+ * runs on (console.groq.com/docs/deprecations). Since the retired pair held the
+ * first two rungs, every single AI command opened with two doomed round trips
+ * before reaching a live model. It still answered, because the third rung
+ * existed, so nothing looked broken. Groq's own replacements are the two gpt-oss
+ * models, so the ladder is those, in quality-then-speed order.
+ *
+ * Rung order, and why:
+ *   1. openai/gpt-oss-120b — production, ~500 tok/s, the best answer available
+ *      here. Groq named it the replacement for the 70B.
+ *   2. openai/gpt-oss-20b  — production, ~1000 tok/s, half the price, and the
+ *      named replacement for the retired 8B. This is the emergency rung: it
+ *      still answers when the big model is rate limited.
+ *   3. qwen/qwen3.8-27b    — a preview model from a different family. Included
+ *      deliberately: if both gpt-oss models are withdrawn in one go, a third
+ *      family is the only thing that keeps the bot talking. Preview means it can
+ *      be discontinued at short notice, which is why it is last.
+ *
+ * When you replace a rung here, check console.groq.com/docs/deprecations first.
  */
 const FALLBACK_MODELS = [
-  'llama-3.3-70b-versatile',
-  'llama-3.1-8b-instant',
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b',
+  'qwen/qwen3.8-27b',
 ];
+
+/**
+ * Reasoning models score best around 0.6, and Groq documents 0.5–0.7 for the
+ * gpt-oss family; 1.0 makes them repeat themselves. Every model on the ladder is
+ * a reasoning model, so this is sent unless a caller overrides it.
+ *
+ * @see https://console.groq.com/docs/reasoning
+ */
+const DEFAULT_TEMPERATURE = 0.6;
 
 const TIMEOUT_MS = 25000;
 
@@ -133,10 +171,15 @@ async function callModel(model, prompt, opts = {}) {
         ...(opts.system ? [{ role: 'system', content: opts.system }] : []),
         { role: 'user', content: prompt },
       ],
-      // max_completion_tokens, not the deprecated max_tokens.
-      max_completion_tokens: opts.maxTokens || 2048,
-      // A little under 1 by default: the persona is a bit, not a dice roll.
-      ...(opts.temperature === undefined ? {} : { temperature: opts.temperature }),
+      // max_completion_tokens, not the deprecated max_tokens. Reasoning tokens
+      // are drawn from this same budget, so it has to cover thinking AND the
+      // answer — a cap sized for the answer alone is tight enough that a hard
+      // question comes back with an empty content and finish_reason "length".
+      max_completion_tokens: opts.maxTokens || 4096,
+      // Every model on the ladder reasons, and the documented sweet spot for the
+      // gpt-oss family is 0.5–0.7; at the 1.0 default they repeat themselves.
+      // Only overridden when a caller actually asks for something.
+      temperature: opts.temperature === undefined ? DEFAULT_TEMPERATURE : opts.temperature,
     },
     {
       timeout: TIMEOUT_MS,
@@ -177,7 +220,7 @@ async function ask(prompt, opts = {}) {
   // against the old client's option keep working unchanged.
   const call = {
     system,
-    maxTokens: opts.maxTokens || opts.maxOutputTokens || 2048,
+    maxTokens: opts.maxTokens || opts.maxOutputTokens || 4096,
     temperature: opts.temperature,
   };
 
