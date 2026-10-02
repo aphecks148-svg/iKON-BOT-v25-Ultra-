@@ -523,11 +523,23 @@ function reloadCommands() {
  * The old code did `String(added[0])`, which stringifies the object form to
  * "[object Object]" and the bare form to a raw numeric uid. Neither is a name.
  *
+ * WHAT IS DELIBERATELY NOT USED: `event.author`.
+ *
+ * ws3-fca builds that from `messageMetadata.actorFbId`
+ * (src/utils/formatters.js:647) — the person who PERFORMED the action, not the
+ * person it happened to. When an admin adds somebody, `author` is the admin. So
+ * the previous fallback to `author` on an empty payload announced the admin:
+ * "Welcome Zee to the group", for the admin who welcomed somebody else. On a
+ * removal it is whoever did the removing, while the person who left is named in
+ * `leftParticipantFbId`.
+ *
+ * Silence is the right answer when the payload names nobody. Announcing the wrong
+ * person to a whole group is worse than not announcing at all.
+ *
  * @param {*} data logMessageData
- * @param {string} [author] event.author, used only when the payload has nobody
  * @returns {{uid:string,name:string}[]}
  */
-function changeParticipants(data, author, selfId) {
+function changeParticipants(data) {
   const raw = Array.isArray(data && data.addedParticipants)
     ? data.addedParticipants
     : [];
@@ -547,14 +559,13 @@ function changeParticipants(data, author, selfId) {
     return /^\d+$/.test(text) ? { uid: text, name: '' } : { uid: '', name: text };
   }).filter(Boolean);
 
-  if (people.length) return notMe(people, selfId);
+  if (people.length) return people;
 
-  const one = String((data && data.leftParticipantFbId) || author || '').trim();
-  if (!one) return [];
-  return notMe(
-    [{ uid: /^\d+$/.test(one) ? one : '', name: /^\d+$/.test(one) ? '' : one }],
-    selfId,
-  );
+  // A departure carries exactly one id, under a different key.
+  const left = String((data && data.leftParticipantFbId) || '').trim();
+  if (/^\d+$/.test(left)) return [{ uid: left, name: '' }];
+
+  return [];
 }
 
 /**
@@ -647,19 +658,36 @@ async function announce(api, threadID, kind, who, threadName, template, isGroup)
   // A tag needs the name to already be resolved, so the live lookup happens
   // here rather than inside the template filler.
   const live = who.uid ? await profile.fetchRealName(who.uid, api) : null;
-  const name = live
-    || (who.name && !profile.isPlaceholderName(who.name) ? who.name : '')
-    || (who.uid ? `Hunter ${who.uid.slice(-4)}` : 'Someone');
+  const fromEvent = who.name && !profile.isPlaceholderName(who.name) ? String(who.name).trim() : '';
+  // `realName` is a name we can stand behind. `display` is the last-resort
+  // handle, which is NOT a real name and must never be used to build a mention.
+  const realName = live || fromEvent || '';
+  const display = realName || (who.uid ? `Hunter ${who.uid.slice(-4)}` : 'Someone');
 
   // No body at all means the admin has not written one; the card carries the
   // message and an empty text line would just be noise.
   if (template) {
-    const mention = who.uid && name && !name.startsWith('Hunter ')
-      ? `@${name}`
-      : (who.uid ? `@${who.uid}` : name);
-    const text = fillPlaceholders(template, { uid: who.uid, name }, { threadName, threadID }, mention);
+    const text = fillPlaceholders(
+      template,
+      { uid: who.uid, name: display },
+      { threadName, threadID },
+      realName ? `@${realName}` : display,
+    );
     if (text.trim()) {
-      await reply(api, threadID, text, null, isGroup);
+      // A mention is only a mention when Facebook is told which uid the tag
+      // belongs to. Writing "@Ada" into the body on its own produces an ordinary
+      // message that happens to contain an @ — the arrival is never pinged,
+      // which is the most visible thing a welcome can get wrong. The tag text
+      // has to appear verbatim in the body for Facebook to accept the link, and
+      // fillPlaceholders has just put it there.
+      //
+      // With no real name, plain text: a `mentions` entry whose tag does not
+      // match the member's actual name is refused by Facebook, which would cost
+      // the whole welcome message rather than just its ping.
+      const payload = who.uid && realName && template.includes('{mention}')
+        ? { body: text, mentions: [{ id: String(who.uid), tag: `@${realName}` }] }
+        : text;
+      await reply(api, threadID, payload, null, isGroup);
     }
   }
 
@@ -667,10 +695,10 @@ async function announce(api, threadID, kind, who, threadName, template, isGroup)
     const url = await cards.arrivalCard({
       kind,
       uid: who.uid,
-      name,
+      name: display,
       threadName,
       threadID,
-      body: leaving ? `${name} left ${threadName}` : `${name} joined ${threadName}`,
+      body: leaving ? `${display} left ${threadName}` : `${display} joined ${threadName}`,
       api,
     });
     if (url) {
@@ -691,7 +719,12 @@ async function handleGroupChange(api, event) {
   // ws3-fca reports joins/leaves as log:subscribe / log:unsubscribe.
   const action = event.logMessageType;
   const data = event.logMessageData || {};
-  const isGroup = event.isGroup;
+  // These events never carry `isGroup` — formatDeltaEvent (formatters.js:636)
+  // omits it entirely — so it arrives here undefined. Left that way the send
+  // falls back to a `t_` prefix test, which is right for every real group, but
+  // it makes the flag below depend on that fallback holding. Join and leave
+  // events only ever happen in group threads, so it is derived once, here.
+  const isGroup = event.isGroup === undefined ? true : event.isGroup !== false;
   // The bot's own uid, used to keep it out of its own welcome/goodbye cards.
   const selfId = String((api && typeof api.getCurrentUserID === 'function' ? api.getCurrentUserID() : null)
     || event.BotID || STATE.userID || '');
@@ -701,11 +734,14 @@ async function handleGroupChange(api, event) {
     if (action === 'log:subscribe') {
       const group = await toggles.getGroup(threadID);
       if (group.settings?.welcome && group.settings.welcomeMsg) {
-        const people = changeParticipants(data, event.author, selfId);
+        // notMe, not the caller: Facebook reports the bot's own join through
+        // the same log:subscribe as everybody else, so without this the chat is
+        // told "welcome, iKON BOT to the group" the moment it starts up.
+        const people = notMe(changeParticipants(data), selfId);
         if (people.length) {
           const threadName = await chatName(threadID, api);
           // Facebook can report several people at once — an admin import adds
-          // twenty. One card each is correct: a single card naming everybody
+          // twenty. One message each is correct: a single line naming everybody
           // reads as a list, not a welcome.
           for (const who of people) {
             // eslint-disable-next-line no-await-in-loop
@@ -724,7 +760,11 @@ async function handleGroupChange(api, event) {
       // so it resolves once the request is queued, not once Facebook confirms
       // the person is back.
       if (group.autoAddLeavers) {
-        const leaver = String(data.leftParticipantFbId || event.author || '');
+        // leftParticipantFbId only. Never event.author: that is actorFbId, the
+        // person who did the removing, so falling back to it would invite the
+        // admin who kicked somebody straight back into the chat — the exact
+        // opposite of what a group admin pressing "remove" expects.
+        const leaver = String(data.leftParticipantFbId || '');
         // Never re-add ourselves, and never try a non-numeric id: gcmember
         // does parseInt on it and would invite uid 0.
         if (leaver && /^\d+$/.test(leaver) && leaver !== String(event.BotID || STATE.userID || '')) {
@@ -740,7 +780,7 @@ async function handleGroupChange(api, event) {
       }
 
       if (group?.settings?.goodbye && group.settings.goodbyeMsg) {
-        const people = changeParticipants(data, event.author, selfId);
+        const people = notMe(changeParticipants(data), selfId);
         if (people.length) {
           const threadName = await chatName(threadID, api);
           await announce(api, threadID, 'goodbye', people[0], threadName, group.settings.goodbyeMsg, isGroup);
@@ -1068,6 +1108,7 @@ module.exports = {
   // the whole bug surface here, and they are much easier to assert on directly
   // than through a mocked Facebook send.
   changeParticipants,
+  notMe,
   chatName,
   fillPlaceholders,
   attachClient,

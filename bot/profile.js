@@ -24,8 +24,17 @@
 const canvasKit = require('./canvas');
 const { log, error } = require('./helpers');
 
-/** Names ws3-fca invents when it cannot resolve a real profile. */
-const PLACEHOLDER_NAMES = new Set(['facebook user', 'unknown', '']);
+/**
+ * Names ws3-fca invents rather than resolves.
+ *
+ * Its `createDefaultUser` (getUserInfo.js:110) returns `name: "Facebook User"`
+ * and `firstName: "Facebook"` for anyone it cannot resolve, so both are in the
+ * list. Missing "facebook" meant a build that returned only firstName put
+ * "Facebook" into a welcome as though it were a person's name.
+ */
+const PLACEHOLDER_NAMES = new Set([
+  'facebook user', 'facebook', 'messenger user', 'unknown', '', 'null', 'undefined',
+]);
 
 const NAME_TTL = 10 * 60 * 1000;
 const PIC_TTL = 30 * 60 * 1000;

@@ -2250,29 +2250,76 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
   // and "goodbye, iKON BOT" on every restart or removal.
   await step('the bot is not in its own welcome or goodbye list', async () => {
     const ik = require('../ws3-fca');
+    const BOT = '999000111';
 
-    // The bot joins; only the human is announced.
-    const join = ik.changeParticipants(
-      { addedParticipants: [{ fbId: '999000111', fullName: 'The Bot' }, { fbId: '5551234', fullName: 'Dyro Urano' }] },
-      undefined,
-      '999000111',
+    // changeParticipants now only reads the subject of the event. Filtering the
+    // bot out is `notMe`'s job at the call site, which is where the bot's own
+    // uid is actually known — so both halves are exercised together here rather
+    // than pretending changeParticipants filters by itself.
+    const join = ik.notMe(
+      ik.changeParticipants({
+        addedParticipants: [
+          { fbId: BOT, fullName: 'The Bot' },
+          { fbId: '5551234', fullName: 'Dyro Urano' },
+        ],
+      }),
+      BOT,
     );
     assert.deepStrictEqual(join.map((p) => p.uid), ['5551234'], 'the bot must be filtered out of a join');
 
     // The bot leaves on its own. Nothing is left to announce.
-    const selfLeave = ik.changeParticipants({ leftParticipantFbId: '999000111' }, undefined, '999000111');
+    const selfLeave = ik.notMe(ik.changeParticipants({ leftParticipantFbId: BOT }), BOT);
     assert.deepStrictEqual(selfLeave, [], 'the bot leaving alone announces nobody');
 
     // A human leaving is still announced.
-    const leave = ik.changeParticipants({ leftParticipantFbId: '5551234' }, undefined, '999000111');
+    const leave = ik.notMe(ik.changeParticipants({ leftParticipantFbId: '5551234' }), BOT);
     assert.deepStrictEqual(leave.map((p) => p.uid), ['5551234'], 'a human leaving is unaffected');
 
     // With no id to compare against, nothing is filtered — a build that has not
     // logged in yet must not swallow every announcement.
-    const unknown = ik.changeParticipants({ addedParticipants: [{ fbId: '5551234', fullName: 'Dyro' }] });
+    const unknown = ik.notMe(
+      ik.changeParticipants({ addedParticipants: [{ fbId: '5551234', fullName: 'Dyro' }] }),
+      '',
+    );
     assert.strictEqual(unknown.length, 1, 'an unknown self id filters nobody');
 
+    // The bot arriving ALONE still says nothing — notMe has to handle the case
+    // where filtering empties the list, or a lone bot-join reads as "welcome
+    // nobody" rather than staying silent.
+    const botAlone = ik.notMe(ik.changeParticipants({ addedParticipants: [{ fbId: BOT, fullName: 'The Bot' }] }), BOT);
+    assert.deepStrictEqual(botAlone, [], 'a join of only the bot announces nobody');
+
     return 'announcements skip the bot and keep everyone else';
+  });
+
+// The bot never announces the admin who did the adding.
+    await step('a join or leave never names the admin who caused it', async () => {
+    const ik = require('../ws3-fca');
+
+    // ws3-fca builds event.author from messageMetadata.actorFbId
+    // (formatters.js:647) — the person who PERFORMED the action. When an admin
+    // adds somebody, author is the admin. Falling back to it on a thin payload
+    // therefore announced the admin: "Welcome Zee to the group", for the admin
+    // who welcomed somebody else. changeParticipants does not read author at
+    // all now, so these payloads must produce nothing.
+    const thinJoin = ik.changeParticipants({ addedParticipants: [] });
+    assert.deepStrictEqual(thinJoin, [], 'a join naming nobody announces nobody');
+
+    const thinLeave = ik.changeParticipants({ leftParticipantFbId: '' });
+    assert.deepStrictEqual(thinLeave, [], 'a leave naming nobody announces nobody');
+
+    // And the payloads that DO name someone still work.
+    const realJoin = ik.changeParticipants({ addedParticipants: [{ fbId: '777', fullName: 'Ada' }] });
+    assert.deepStrictEqual(realJoin.map((p) => p.uid), ['777'], 'a real join still resolves');
+    const realLeave = ik.changeParticipants({ leftParticipantFbId: '777' });
+    assert.deepStrictEqual(realLeave.map((p) => p.uid), ['777'], 'a real leave still resolves');
+
+    // A non-numeric leaver id is not a person. It is refused rather than guessed
+    // at, because parseInt on it yields NaN and a raw id is not a name.
+    const junkLeave = ik.changeParticipants({ leftParticipantFbId: 'Zee Admin' });
+    assert.deepStrictEqual(junkLeave, [], 'a non-numeric leaver id is refused rather than guessed at');
+
+    return 'silence beats announcing the wrong person';
   });
 
   // ── 26. every command path that takes an argument is reachable ──
@@ -2890,6 +2937,81 @@ const PIKACHU = dex.find('pikachu');
       mongo.isReady = realReady;
     }
     return 'owner-only refused, self-harm warned, ordinary case unchanged';
+  });
+
+  // ── 35b. {mention} must be a real mention ──────────────────
+  // Writing "@Ada" into the body is not a mention. Facebook only renders it as
+  // a live, pinging tag when the send carries a `mentions` array naming the uid
+  // — which the old code never built, so every welcome was an ordinary message
+  // that happened to contain an @ and the new arrival was never notified. That
+  // is the single most visible thing a welcome can get wrong.
+  await step('a welcome with {mention} actually tags the person', async () => {
+    const ik = require('../ws3-fca');
+    const Group = require('../models/Group');
+    const mongo = require('./mongo');
+    const realFindOne = Group.findOne;
+    const realReady = mongo.isReady;
+    const realCreate = Group.create;
+
+    const doc = {
+      tid: 't_mn',
+      settings: {
+        welcome: true,
+        welcomeMsg: 'Welcome {mention} to {group}!',
+        goodbye: true,
+        goodbyeMsg: '{user} left. Come back soon.',
+      },
+      autoAddLeavers: false,
+    };
+    Group.findOne = () => Promise.resolve(doc);
+    Group.create = () => Promise.resolve(doc);
+    mongo.isReady = () => true;
+
+    const sent = [];
+    const api = {
+      getCurrentUserID() { return 'BOT'; },
+      async sendMessage(payload) { sent.push(payload); return { messageID: 'm' }; },
+      async getUserInfo(uid) { return { name: uid === '111' ? 'Ada Lovelace' : 'Bo Ng' }; },
+      async getThreadInfo() { return { threadTitle: 'The Real Group Chat' }; },
+    };
+
+    try {
+      await ik.handleGroupChange(api, {
+        threadID: 't_mn',
+        logMessageType: 'log:subscribe',
+        logMessageData: { addedParticipants: [{ fbId: '111' }] },
+        author: '5551234',
+      });
+
+      const welcome = sent.find((p) => p.body && /Welcome/.test(p.body));
+      assert.ok(welcome, 'a welcome went out');
+
+      // The real deal: a mentions array, and the tag text present verbatim.
+      assert.ok(Array.isArray(welcome.mentions), `the welcome carries a mentions array -> ${JSON.stringify(welcome)}`);
+      assert.strictEqual(welcome.mentions.length, 1, 'exactly one person is tagged');
+      assert.strictEqual(welcome.mentions[0].id, '111', 'tagged by uid, not by name');
+      assert.strictEqual(welcome.mentions[0].tag, '@Ada Lovelace', 'tagged with their real name');
+      assert.ok(welcome.body.includes('@Ada Lovelace'), 'the tag text appears verbatim in the body');
+      assert.ok(welcome.body.includes('The Real Group Chat'), 'and the real chat name, not the thread id');
+
+      // A goodbye uses {user}, not {mention} — nobody is left to ping.
+      sent.length = 0;
+      await ik.handleGroupChange(api, {
+        threadID: 't_mn',
+        logMessageType: 'log:unsubscribe',
+        logMessageData: { leftParticipantFbId: '111' },
+        author: '5551234',
+      });
+      const goodbye = sent.find((p) => p.body && /left/.test(p.body));
+      assert.ok(goodbye, 'a goodbye went out');
+      assert.ok(/Ada Lovelace/.test(goodbye.body), 'named with the real name resolved live');
+      assert.strictEqual(goodbye.mentions, undefined, 'a departure carries no mention');
+    } finally {
+      Group.findOne = realFindOne;
+      Group.create = realCreate;
+      mongo.isReady = realReady;
+    }
+    return 'the uid is tagged, and the tag is in the body';
   });
 
   // ── summary ───────────────────────────────────────────────

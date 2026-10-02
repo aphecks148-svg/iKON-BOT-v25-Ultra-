@@ -165,12 +165,26 @@ async function groupName(api, event) {
   }
 }
 
-/** Persist a document, tolerating offline mode. */
+/**
+ * Persist a document, tolerating offline mode.
+ *
+ * Returns a note to append to the reply rather than throwing: the old version
+ * swallowed the failure, so `!welcome on` cheerfully confirmed "WELCOME IS ON"
+ * after a write that never landed, and the setting silently vanished on the
+ * next restart.
+ *
+ * @param {object} doc mongoose document
+ * @returns {Promise<string>} '' on success, otherwise a warning line
+ */
 async function save(doc) {
-  if (!doc || doc.transient) return;
+  if (!doc) return '⚠️ Nothing to save.';
+  if (doc.transient) return '⚠️ Database is offline — this is TEMPORARY and resets on restart.';
   try {
     await doc.save();
-  } catch { /* the reply still shows the outcome */ }
+    return '';
+  } catch (err) {
+    return `⚠️ Could not save this — the change was NOT applied. (${err.message})`;
+  }
 }
 
 /** Append one line to the audit ledger. Never throws. */
@@ -304,6 +318,22 @@ async function liveGroup(event) {
   if (!mongo.isReady()) return null;
   if (!event || !event.threadID) return null;
   return Group.findOne({ tid: String(event.threadID) });
+}
+
+/**
+ * The welcome/goodbye settings object, created if the document lacks one.
+ *
+ * A group saved before these fields existed has no `settings` subdocument at
+ * all. Every caller here then did `group.settings.welcome = true`, which throws
+ * a TypeError on undefined — the command fails with no useful message instead
+ * of enabling the thing the admin asked for.
+ *
+ * @param {object} group mongoose group document
+ * @returns {object} the settings object, now safe to assign to
+ */
+function ensureSettings(group) {
+  if (!group.settings || typeof group.settings !== 'object') group.settings = {};
+  return group.settings;
 }
 
 /**
@@ -544,34 +574,50 @@ const commands = [];
 
   commands.push({
     name: 'welcome',
-    aliases: [],
+    aliases: ['setwelcometoggle'],
     category: 'group',
     description: '👋 Toggle the welcome message for this chat',
     usage: '!welcome on|off',
+    hint: 'People are welcomed with their real name and profile picture. Use `{mention}` to tag them — that is what actually pings them.',
     cooldown: 10,
     permission: 'groupAdmin',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'welcome', async () => {
+    execute: async ({ args, event, api, reply, react }) => guard(reply, event.messageID, 'welcome', async () => {
       await react('👋');
       const group = await liveGroup(event);
       if (!group) {
         await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
         return;
       }
+      // A group saved before this field existed has no `settings` object at all,
+      // and `group.settings.welcome` on that is a TypeError — the toggle throws
+      // instead of reporting, which reads as "the command is broken".
+      const settings = ensureSettings(group);
 
       const on = onOff(args);
       if (on === null) {
-        const cfg = gcfg(group);
-        await reply(`👋 Welcome messages are **${yesNo(!!group.settings.welcome)}** here.\nUse \`!welcome on\` or \`!welcome off\`.`, event.messageID);
-        void cfg;
+        const now = await groupName(api, event);
+        const preview = fill(
+          settings.welcomeMsg || DEFAULT_WELCOME,
+          { name: 'Newcomer', uid: '0000' },
+          event,
+          { groupName: now },
+        );
+        await reply(
+          `👋 Welcome messages are **${yesNo(!!settings.welcome)}** here.\n`
+          + '· · · · · · ·\n'
+          + `Text: ${preview}\n`
+          + 'Change it with `!setwelcome <message>`. Turn it on with `!welcome on`.',
+          event.messageID,
+        );
         return;
       }
 
-      group.settings.welcome = on;
-      if (on && !group.settings.welcomeMsg) group.settings.welcomeMsg = DEFAULT_WELCOME;
-      await save(group);
+      settings.welcome = on;
+      if (on && !settings.welcomeMsg) settings.welcomeMsg = DEFAULT_WELCOME;
+      const saved = await save(group);
       await reply(
         on
-          ? `👋 **WELCOME IS ON.**\nNew arrivals get: "${group.settings.welcomeMsg}"`
+          ? `👋 **WELCOME IS ON.**\nNew arrivals get: "${settings.welcomeMsg}"\n${saved}`
           : '👋 Welcome messages are off. The door stays quiet.',
         event.messageID,
       );
@@ -584,28 +630,43 @@ const commands = [];
     category: 'group',
     description: '🚪 Toggle the goodbye message for this chat',
     usage: '!goodbye on|off',
+    hint: 'Use `{user}` for the name they left with. `{mention}` tags nobody useful here — they are already gone.',
     cooldown: 10,
     permission: 'groupAdmin',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'goodbye', async () => {
+    execute: async ({ args, event, api, reply, react }) => guard(reply, event.messageID, 'goodbye', async () => {
       await react('🚪');
       const group = await liveGroup(event);
       if (!group) {
         await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
         return;
       }
+      const settings = ensureSettings(group);
 
       const on = onOff(args);
       if (on === null) {
-        await reply(`🚪 Goodbye messages are **${yesNo(!!group.settings.goodbye)}** here.\nUse \`!goodbye on\` or \`!goodbye off\`.`, event.messageID);
+        const now = await groupName(api, event);
+        const preview = fill(
+          settings.goodbyeMsg || DEFAULT_GOODBYE,
+          { name: 'Leaver', uid: '0000' },
+          event,
+          { groupName: now },
+        );
+        await reply(
+          `🚪 Goodbye messages are **${yesNo(!!settings.goodbye)}** here.\n`
+          + '· · · · · · ·\n'
+          + `Text: ${preview}\n`
+          + 'Change it with `!setgoodbye <message>`. Turn it on with `!goodbye on`.',
+          event.messageID,
+        );
         return;
       }
 
-      group.settings.goodbye = on;
-      if (on && !group.settings.goodbyeMsg) group.settings.goodbyeMsg = DEFAULT_GOODBYE;
-      await save(group);
+      settings.goodbye = on;
+      if (on && !settings.goodbyeMsg) settings.goodbyeMsg = DEFAULT_GOODBYE;
+      const saved = await save(group);
       await reply(
         on
-          ? `🚪 **GOODBYE IS ON.**\nDepartures get: "${group.settings.goodbyeMsg}"`
+          ? `🚪 **GOODBYE IS ON.**\nDepartures get: "${settings.goodbyeMsg}"\n${saved}`
           : '🚪 Goodbye messages are off. Nobody is mourned now.',
         event.messageID,
       );
