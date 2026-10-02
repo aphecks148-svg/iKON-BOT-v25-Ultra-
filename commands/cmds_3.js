@@ -26,6 +26,9 @@ const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const cards = require('../bot/cards');
 const userTarget = require('../bot/target');
+const Group = require('../models/Group');
+const dex = require('../bot/pokemon');
+const pokemonSpawn = require('../bot/pokemonSpawn');
 
 const CASH = 'K-Cash';
 
@@ -340,6 +343,65 @@ async function xpTail(userDoc, gained, levels, newTitles) {
   return lines;
 }
 
+// ───────────────────────────────────────────────────────────
+// WILD POKEMON — helpers
+// ───────────────────────────────────────────────────────────
+
+/**
+ * This chat's Group document, or null.
+ *
+ * Pokemon are a group feature, so there is nothing to do in a DM and the
+ * commands say so rather than silently doing nothing.
+ */
+async function pokeGroup(event) {
+  if (!mongo.isReady() || !event || !event.isGroup || !event.threadID) return null;
+  const group = await Group.findOne({ tid: String(event.threadID) }).catch(() => null);
+  if (group && !group.pokemon) group.pokemon = {};
+  return group;
+}
+
+/** Persist a group document, tolerating an in-memory one (DB offline). */
+async function pokeSave(group) {
+  if (!group || group.transient) return;
+  try {
+    await group.save();
+  } catch { /* the reply below still tells the operator what happened */ }
+}
+
+/** "on" / "off" / null — null when the argument is neither. */
+function onOff(args) {
+  const raw = String((args && args[0]) || '').toLowerCase().trim();
+  if (raw === 'on' || raw === 'enable' || raw === 'start') return true;
+  if (raw === 'off' || raw === 'disable' || raw === 'stop') return false;
+  return null;
+}
+
+const yesNo = (b) => (b ? 'ON' : 'OFF');
+
+/** What is on the table right now, as one line. */
+function currentLine(group) {
+  const cur = group.pokemon && group.pokemon.current;
+  if (!cur || !cur.messageID) return 'Nothing is out there right now.';
+  const p = dex.byId(cur.id);
+  if (!p) return 'Something is out there. Its name will not load.';
+  if (cur.caughtBy) return `${p.name} was caught. Waiting for the next one.`;
+  if (cur.expiresAt && new Date(cur.expiresAt).getTime() < Date.now()) return `${p.name} got away. A new one is due soon.`;
+  const left = Math.max(0, new Date(cur.expiresAt || Date.now()).getTime() - Date.now());
+  return `**${p.name}** is out there — ${Math.ceil(left / 60000)} min left to reply with its name.`;
+}
+
+/**
+ * "in 12m" / "3m ago" / "never".
+ *
+ * A clock time for the next spawn is less useful than how far away it is, and
+ * "never" has to be said rather than rendered as 1970.
+ */
+function ago(date) {
+  if (!date || !(date instanceof Date) || Number.isNaN(date.getTime()) || date.getTime() <= 0) return 'never';
+  const delta = Math.round((Date.now() - date.getTime()) / 1000);
+  return delta >= 0 ? `${fmt.dur(delta)} ago` : `in ${fmt.dur(-delta)}`;
+}
+
 module.exports = [
   // ─────────────────────────────────────────────────────────
   // 1
@@ -444,10 +506,15 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'rank',
-    aliases: [],
+    // `!leaderboardrpg`, `!rlb` and `!toprpg` were a second copy of this same
+    // board: same sort, same board card, same medals, differing only in a
+    // level filter and one icon. They are aliases here so neither spelling
+    // ever answers "Unknown command" again.
+    aliases: ['leaderboardrpg', 'rlb', 'toprpg'],
     category: 'rpg',
     description: '🏅 Server rank by level - Who is the strongest hunter?',
     usage: '!rank',
+    hint: 'The full hall of fame. Also answers to `!leaderboardrpg` and `!rlb`.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'rank', async () => {
@@ -1044,66 +1111,6 @@ module.exports = [
 
   // ─────────────────────────────────────────────────────────
   // 15
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'leaderboardrpg',
-    aliases: ['rlb', 'toprpg'],
-    category: 'rpg',
-    description: '🏆 Top hunters by level - Hall of Fame',
-    usage: '!leaderboardrpg',
-    cooldown: 15,
-    permission: 'all',
-    execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'leaderboardrpg', async () => {
-      await react('🏆');
-      if (!mongo.isReady()) {
-        await reply('💾 The Hall of Fame is sealed — database offline.', event.messageID);
-        return;
-      }
-      const board = await User.find({ level: { $gt: 1 } })
-        .sort({ level: -1, xp: -1 })
-        .limit(10)
-        .select('uid name level xp prestige')
-        .lean();
-      if (!board.length) {
-        await reply('🏆 Nobody has ranked up yet. Be the first, do a quest.', event.messageID);
-        return;
-      }
-
-      const card = await cards.boardCard({
-        emoji: '🏆',
-        title: 'HALL OF FAME',
-        subtitle: 'Highest ranked hunters',
-        rows: board,
-        api,
-        value: (u) => `Lv ${u.level || 1} · ${num(u.xp)} XP${u.prestige ? ` 👑${u.prestige}` : ''}`,
-      });
-      if (card) {
-        await reply({
-          body: `🏆 **HALL OF FAME**\n📜 Engraved on the academy's front wall.`,
-          attachment: { type: 'image', data: { url: card } },
-        }, event.messageID);
-        return;
-      }
-
-      const medals = ['🥇', '🥈', '🥉'];
-      const lines = board.map((u, i) => {
-        const crown = u.prestige ? ` 👑x${u.prestige}` : '';
-        return `${medals[i] || `${i + 1}.`} ${u.name} — Lv ${u.level || 1}${crown}`;
-      });
-
-      await reply(
-        `🏆 **HALL OF FAME**\n`
-        + '· · · · · · ·\n'
-        + `${lines.join('\n')}\n`
-        + `📜 Engraved on the academy's front wall.\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
-    }),
-  },
-
-  // ─────────────────────────────────────────────────────────
-  // 16
   // ─────────────────────────────────────────────────────────
   {
     name: 'class',
@@ -2096,6 +2103,157 @@ module.exports = [
         + `👑 Total prestiges: ${num(row.prestige)}\n`
         + `💰 K-Cash in the academy: ${kc(row.coins)}\n`
         + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  },
+// ─────────────────────────────────────────────────────────
+  // 35 · POKEMON — the wild ones
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'pokemon',
+    aliases: ['pokebot', 'pokespawn'],
+    category: 'rpg',
+    description: '🌿 Admin control for wild Pokemon spawns in this chat',
+    usage: '!pokemon on | off | spawn',
+    hint: 'One Pokemon every 15 minutes. Catch it by replying to its message with its name.',
+    cooldown: 5,
+    permission: 'groupAdmin',
+    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'pokemon', async () => {
+      if (!event.isGroup) {
+        await reply('❌ Pokemon only spawn in group chats.', event.messageID);
+        return;
+      }
+      const group = await pokeGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+
+      // No argument, or on/off: report and toggle.
+      const want = onOff(args);
+      if (want !== null) {
+        if (group.pokemon.enabled === want) {
+          await reply(
+            `ℹ️ Pokemon are already ${yesNo(want)} here.
+${currentLine(group)}`,
+            event.messageID,
+          );
+          return;
+        }
+        group.pokemon.enabled = want;
+        if (!want) {
+          // Switching off clears the live spawn. Leaving it would let somebody
+          // catch one that the admin had just turned off.
+          group.pokemon.current = { id: 0, messageID: '', spawnedAt: null, expiresAt: null, caughtBy: '' };
+        } else {
+          // Turning on: start the clock now rather than waiting a full interval
+          // from whenever this group was last seen, which could be days ago.
+          group.pokemon.lastSpawnAt = new Date();
+        }
+        await pokeSave(group);
+        await react(want ? '🌿' : '🚫');
+        await reply(
+          want
+            ? `🌿 **POKEMON ARE ON.**
+One every 15 minutes. Reply to its message with its name to catch it.
+First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT_INTERVAL_MS) / 60000)} minutes.`
+            : '🚫 Pokemon are off in this chat. Nothing will spawn.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // "spawn" posts one immediately, which is how an admin checks the setting
+      // works without waiting a quarter of an hour.
+      if (String(args[0] || '').toLowerCase() === 'spawn') {
+        if (!group.pokemon.enabled) {
+          await reply('❌ Pokemon are off here. Turn them on with `!pokemon on` first.', event.messageID);
+          return;
+        }
+        if (pokemonSpawn.hasLiveSpawn(group)) {
+          await reply(`ℹ️ ${currentLine(group)}`, event.messageID);
+          return;
+        }
+        const p = await pokemonSpawn.spawnNow(api, group);
+        if (!p) {
+          await reply('❌ Could not post a spawn. Check the logs.', event.messageID);
+          return;
+        }
+        await reply(`🌿 Posted a **${p.name}** on request.`, event.messageID);
+        return;
+      }
+
+      // Bare !pokemon: status.
+      const interval = Number(group.pokemon.intervalMs) || dex.DEFAULT_INTERVAL_MS;
+      const last = group.pokemon.lastSpawnAt ? new Date(group.pokemon.lastSpawnAt) : null;
+      const next = last ? new Date(last.getTime() + interval) : null;
+      await react('🌿');
+      await reply(
+        `🌿 **POKEMON IN THIS CHAT: ${yesNo(!!group.pokemon.enabled)}**\n`
+        + '· · · · · · ·\n'
+        + `⏱️ One every ${Math.round(interval / 60000)} minutes\n`
+        + `🕐 Last spawn: ${ago(last)}\n`
+        + `⏭️ Next due: ${next ? ago(next) : 'once you turn it on'}\n`
+        + `🎯 ${currentLine(group)}\n`
+        + '· · · · · · ·\n'
+        + 'Turn it on or off with `!pokemon on` / `!pokemon off`.',
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 36 · POKEMON DEX
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'pokedex',
+    aliases: ['dex'],
+    category: 'rpg',
+    description: '📖 Your Pokemon collection — who you have caught',
+    usage: '!pokedex [rarity]',
+    hint: 'Caught Pokemon are kept here. They are a collection, not pets — nothing can attack them.',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pokedex', async () => {
+      await react('📖');
+      const owned = Array.isArray(userDoc.dex) ? userDoc.dex : [];
+      const total = dex.POKEMON.length;
+      const want = String(args[0] || '').toLowerCase().trim();
+
+      if (want && !dex.TIER_BY_KEY.has(want)) {
+        await reply(
+          `❓ No rarity called \`${want}\`. Try: ${dex.TIERS.map((t) => `\`${t.key}\``).join(', ')}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const rows = want
+        ? dex.POKEMON.filter((p) => p.rarity === want)
+        : dex.POKEMON;
+
+      const lines = [];
+      for (const p of rows) {
+        const got = owned.includes(p.id);
+        lines.push(got ? `${dex.tier(p).symbol} **${p.name}** · ${dex.typeLabel(p)}` : `${dex.tier(p).symbol} \`#${String(p.id).padStart(3, '0')}\` — not caught`);
+      }
+
+      // dex.tier() expects a Pokemon and reads its `rarity`. Here we already
+      // hold the tier itself, so read its symbol directly — going through
+      // dex.tier() returns the bottom rung for a key it cannot find, which
+      // labelled every legendary section as Common.
+      const tier = want ? dex.TIER_BY_KEY.get(want) : null;
+      const header = tier
+        ? `${tier.symbol} **${tier.label.toUpperCase()}** — ${rows.filter((p) => owned.includes(p.id)).length}/${rows.length}`
+        : `📖 **YOUR POKEDEX — ${owned.length}/${total}**`;
+
+      await reply(
+        `${header}\n`
+        + '· · · · · · ·\n'
+        + `${lines.join('\n')}\n`
+        + '· · · · · · ·\n'
+        + `🎯 ${num(userDoc.pokemonCaught || 0)} caught in total${owned.length < total ? ` · ${total - owned.length} still out there` : ' · **COMPLETE**'}`,
         event.messageID,
       );
     }),

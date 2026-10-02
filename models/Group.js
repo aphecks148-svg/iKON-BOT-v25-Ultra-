@@ -29,6 +29,30 @@ const GroupSchema = new mongoose.Schema(
       goodbyeMsg: { type: String, default: '' },
     },
 
+    // Wild Pokemon spawns.
+    //
+    // `current` is the spawn on the table right now. It lives here rather than
+    // in memory because the thing that identifies a spawn is the message id of
+    // the message that announced it: the bot answers a reply by comparing the
+    // reply's parent to that id. A restart loses the id otherwise, and every
+    // spawn would silently become uncatchable until the next one rolled.
+    //
+    // caughtBy is written the instant a catch lands, before the reply is sent.
+    // Two people replying within the same second both pass the same checks, so
+    // the write is the lock, not the read that precedes it.
+    pokemon: {
+      enabled: { type: Boolean, default: false },
+      intervalMs: { type: Number, default: 15 * 60 * 1000 },
+      lastSpawnAt: { type: Date, default: null },
+      current: {
+        id: { type: Number, default: 0 },
+        messageID: { type: String, default: '' },
+        spawnedAt: { type: Date, default: null },
+        expiresAt: { type: Date, default: null },
+        caughtBy: { type: String, default: '' },
+      },
+    },
+
     disabledCommands: { type: [String], default: [] },
     disabledModules: { type: [String], default: [] },
     maintenance: { type: Boolean, default: false },

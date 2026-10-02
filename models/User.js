@@ -164,6 +164,17 @@ const UserSchema = new mongoose.Schema(
     banReason: { type: String, default: '' },
     bannedBy: { type: String, default: null },
 
+    // Wild Pokemon caught from group spawns.
+    //
+    // `dex` is a list of national dex ids, not names: ids are what the roster
+    // is keyed on and they never change, so a rename upstream cannot strand
+    // somebody holding a name that no longer resolves. `pokemonCaught` counts
+    // every catch including repeats, so it can go far past `dex.length` —
+    // that difference is the duplicate count, and a starter seeing their dex
+    // at 12/151 with 19 caught is not a bug.
+    dex: { type: [Number], default: [] },
+    pokemonCaught: { type: Number, default: 0, min: 0 },
+
     stats: {
       messages: { type: Number, default: 0 },
       commandsUsed: { type: Number, default: 0 },

@@ -25,6 +25,8 @@ const cache = require('./bot/cache');
 const canvas = require('./bot/canvas');
 const groqClient = require('./bot/groq');
 const fcaDiag = require('./bot/fcaDiag');
+const dex = require('./bot/pokemon');
+const pokemonSpawn = require('./bot/pokemonSpawn');
 const helpers = require('./bot/helpers');
 const profile = require('./bot/profile');
 const cards = require('./bot/cards');
@@ -239,6 +241,39 @@ async function handleMessage(api, event) {
   // message: a wrong prefix is the single most common reason a bot looks deaf,
   // and without this line there is no way to tell it apart from a dead listener.
   const prefix = await resolvePrefix(threadID);
+
+  // ── WILD POKEMON ──────────────────────────────────────────
+  // A reply to a spawn message, carrying that Pokemon's name, is a catch. This
+  // runs before the parser because a catch is not a command: the reply is just
+  // a name, and `!pikachu` should not be a thing. attemptCatch answers null for
+  // everything that is not a live spawn — no parent message, wrong name, already
+  // caught, expired, feature off — and the message then carries on to the parser
+  // exactly as it would have.
+  if (event.messageReply) {
+    let caught = null;
+    try {
+      caught = await pokemonSpawn.attemptCatch(api, event);
+    } catch (err) {
+      error(`[POKEMON] catch attempt failed: ${err.message}`);
+    }
+    if (caught) {
+      await reply(
+        api,
+        threadID,
+        {
+          body: pokemonSpawn.catchBody(caught.pokemon, caught.userDoc, caught.isNew, caught.reward),
+          attachment: { type: 'image', data: { url: dex.sprite(caught.pokemon.id) } },
+        },
+        // Reply to the REPLY, so the confirmation hangs off the answer rather
+        // than off the spawn and the thread still reads top to bottom.
+        messageID,
+        event.isGroup,
+      );
+      await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
+      return;
+    }
+  }
+
   const parsed = router.parse(body, prefix);
   if (!parsed) {
     if (body) log(`[PARSE] no command for "${body.slice(0, 60)}" (prefix ${JSON.stringify(prefix)})`);
@@ -881,6 +916,11 @@ function login() {
         } catch { STATE.userID = null; }
         log(`[LOGIN] ${config.BOT_NAME} logged in as ${STATE.userID || 'unknown'}`);
 
+        // Wild Pokemon start spawning now that there is a client to post with
+        // and an emitter to receive catches on. Started here rather than at
+        // module load because before login there is no api to send with.
+        pokemonSpawn.start(api, { log, error });
+
         // startListening resolves with the emitter once the MQTT connection is
         // up. Failing to listen is not fatal: the HTTP server and commands stay
         // available, so the deploy is not restarted over a flaky socket.
@@ -958,6 +998,10 @@ async function boot() {
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
     log(`[SHUTDOWN] ${sig} received`);
+    // Stop spawning before the database goes away. A tick that fires during
+    // disconnect would log a connection error on the way out, and the interval
+    // holds the event loop open until process.exit anyway.
+    try { pokemonSpawn.stop(); } catch { /* noop */ }
     try { await mongo.disconnect(); } catch { /* noop */ }
     process.exit(0);
   });

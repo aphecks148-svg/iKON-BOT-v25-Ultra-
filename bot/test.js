@@ -2313,6 +2313,215 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     return 'grouped, filtered and rejected rarities all answer';
   });
 
+  // ── 27. the Pokemon roster ────────────────────────────────
+  // The table is generated from PokeAPI, so the things worth pinning are the
+  // ones a regeneration would quietly break: the count, that every entry has
+  // an image and a rarity, and that names resolve the way people type them.
+  await step('the roster is 151 Pokemon and every one is catchable', async () => {
+    const dex = require('./pokemon');
+
+    assert.ok(dex.POKEMON.length >= 100, `expected 100+ Pokemon, got ${dex.POKEMON.length}`);
+    assert.strictEqual(dex.POKEMON.length, 151, 'all 151 originals are present');
+
+    // Unique ids and unique match keys. A duplicate key means two Pokemon that
+    // share a name, and whichever loses is uncatchable forever.
+    assert.strictEqual(new Set(dex.POKEMON.map((p) => p.id)).size, dex.POKEMON.length, 'ids are unique');
+    assert.strictEqual(new Set(dex.POKEMON.map((p) => p.key)).size, dex.POKEMON.length, 'match keys are unique');
+
+    for (const p of dex.POKEMON) {
+      assert.ok(p.name && p.types.length, `dex #${p.id} is missing a name or a type`);
+      assert.ok(dex.TIER_BY_KEY.has(p.rarity), `dex #${p.id} has unknown rarity ${p.rarity}`);
+      assert.ok(dex.sprite(p.id).endsWith(`/${p.id}.png`), `dex #${p.id} has a wrong sprite URL`);
+      assert.ok(dex.bounty(p).coins > 0, `dex #${p.id} pays nothing`);
+    }
+
+    // Every Pokemon must be findable by its own key, or it cannot be caught.
+    for (const p of dex.POKEMON) {
+      assert.strictEqual(dex.find(p.key).id, p.id, `${p.name} is not findable by its key`);
+    }
+    return `${dex.POKEMON.length} Pokemon, ${dex.TIERS.length} rarities`;
+  });
+
+  // PokeAPI calls it "mr-mime" and "nidoran-f". People type "Mr. Mime", "mrmime"
+  // and "Nidoran-F", and the Nidorans carry a gender symbol most keyboards
+  // cannot produce. If normalise() did not fold all of that together, the catch
+  // would work for some people and silently do nothing for everybody else.
+  await step('a Pokemon answers to the way people actually type it', async () => {
+    const dex = require('./pokemon');
+
+    assert.strictEqual(dex.find('Pikachu').name, 'Pikachu', 'capitalised');
+    assert.strictEqual(dex.find('  pikachu  ').name, 'Pikachu', 'padded and lowercase');
+    assert.strictEqual(dex.find('Pikachu!').name, 'Pikachu', 'with punctuation');
+
+    for (const typed of ['Mr. Mime', 'mr mime', 'mrmime', 'MR-MIME']) {
+      assert.strictEqual(dex.find(typed).name, 'Mr. Mime', `"${typed}" must find Mr. Mime`);
+    }
+    for (const typed of ['Nidoran-F', 'nidoran f', 'nidoran♀']) {
+      assert.strictEqual(dex.find(typed).name, 'Nidoran♀', `"${typed}" must find Nidoran♀`);
+    }
+    assert.strictEqual(dex.find("Farfetch'd").name, "Farfetch'd", 'apostrophe survives');
+
+    // A short prefix must NOT match: "ra" would otherwise hit Raichu, Rattata
+    // and Rapidash at once, and a wrong guess is a wrong catch.
+    assert.strictEqual(dex.find('ra'), null, 'a two-letter guess is refused');
+    assert.strictEqual(dex.find('pika').name, 'Pikachu', 'a four-letter prefix is allowed');
+    assert.strictEqual(dex.find(''), null, 'empty input is nothing');
+    assert.strictEqual(dex.find(null), null, 'null input is nothing');
+
+    return 'every spelling and prefix rule holds';
+  });
+
+  // ── 28. spawning on a schedule ────────────────────────────
+  await step('a group is due fifteen minutes after its last spawn', async () => {
+    const spawn = require('./pokemonSpawn');
+    const dex = require('./pokemon');
+    const MIN = 60 * 1000;
+    const group = (over) => ({
+      tid: 't1',
+      pokemon: {
+        enabled: true,
+        intervalMs: dex.DEFAULT_INTERVAL_MS,
+        lastSpawnAt: new Date(Date.now() - 16 * MIN),
+        current: { id: 0, messageID: '', spawnedAt: null, expiresAt: null, caughtBy: '' },
+        ...over,
+      },
+    });
+
+    assert.strictEqual(dex.DEFAULT_INTERVAL_MS, 15 * MIN, 'the interval is fifteen minutes');
+    assert.strictEqual(spawn.isDue(group()), true, 'sixteen minutes later is due');
+    assert.strictEqual(spawn.isDue(group({ lastSpawnAt: new Date(Date.now() - 2 * MIN) })), false, 'two minutes later is not due');
+    assert.strictEqual(spawn.isDue(group({ enabled: false })), false, 'a disabled group never spawns');
+    assert.strictEqual(
+      spawn.isDue(group({ current: { id: 1, messageID: 'm', expiresAt: new Date(Date.now() + MIN) } })),
+      false,
+      'a group with a live spawn is not due again',
+    );
+    // An expired spawn must not hold the schedule hostage until the next
+    // interval, or a chat that was busy at one end of the window and quiet at
+    // the other would sit with nothing out there.
+    assert.strictEqual(
+      spawn.isDue(group({ current: { id: 1, messageID: 'm', expiresAt: new Date(Date.now() - MIN) } })),
+      true,
+      'an expired spawn frees the group immediately',
+    );
+    return 'due only when enabled, unexpired and past the interval';
+  });
+
+  // ── 29. the reply is the lock ─────────────────────────────
+  // The spawn's message id is the only thing that says which Pokemon is on the
+  // table and which reply is claiming it. Every one of these guards is a case
+  // where the catch must NOT fire, because a false positive hands somebody a
+  // Pokemon nobody posted.
+  await step('only a reply naming the live Pokemon catches it', async () => {
+    const spawn = require('./pokemonSpawn');
+    const dex = require('./pokemon');
+    const mongo = require('./mongo');
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+
+const PIKACHU = dex.find('pikachu');
+    // `save` is not optional: claiming the spawn writes to it, so a stub
+    // without one fails the claim and the catch silently never lands.
+    const group = (over) => ({
+      tid: 't1',
+      async save() {},
+      pokemon: {
+        enabled: true,
+        current: {
+          id: PIKACHU.id, messageID: 'SPAWN_1',
+          spawnedAt: new Date(), expiresAt: new Date(Date.now() + 10 * 60 * 1000), caughtBy: '',
+        },
+      },
+    });
+    const event = (over = {}) => ({
+      threadID: 't1', senderID: 'u1', isGroup: true,
+      messageReply: { messageID: 'SPAWN_1' }, body: 'Pikachu', ...over,
+    });
+    const deps = (g, user) => ({
+      loadGroup: async () => g,
+      loadUser: async () => user,
+      saveUser: async () => {},
+    });
+    const freshUser = () => ({ uid: 'u1', name: 'Ada', coins: 0, xp: 0, dex: [], pokemonCaught: 0, transient: true });
+
+    try {
+      // Not a reply at all — a bare `Pikachu` in the chat.
+      assert.strictEqual(await spawn.attemptCatch({}, event({ messageReply: undefined })), null, 'a plain message is not a catch');
+
+      // A reply, but to somebody else's message.
+      assert.strictEqual(await spawn.attemptCatch({}, event({ messageReply: { messageID: 'SOMETHING_ELSE' } }), deps(group(), freshUser())), null, 'replying to the wrong message does nothing');
+
+      // The feature is off in this chat.
+      const off = group(); off.pokemon.enabled = false;
+      assert.strictEqual(await spawn.attemptCatch({}, event(), deps(off, freshUser())), null, 'a chat with pokemon off never catches');
+
+      // Right reply, wrong name — the message falls through to the parser
+      // instead of being eaten as a catch.
+      assert.strictEqual(await spawn.attemptCatch({}, event({ body: 'Charmander' }), deps(group(), freshUser())), null, 'the wrong name is not a catch');
+
+      // Right reply, right name, but somebody got there first.
+      const taken = group(); taken.pokemon.current.caughtBy = 'someone-else';
+      assert.strictEqual(await spawn.attemptCatch({}, event(), deps(taken, freshUser())), null, 'an already-caught spawn is dead');
+
+      // Expired.
+      const stale = group(); stale.pokemon.current.expiresAt = new Date(Date.now() - 1000);
+      assert.strictEqual(await spawn.attemptCatch({}, event(), deps(stale, freshUser())), null, 'an expired spawn is dead');
+
+      // The real thing.
+      const g = group();
+      const user = freshUser();
+      const hit = await spawn.attemptCatch({}, event(), deps(g, user));
+      assert.ok(hit, 'the right reply catches it');
+      assert.strictEqual(hit.pokemon.id, PIKACHU.id, 'the caught Pokemon is the one that was out');
+      assert.strictEqual(hit.isNew, true, 'the first catch is new');
+      assert.deepStrictEqual(user.dex, [PIKACHU.id], 'the dex records the id');
+      assert.strictEqual(user.pokemonCaught, 1, 'the catch counter moved');
+      assert.strictEqual(g.pokemon.current.caughtBy, 'u1', 'the spawn is claimed');
+      assert.strictEqual(user.coins, dex.bounty(PIKACHU).coins, 'the bounty was paid');
+
+      // A second person replying to the same spawn gets nothing.
+      const second = await spawn.attemptCatch({}, event({ senderID: 'u2' }), deps(g, freshUser()));
+      assert.strictEqual(second, null, 'only the first catch wins');
+
+      // The same Pokemon again later: the dex does not grow, the counter does.
+      const again = group();
+      again.pokemon.current.messageID = 'SPAWN_2';
+      const dup = await spawn.attemptCatch({}, event({ messageReply: { messageID: 'SPAWN_2' } }), deps(again, user));
+      assert.strictEqual(dup.isNew, false, 'a repeat is not new');
+      assert.strictEqual(user.dex.length, 1, 'the dex does not gain a duplicate');
+      assert.strictEqual(user.pokemonCaught, 2, 'but the counter still counts it');
+    } finally {
+      mongo.isReady = realReady;
+    }
+    return 'seven rejections and two catches, all correct';
+  });
+
+  // ── 30. the merged leaderboard ────────────────────────────
+  // !rank and !leaderboardrpg were the same board twice. Merging them must not
+  // lose an entry point: somebody's muscle memory says !rlb.
+  await step('the hall of fame answers to every name it ever had', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const rank = loaded.registry.get('rank');
+    assert.ok(rank, 'rank exists');
+    for (const alias of ['leaderboardrpg', 'rlb', 'toprpg']) {
+      assert.ok(rank.aliases.includes(alias), `rank must keep the alias ${alias}`);
+      assert.strictEqual(loader.findCommand(alias, loaded.registry, loaded.aliases).name, 'rank', `!${alias} resolves to rank`);
+    }
+    // And there is exactly one board, not two copies that can drift apart. The
+    // property that matters is that all four spellings land on the SAME command
+    // object — matching on a description phrase instead would pass for the
+    // wrong reason, since "rank" also appears in !profile and !level.
+    assert.strictEqual(
+      [...loaded.registry.values()].filter((c) => c.name === 'leaderboardrpg').length,
+      0,
+      'the old leaderboardrpg command object is gone',
+    );
+    const ids = new Set(['rank', 'leaderboardrpg', 'rlb', 'toprpg']
+      .map((n) => loader.findCommand(n, loaded.registry, loaded.aliases)));
+    assert.strictEqual(ids.size, 1, 'all four spellings resolve to one and the same command');
+    return `aliases: ${rank.aliases.join(', ')}`;
+  });
+
   // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;
