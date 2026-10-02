@@ -67,29 +67,60 @@ const SKILLS = {
 };
 
 // ───────────────────────────────────────────────────────────
-// MONSTERS — level 1 slimes all the way up to level 50 dragons
+// MONSTERS — level 1 slimes all the way up to level 55 dragons
 // ───────────────────────────────────────────────────────────
 const MONSTERS = [
+  // Twenty, by level. Ordered low to high, because the boss fallback picks the
+  // hardest thing in here — an unsorted list would send a level 3 hunter to
+  // fight the iKON Dragon.
   { name: 'Street Slime', emoji: '🟢', level: 1, coin: [200, 400] },
-  { name: 'Pigeon Golem', emoji: '🐦', level: 3, coin: [300, 600] },
-  { name: 'Sewer Rat King', emoji: '🐀', level: 5, coin: [400, 800] },
-  { name: 'Factory Wraith', emoji: '👻', level: 8, coin: [500, 1000] },
-  { name: 'Vault Warden', emoji: '🗝️', level: 12, coin: [700, 1400] },
-  { name: 'Neon Hydra', emoji: '🐍', level: 18, coin: [900, 1800] },
-  { name: 'Casino Baron', emoji: '🎩', level: 25, coin: [1200, 2400] },
-  { name: 'Klerk Colossus', emoji: '🗿', level: 35, coin: [1500, 3000] },
-  { name: 'iKON Dragon', emoji: '🐉', level: 50, coin: [2000, 4000] },
+  { name: 'Pigeon Golem', emoji: '🐦', level: 2, coin: [240, 480] },
+  { name: 'Sewer Rat King', emoji: '🐀', level: 4, coin: [300, 600] },
+  { name: 'Dumpster Bear', emoji: '🐻', level: 6, coin: [360, 720] },
+  { name: 'Factory Wraith', emoji: '👻', level: 8, coin: [440, 880] },
+  { name: 'Forklift Golem', emoji: '🚜', level: 10, coin: [520, 1040] },
+  { name: 'Vault Warden', emoji: '🗝️', level: 12, coin: [620, 1240] },
+  { name: 'Tarmac Basilisk', emoji: '🦈', level: 14, coin: [700, 1400] },
+  { name: 'Neon Hydra', emoji: '🐍', level: 17, coin: [820, 1640] },
+  { name: 'Casino Baron', emoji: '🎩', level: 20, coin: [940, 1880] },
+  { name: 'Klerk Colossus', emoji: '🗿', level: 23, coin: [1060, 2120] },
+  { name: 'Freighter Chimera', emoji: '🦩', level: 26, coin: [1180, 2360] },
+  { name: 'Interest Golem', emoji: '💸', level: 29, coin: [1300, 2600] },
+  { name: 'Skyline Behemoth', emoji: '🌍', level: 32, coin: [1420, 2840] },
+  { name: 'Klerk Ascendant', emoji: '🗿', level: 35, coin: [1560, 3120] },
+  { name: 'Blacksite Leviathan', emoji: '🐏', level: 38, coin: [1700, 3400] },
+  { name: 'Debt Reaper', emoji: '🔫', level: 42, coin: [1850, 3700] },
+  { name: 'Neon Sovereign', emoji: '👑', level: 46, coin: [2000, 4000] },
+  { name: 'iKON Wyrm', emoji: '🐉', level: 50, coin: [2600, 5200] },
+  { name: 'iKON Dragon', emoji: '🐉', level: 55, coin: [3400, 6800] },
 ];
 
 // ───────────────────────────────────────────────────────────
 // TITLES — unlocked automatically at level milestones
 // ───────────────────────────────────────────────────────────
 const TITLES = [
+  // Twenty milestones, ascending. Level unlocks these automatically in grantXp,
+  // and `!titles` draws them in this order, so a new rung goes at the bottom.
+  { level: 2, title: 'New Face' },
+  { level: 3, title: 'Busker' },
   { level: 5, title: 'Slayer' },
+  { level: 7, title: 'Errand Runner' },
   { level: 10, title: 'Veteran' },
+  { level: 13, title: 'Fixer' },
+  { level: 16, title: 'Operator' },
   { level: 20, title: 'Champion' },
-  { level: 30, title: 'Legend' },
-  { level: 50, title: 'God' },
+  { level: 24, title: 'Enforcer' },
+  { level: 28, title: 'Kingpin' },
+  { level: 32, title: 'Shadow Broker' },
+  { level: 36, title: 'Cartel Elder' },
+  { level: 40, title: 'Warlord' },
+  { level: 44, title: 'Red Hand' },
+  { level: 48, title: 'Leviathan' },
+  { level: 55, title: 'Legend' },
+  { level: 62, title: 'Sovereign' },
+  { level: 70, title: 'Immortal' },
+  { level: 80, title: 'Deity' },
+  { level: 100, title: 'God' },
 ];
 
 // ───────────────────────────────────────────────────────────

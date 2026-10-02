@@ -30,61 +30,195 @@ const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const userTarget = require('../bot/target');
+const rarity = require('../bot/content');
 
 const CASH = 'K-Cash';
 const ULTRA = 'iKON-BOT v2 Ultra';
 
 // ───────────────────────────────────────────────────────────
-// THE 15 DANGEROUS PETS — expensive, rare, powerful
+// THE 50 DANGEROUS PETS
+// ───────────────────────────────────────────────────────────
+// Fifty, across seven rarities from common to divine. Prices are post-10x, so a
+// divine pet costs about what two years of farming earns — they are meant to be
+// something you are still chasing when you max out, not something you buy on
+// day two.
+//
+// `level` is a hard gate, not flavour: Aurelith is unreachable until Level 85,
+// so money alone cannot shortcut progression. `rarity` is stated per row rather
+// than derived from position, so growing this table cannot change what any
+// other table means (see bot/content.js).
 // ───────────────────────────────────────────────────────────
 const DANGEROUS_PETS = [
-  { id: 'voidreaver', name: 'Voidreaver', emoji: '🕳️', price: 50000, power: 500, lore: 'Devours souls mid-sentence. Owners report tinnitus.' },
-  { id: 'bloodfang', name: 'Bloodfang Alpha', emoji: '🐺', price: 75000, power: 650, lore: 'The werewolf king. Pays for his dinner in wolf.' },
-  { id: 'necrotitan', name: 'NecroTitan', emoji: '💀', price: 100000, power: 800, lore: 'Undead titan. Does not require dental.' },
-  { id: 'infernal', name: 'Infernal Wyrm', emoji: '🐉', price: 120000, power: 900, lore: 'Lava dragon. Warms a room to 200 degrees.' },
-  { id: 'kraken', name: 'Abyssal Kraken', emoji: '🐙', price: 150000, power: 1000, lore: 'Sea terror. Files complaints from the Mariana Trench.' },
-  { id: 'shadowlord', name: 'Shadowlord', emoji: '🌑', price: 200000, power: 1200, lore: 'Controls shadows. You will not see it coming.' },
-  { id: 'doomhowl', name: 'Doomhowl', emoji: '🐺', price: 180000, power: 1100, lore: 'Its scream kills. Bring ear protection.' },
-  { id: 'soulripper', name: 'Soulripper', emoji: '👻', price: 250000, power: 1300, lore: 'Rips XP straight out of the air.' },
-  { id: 'obsidian', name: 'Obsidian Golem', emoji: '🗿', price: 130000, power: 950, lore: 'Unbreakable. Loosely tested with a hammer.' },
-  { id: 'thunder', name: 'Thunder Serpent', emoji: '🐍', price: 160000, power: 1050, lore: 'Lightning god in serpent form. Trips the vault alarms.' },
-  { id: 'frost', name: 'Frost Leviathan', emoji: '❄️', price: 170000, power: 1080, lore: 'Freezes the group chat gc at 3am.' },
-  { id: 'venom', name: 'Venom Queen', emoji: '🕷️', price: 190000, power: 1150, lore: 'Poison empire. Very punctual.' },
-  { id: 'chaos', name: 'Chaos Behemoth', emoji: '🌀', price: 300000, power: 1500, lore: 'Pure chaos, unlabelled.' },
-  { id: 'nightmare', name: 'Nightmare Hydra', emoji: '🐲', price: 280000, power: 1400, lore: 'Five heads. Five bad decisions.' },
-  { id: 'titanprime', name: 'iKON Titan Prime', emoji: '👑', price: 500000, power: 2000, lore: 'FINAL BOSS. Only ONE exists per bot. Owner Aphecks refuses to say where it came from.' },
+  // ── COMMON (7) ─────────────────────────────────────────────
+  { id: 'ratking', name: 'Sewer Rat King', emoji: '🐀', rarity: 'common', price: 25000, power: 120, level: 1, lore: 'Crowned by a flooded drain. Still wears the bottle.' },
+  { id: 'gutterhound', name: 'Gutter Hound', emoji: '🐕', rarity: 'common', price: 30000, power: 140, level: 1, lore: 'Finds everything. Returns most of it.' },
+  { id: 'alleycat', name: 'Alley Cat', emoji: '🐈', rarity: 'common', price: 32000, power: 150, level: 1, lore: 'Nine lives is marketing. It has one and it is fine.' },
+  { id: 'trashgoose', name: 'Trash Goose', emoji: '🪿', rarity: 'common', price: 35000, power: 160, level: 1, lore: 'Steals your lunch and your dignity, in that order.' },
+  { id: 'straycat', name: 'Stray', emoji: '🐈‍⬛', rarity: 'common', price: 38000, power: 175, level: 1, lore: 'Appears only when the shop is open. Suspicious.' },
+  { id: 'feralhound', name: 'Feral Hound', emoji: '🐺', rarity: 'common', price: 42000, power: 190, level: 1, lore: 'Was somebody\'s dog. Decided otherwise.' },
+  { id: 'pigeonlord', name: 'Pigeon Lord', emoji: '🐦', rarity: 'common', price: 45000, power: 200, level: 1, lore: 'Runs the roofline. Taxes everyone for passage.' },
+  // ── UNCOMMON (7) ───────────────────────────────────────────
+  { id: 'voidreaver', name: 'Voidreaver', emoji: '🕳️', rarity: 'uncommon', price: 60000, power: 260, level: 5, lore: 'Devours souls mid-sentence. Owners report tinnitus.' },
+  { id: 'bloodfang', name: 'Bloodfang Alpha', emoji: '🐺', rarity: 'uncommon', price: 75000, power: 300, level: 5, lore: 'The werewolf king. Pays for his dinner in wolf.' },
+  { id: 'obsidian', name: 'Obsidian Golem', emoji: '🗿', rarity: 'uncommon', price: 85000, power: 340, level: 6, lore: 'Unbreakable. Loosely tested with a hammer.' },
+  { id: 'cinderhound', name: 'Cinder Hound', emoji: '🐕‍🦺', rarity: 'uncommon', price: 95000, power: 370, level: 6, lore: 'Its bark smoulders. The yard needs repainting.' },
+  { id: 'frostmoth', name: 'Frostmoth', emoji: '🦋', rarity: 'uncommon', price: 105000, power: 400, level: 8, lore: 'Wings freeze on contact. Nobody has touched one twice.' },
+  { id: 'brassbeetle', name: 'Brass Beetle', emoji: '🪲', rarity: 'uncommon', price: 115000, power: 430, level: 8, lore: 'Salvages copper from anything. Including walls.' },
+  { id: 'swampwyrm', name: 'Swamp Wyrm', emoji: '🐍', rarity: 'uncommon', price: 125000, power: 460, level: 10, lore: 'Dredge the canal for coins. Do not dredge for it.' },
+  // ── RARE (7) ──────────────────────────────────────────────
+  { id: 'necrotitan', name: 'NecroTitan', emoji: '💀', rarity: 'rare', price: 150000, power: 520, level: 12, lore: 'Undead titan. Does not require dental.' },
+  { id: 'thunder', name: 'Thunder Serpent', emoji: '🐍', rarity: 'rare', price: 170000, power: 570, level: 12, lore: 'Lightning god in serpent form. Trips the vault alarms.' },
+  { id: 'frost', name: 'Frost Leviathan', emoji: '❄️', rarity: 'rare', price: 190000, power: 620, level: 14, lore: 'Freezes the group chat at 3am.' },
+  { id: 'venom', name: 'Venom Queen', emoji: '🕷️', rarity: 'rare', price: 210000, power: 670, level: 14, lore: 'Poison empire. Very punctual.' },
+  { id: 'emberdrake', name: 'Ember Drake', emoji: '🦎', rarity: 'rare', price: 230000, power: 720, level: 15, lore: 'Banked its own heat. Pays no rent.' },
+  { id: 'gravewarden', name: 'Grave Warden', emoji: '⚰️', rarity: 'rare', price: 250000, power: 770, level: 16, lore: 'Counts the mourners. It is always accurate.' },
+  { id: 'stormroc', name: 'Storm Roc', emoji: '🦅', rarity: 'rare', price: 270000, power: 820, level: 18, lore: 'Strikes from the ionosphere. Never lands.' },
+  // ── EPIC (7) ───────────────────────────────────────────────
+  { id: 'infernal', name: 'Infernal Wyrm', emoji: '🐉', rarity: 'epic', price: 320000, power: 920, level: 20, lore: 'Lava dragon. Warms a room to 200 degrees.' },
+  { id: 'kraken', name: 'Abyssal Kraken', emoji: '🐙', rarity: 'epic', price: 360000, power: 1000, level: 22, lore: 'Sea terror. Files complaints from the Mariana Trench.' },
+  { id: 'doomhowl', name: 'Doomhowl', emoji: '🐺', rarity: 'epic', price: 400000, power: 1080, level: 24, lore: 'Its scream kills. Bring ear protection.' },
+  { id: 'nightmare', name: 'Nightmare Hydra', emoji: '🐲', rarity: 'epic', price: 450000, power: 1180, level: 26, lore: 'Five heads. Five bad decisions.' },
+  { id: 'soulripper', name: 'Soulripper', emoji: '👻', rarity: 'epic', price: 500000, power: 1280, level: 28, lore: 'Rips XP straight out of the air.' },
+  { id: 'shadowlord', name: 'Shadowlord', emoji: '🌑', rarity: 'epic', price: 550000, power: 1380, level: 30, lore: 'Controls shadows. You will not see it coming.' },
+  { id: 'chaos', name: 'Chaos Behemoth', emoji: '🌀', rarity: 'epic', price: 600000, power: 1480, level: 32, lore: 'Pure chaos, unlabelled.' },
+  // ── LEGENDARY (8) ─────────────────────────────────────────
+  { id: 'ashenwarden', name: 'Ashen Warden', emoji: '🗿', rarity: 'legendary', price: 700000, power: 1650, level: 35, lore: 'Stands where a city used to be. Still on shift.' },
+  { id: 'dreadnought', name: 'Dreadnought', emoji: '🦑', rarity: 'legendary', price: 780000, power: 1760, level: 38, lore: 'Drinks ships. Has never been full.' },
+  { id: 'seraphine', name: 'Seraphine', emoji: '👼', rarity: 'legendary', price: 860000, power: 1870, level: 40, lore: 'Wings of filed paperwork. Every sin is receipted.' },
+  { id: 'wyrmarch', name: 'Wyrmarch', emoji: '🦇', rarity: 'legendary', price: 950000, power: 2000, level: 42, lore: 'Two dragons agreeing to share a sky. Neither is happy.' },
+  { id: 'nullwyrm', name: 'Null Wyrm', emoji: '🌑', rarity: 'legendary', price: 1050000, power: 2140, level: 45, lore: 'Occupies the space where a dragon should be.' },
+  { id: 'oblivion', name: 'Oblivion Stalker', emoji: '🕷️', rarity: 'legendary', price: 1150000, power: 2290, level: 48, lore: 'You will not see it. You will miss it.' },
+  { id: 'phoenix', name: 'Ashwing Phoenix', emoji: '🔥', rarity: 'legendary', price: 1250000, power: 2440, level: 50, lore: 'Dies daily. Returns annoyed.' },
+  { id: 'worldeater', name: 'Worldeater', emoji: '🌊', rarity: 'legendary', price: 1400000, power: 2650, level: 55, lore: 'Named after the appetite, not the diet.' },
+  // ── MYTHIC (6) ────────────────────────────────────────────
+  { id: 'astralhunt', name: 'Astral Hunt', emoji: '🌌', rarity: 'mythic', price: 1700000, power: 2950, level: 58, lore: 'Hunts between seconds. You are usually not in one.' },
+  { id: 'nullarch', name: 'Null Archbishop', emoji: '⛪', rarity: 'mythic', price: 1900000, power: 3150, level: 62, lore: 'Baptises the void. The void declines.' },
+  { id: 'darkmaw', name: 'Darkmaw Leviathan', emoji: '🦈', rarity: 'mythic', price: 2100000, power: 3350, level: 65, lore: 'Has swallowed a harbour. Digesting politely.' },
+  { id: 'eclipse', name: 'Eclipse Sovereign', emoji: '🌑', rarity: 'mythic', price: 2400000, power: 3600, level: 70, lore: 'Casts one shadow. It is on your side.' },
+  { id: 'voidtitan', name: 'Void Titan', emoji: '🕳️', rarity: 'mythic', price: 2700000, power: 3900, level: 75, lore: 'A god, minus the paperwork.' },
+  { id: 'starscourge', name: 'Starscourge', emoji: '💫', rarity: 'mythic', price: 3000000, power: 4200, level: 80, lore: 'A falling star with opinions.' },
+  // ── DIVINE (8) ────────────────────────────────────────────
+  { id: 'aurelith', name: 'Aurelith, Dawnbeast', emoji: '🌅', rarity: 'divine', price: 4200000, power: 4800, level: 85, lore: 'Its dawn is the only one that counts.' },
+  { id: 'kaimira', name: 'Kaimira the Gilded', emoji: '👑', rarity: 'divine', price: 4800000, power: 5200, level: 88, lore: 'Gold-plated judgement. Always in your favour, always late.' },
+  { id: 'nyxaris', name: 'Nyxaris the Silent', emoji: '🌙', rarity: 'divine', price: 5400000, power: 5600, level: 90, lore: 'Has no sound. Has never needed one.' },
+  { id: 'severnine', name: 'Severn, the Last Wyrm', emoji: '🐲', rarity: 'divine', price: 6000000, power: 6000, level: 92, lore: 'The final dragon. The ledger says there is no next.' },
+  { id: 'oblivionprime', name: 'Oblivion Prime', emoji: '🕳️', rarity: 'divine', price: 7000000, power: 6600, level: 95, lore: 'One of one. Finding it is the achievement.' },
+  { id: 'godwyrm', name: 'iKON Godwyrm', emoji: '🔥', rarity: 'divine', price: 8000000, power: 7200, level: 97, lore: 'Answered once, to a question nobody asked.' },
+  { id: 'worldsbreath', name: "World's Breath", emoji: '🌬️', rarity: 'divine', price: 9500000, power: 8200, level: 99, lore: 'Inhale once and a season is gone.' },
+  { id: 'titanprime', name: 'iKON Titan Prime', emoji: '👑', rarity: 'divine', price: 12000000, power: 10000, level: 100, lore: 'FINAL BOSS. Only ONE exists per bot. Owner Aphecks refuses to say where it came from.' },
 ];
 
 const PET_BY_ID = new Map(DANGEROUS_PETS.map((p) => [p.id, p]));
+
+/** Pets grouped by rarity, bottom to top, for listings and weighted draws. */
+const PETS_BY_RARITY = rarity.LADDER.map((r) => ({
+  ...r,
+  pets: DANGEROUS_PETS.filter((p) => p.rarity === r.key),
+}));
+
+/**
+ * The level gate on a pet, phrased as something worth reading.
+ *
+ * Returns null when the hunter is allowed to buy it. The wording matters: this
+ * is the reply that tells someone why the thing they can see is not for them
+ * yet, so it says what is missing and what it would take, rather than a bare
+ * "permission denied".
+ *
+ * @param {object} userDoc
+ * @param {object} spec a DANGEROUS_PETS row
+ * @returns {string|null}
+ */
+function rarityGate(userDoc, spec) {
+  const level = Number(userDoc && userDoc.level) || 1;
+  const need = Number(spec.level) || 0;
+  if (need <= level) return null;
+  const r = rarity.get(spec.rarity);
+  return `${r.symbol} **${spec.emoji} ${spec.name}** is ${r.label.toLowerCase()}.\n`
+    + `🔒 It needs hunter **Level ${need}** — you are **Level ${level}**.\n`
+    + `📈 ${num(need - level)} level to go. \`!work\`, \`!hunt\` and \`!farm\` all pay XP.`;
+}
 
 // ───────────────────────────────────────────────────────────
 // EVOLUTION LADDER — level requirement + the stone it eats
 // ───────────────────────────────────────────────────────────
 const EVOLUTIONS = [
-  { level: 15, stone: 'fire', title: 'Kindled', blurb: 'Your pet catches fire and stops being a normal pet.' },
-  { level: 30, stone: 'inferno', title: 'Infernal', blurb: 'Smoke pours from its fur. The alarm is not worth it.' },
-  { level: 50, stone: 'titan', title: 'Titanborn', blurb: 'The ground registers a new footprint.' },
-  { level: 75, stone: 'void', title: 'Void-touched', blurb: 'It looks at you slightly to the left of you.' },
-  { level: 100, stone: null, title: 'iKON Titan', blurb: 'Ascension. There is no tier above this.' },
+  // Ten tiers, ascending by level. `stone` is the one item the gate demands;
+  // `null` at the top means ascension, which costs nothing but the level.
+  { level: 10, stone: 'fire', title: 'Kindled', blurb: 'Your pet catches fire and stops being a normal pet.' },
+  { level: 18, stone: 'frost', title: 'Frostbound', blurb: 'It leaves a rug of frost wherever it sits.' },
+  { level: 26, stone: 'storm', title: 'Charged', blurb: 'The air in the room rearranges itself around it.' },
+  { level: 34, stone: 'inferno', title: 'Infernal', blurb: 'Smoke pours from its fur. The alarm is not worth it.' },
+  { level: 42, stone: 'tide', title: 'Drowned', blurb: 'It drinks seawater and looks disappointed in it.' },
+  { level: 52, stone: 'titan', title: 'Titanborn', blurb: 'The ground registers a new footprint.' },
+  { level: 62, stone: 'serpent', title: 'Coiled', blurb: 'It has grown opinions about where you walk.' },
+  { level: 72, stone: 'eclipse', title: 'Eclipsed', blurb: 'The light bends around it rather than onto it.' },
+  { level: 85, stone: 'void', title: 'Void-touched', blurb: 'It looks at you slightly to the left of you.' },
+  { level: 100, stone: 'ascendant', title: 'iKON Titan', blurb: 'Ascension. There is no tier above this.' },
 ];
 
 const STONES = {
-  fire: { name: 'Fire Stone', emoji: '🔥', price: 5000, desc: 'Warm to the touch. Smells like a forge.' },
-  inferno: { name: 'Inferno Stone', emoji: '☄️', price: 15000, desc: 'Bites. That is the whole product.' },
-  titan: { name: 'Titan Stone', emoji: '🪨', price: 30000, desc: 'Heavier than your last mistake.' },
-  void: { name: 'Void Stone', emoji: '🌌', price: 75000, desc: 'Cold, black, and slightly quiet.' },
-  revive: { name: 'Revive Crystal', emoji: '💠', price: 20000, desc: 'Pulls a dead pet back. Halves the resurrection bill.' },
+  fire: { name: 'Fire Stone', emoji: '🔥', price: 5000, rarity: 'common', desc: 'Warm to the touch. Smells like a forge.' },
+  frost: { name: 'Frost Stone', emoji: '🧊', price: 9000, rarity: 'common', desc: 'The condensation never quite dries.' },
+  storm: { name: 'Storm Stone', emoji: '⚡', price: 14000, rarity: 'uncommon', desc: 'Hums when the weather turns.' },
+  inferno: { name: 'Inferno Stone', emoji: '☄️', price: 22000, rarity: 'uncommon', desc: 'Bites. That is the whole product.' },
+  tide: { name: 'Tide Stone', emoji: '🌊', price: 34000, rarity: 'uncommon', desc: 'Wet three inches below the surface.' },
+  titan: { name: 'Titan Stone', emoji: '🪨', price: 52000, rarity: 'rare', desc: 'Heavier than your last mistake.' },
+  serpent: { name: 'Serpent Stone', emoji: '🐍', price: 78000, rarity: 'rare', desc: 'Warm on one face, cold on the other.' },
+  eclipse: { name: 'Eclipse Stone', emoji: '🌓', price: 115000, rarity: 'epic', desc: 'Darker on the side nobody looks at.' },
+  void: { name: 'Void Stone', emoji: '🌌', price: 180000, rarity: 'epic', desc: 'Cold, black, and slightly quiet.' },
+  ascendant: { name: 'Ascendant Stone', emoji: '👑', price: 320000, rarity: 'legendary', desc: 'Found exactly once. Ask no questions.' },
+  revive: { name: 'Revive Crystal', emoji: '💠', price: 25000, rarity: 'rare', desc: 'Pulls a dead pet back. Halves the resurrection bill.' },
 };
+
+/**
+ * What an explore run can actually drop, cheapest stone first.
+ *
+ * This used to be a hand-written `pick(['fire', 'fire', 'inferno', ...])` next to
+ * the zone roll — a second list of stones that quietly fell behind STONES. Deriving
+ * it means a new stone is findable the moment it is added to the shop.
+ */
+const EXPLORE_STONES = Object.keys(STONES)
+  .filter((id) => id !== 'revive')
+  .sort((a, b) => STONES[a].price - STONES[b].price);
+
+/** Draw a stone, skewed cheap so the top of the ladder stays a story. */
+function rollStone() {
+  const weights = EXPLORE_STONES.map((_, i) => Math.max(1, EXPLORE_STONES.length - i));
+  let roll = Math.random() * weights.reduce((n, w) => n + w, 0);
+  for (let i = 0; i < weights.length; i += 1) {
+    roll -= weights[i];
+    if (roll <= 0) return EXPLORE_STONES[i];
+  }
+  return EXPLORE_STONES[0];
+}
 
 // ───────────────────────────────────────────────────────────
 // EXPLORE ZONES — all of them want your pet dead
 // ───────────────────────────────────────────────────────────
 const ZONES = [
-  { name: 'Shadow Forest', emoji: '🌲', danger: 10, stones: 0.08 },
+  // Twenty. Ordered mild to nasty, because `!petexplore` draws from the whole
+  // list and the "deepest zones" hint finds the highest stone rate by walking
+  // it — an unsorted table would advertise the Abyss Sea as the gentle one.
+  { name: 'Meadow Road', emoji: '🌿', danger: 4, stones: 0.05 },
+  { name: 'Shadow Forest', emoji: '🌲', danger: 8, stones: 0.07 },
+  { name: 'Quarry Steps', emoji: '⛰️', danger: 10, stones: 0.08 },
+  { name: 'Sunken Docks', emoji: '🚢', danger: 13, stones: 0.09 },
+  { name: 'Frozen Wasteland', emoji: '🏔️', danger: 16, stones: 0.10 },
   { name: 'Lava Pits', emoji: '🌋', danger: 20, stones: 0.10 },
-  { name: 'Abyss Sea', emoji: '🌊', danger: 30, stones: 0.12 },
-  { name: 'Frozen Wasteland', emoji: '🏔️', danger: 25, stones: 0.11 },
-  { name: 'Void Realm', emoji: '🕳️', danger: 45, stones: 0.18 },
+  { name: 'Ashen Barrens', emoji: '⛱️', danger: 23, stones: 0.11 },
+  { name: 'Abyss Sea', emoji: '🌊', danger: 26, stones: 0.12 },
+  { name: 'Fungal Hollow', emoji: '🍄', danger: 29, stones: 0.12 },
+  { name: 'Bonespan Canyon', emoji: '🦸', danger: 31, stones: 0.13 },
+  { name: 'Hollow Spire', emoji: '🗼', danger: 33, stones: 0.13 },
+  { name: 'Chimera Roost', emoji: '🦩', danger: 35, stones: 0.14 },
+  { name: 'Glass Wastes', emoji: '🪩', danger: 37, stones: 0.14 },
+  { name: 'Obsidian Reach', emoji: '⛏', danger: 39, stones: 0.15 },
+  { name: 'Widow Gate', emoji: '💀', danger: 41, stones: 0.15 },
+  { name: 'The Ledger', emoji: '💳', danger: 43, stones: 0.16 },
+  { name: 'Ember Court', emoji: '🔥', danger: 45, stones: 0.16 },
+  { name: 'Hush Line', emoji: '🕇', danger: 47, stones: 0.17 },
+  { name: 'Titan Trench', emoji: '🕳️', danger: 49, stones: 0.18 },
+  { name: 'Void Realm', emoji: '⛓️', danger: 52, stones: 0.20 },
 ];
 
 // ───────────────────────────────────────────────────────────
@@ -96,6 +230,18 @@ const SKILLS = [
   { id: 'soulrip', name: 'Soul Rip', emoji: '👻', mult: 1.8, cooldown: 2 },
   { id: 'titan', name: 'Titan Smash', emoji: '💥', mult: 2.2, cooldown: 3 },
 ];
+
+/**
+ * The zone with the best stone odds.
+ *
+ * This used to be `ZONES.find((z) => z.stones > 0.15)` — "the first zone past
+ * 0.15", which is the gentlest of the deep ones, not the deepest. It happened to
+ * be right while the table was five rows; the moment a zone was appended it
+ * started advertising whichever one happened to be added first.
+ */
+function deepestZone() {
+  return ZONES.reduce((best, z) => (z.stones > best.stones ? z : best), ZONES[0]);
+}
 
 // ───────────────────────────────────────────────────────────
 // helpers
@@ -551,11 +697,19 @@ module.exports = [
       if (!spec) {
         await reply(
           `❌ Unknown pet \`${arg}\`.\n`
-          + `🐉 Available: \`starter\`, or one of:\n`
-          + `${DANGEROUS_PETS.map((p) => `\`${p.id}\` (${kc(p.price)})`).join(', ')}\n`
-          + `📖 \`!petlist\` has the full bestiary.`,
+          + `🐉 \`!petlist\` has all ${DANGEROUS_PETS.length}, by rarity.`,
           event.messageID,
         );
+        return;
+      }
+
+      // The gate. A divine pet is priced so high that a rich level-1 hunter
+      // could otherwise simply buy one, which would make the whole ladder
+      // pointless. Levels are what make the top of it a goal rather than a
+      // purchase.
+      const blocked = rarityGate(userDoc, spec);
+      if (blocked) {
+        await reply(blocked, event.messageID);
         return;
       }
 
@@ -803,7 +957,7 @@ module.exports = [
           + '· · · · · · ·\n'
           + `📊 Level ${pet.level} ✅ — but you need 1x ${STONES[next.stone].emoji} ${STONES[next.stone].name}.\n`
           + `👛 Buy it for ${kc(STONES[next.stone].price)} with \`!petshop ${next.stone}\`.\n`
-          + `🗺️ Or find one in \`!petexplore\` (${Math.round((ZONES.find((z) => z.stones > 0.15) || ZONES[0]).stones * 100)}% in the deepest zones).\n`
+          + `🗺️ Or find one in \`!petexplore\` (${Math.round(deepestZone().stones * 100)}% in ${deepestZone().name}).\n`
           + `📖 ${story()}`,
           event.messageID,
         );
@@ -1009,7 +1163,7 @@ module.exports = [
 
       // 10-ish% stone find, weighted by how deep the zone is.
       const foundStone = Math.random() < Math.max(0.10, zone.stones);
-      const stoneId = foundStone ? pick(['fire', 'fire', 'inferno', 'titan', 'void']) : null;
+      const stoneId = foundStone ? rollStone() : null;
 
       // Injury chance scales with the zone's danger.
       const injured = Math.random() < zone.danger / 100;
@@ -1548,24 +1702,53 @@ module.exports = [
     name: 'petlist',
     aliases: [],
     category: 'pets',
-    description: '🐉 The bestiary — all 15 dangerous pets, prices, power and lore',
-    usage: '!petlist',
+    description: '🐉 The bestiary — every dangerous pet, by rarity',
+    usage: '!petlist [rarity]',
+    hint: 'Fifty of them, from Common to Divine. `!petlist divine` is the shortlist.',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'petlist', async () => {
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petlist', async () => {
       await react('🐉');
-      const lines = DANGEROUS_PETS.map((p) => (
-        `${p.emoji} **${p.name}** ⚡${num(p.power)} — ${kc(p.price)}\n   \`!adopt ${p.id}\``
-      ));
+      const want = String(args[0] || '').toLowerCase().trim();
 
-      await reply(
-        `🐉 **iKON BESTIARY — 15 DANGEROUS PETS**\n`
-        + '· · · · · · ·\n'
-        + `${lines.join('\n')}\n`
-        + `🥚 Cheaper start: \`!adopt starter\` for 1,000 ${CASH}.\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
+      if (want) {
+        // A shortlist beats a wall of 50 lines, so asking for a rarity gives
+        // the pets that are actually in it rather than everything else too.
+        if (!rarity.byKey(want)) {
+          await reply(`❓ No rarity called \`${want}\`. Try: ${rarity.LADDER.map((r) => `\`${r.key}\``).join(', ')}`, event.messageID);
+          return;
+        }
+        const picked = DANGEROUS_PETS.filter((p) => p.rarity === want);
+        if (!picked.length) {
+          await reply(`📭 Nothing in ${want} yet.`, event.messageID);
+          return;
+        }
+        const lines = picked.map((p) => (
+          `${p.emoji} **${p.name}** ⚡${num(p.power)} · ${kc(p.price)} · 🔒Lv${p.level}\n   \`!adopt ${p.id}\``
+        ));
+        await reply(
+          `${rarity.symbol(want)} **${rarity.get(want).label} — ${picked.length} of ${DANGEROUS_PETS.length}**\n`
+          + '· · · · · · ·\n'
+          + `${lines.join('\n')}\n`
+          + `↩️ \`${config.PREFIX}petlist\` — every rarity`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // Grouped, not alphabetical — the ladder is the point of the page.
+      const out = [`🐉 **iKON BESTIARY — ${DANGEROUS_PETS.length} DANGEROUS PETS**`];
+      for (const r of rarity.LADDER) {
+        const group = DANGEROUS_PETS.filter((p) => p.rarity === r.key);
+        if (!group.length) continue;
+        out.push('', `${r.symbol} **${r.label}** · ${group.length}`);
+        out.push(group.map((p) => `\`${p.id}\``).join(' '));
+      }
+      out.push('', '· · · · · · ·');
+      out.push(`🔎 \`${config.PREFIX}petlist <rarity>\` — one rarity at a time`);
+      out.push(`🥚 Starter dragon: \`${config.PREFIX}adopt starter\``);
+      out.push(`💡 Divine pets are one of one — price is the smallest part of getting one.`);
+      await reply(out.join('\n'), event.messageID);
     }),
   },
 

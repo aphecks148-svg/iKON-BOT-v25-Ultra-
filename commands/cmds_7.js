@@ -32,6 +32,8 @@ const canvasKit = require('../bot/canvas');
 const { fmt } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
 const userTarget = require('../bot/target');
+const rarity = require('../bot/content');
+const { k } = require('../bot/content');
 
 const CASH = 'K-Cash';
 const ULTRA = 'iKON-BOT v2 Ultra';
@@ -40,19 +42,37 @@ const ULTRA = 'iKON-BOT v2 Ultra';
 // THE GARAGE — 13 cars, plus the one nobody should own
 // ───────────────────────────────────────────────────────────
 
+/**
+ * THE GARAGE — 22 cars, cheapest to fastest.
+ *
+ * `level` is a hard gate. `prime: true` marks the one car that is not for sale:
+ * the old list took `CARS[CARS.length - 1]` as the prime, so appending any car
+ * would have promoted a normal car to legendary status and printed a sales pitch
+ * for it. The flag replaces that assumption.
+ */
 const CARS = [
-  { id: 'sultanrs', name: 'Sultan RS', price: 50000, power: 300, color: '#9aa0b5' },
-  { id: 'adder', name: 'Adder', price: 80000, power: 350, color: '#c0c6d4' },
-  { id: 'zentorno', name: 'Zentorno', price: 120000, power: 400, color: '#ff9f1c' },
-  { id: 't20', name: 'T20', price: 150000, power: 450, color: '#2ec4b6' },
-  { id: 'x80', name: 'X80', price: 200000, power: 500, color: '#e71d36' },
-  { id: 'osiris', name: 'Osiris', price: 250000, power: 550, color: '#011627' },
-  { id: 'entityxf', name: 'Entity XF', price: 300000, power: 600, color: '#7b2cbf' },
-  { id: 'turismor', name: 'Turismo R', price: 350000, power: 650, color: '#00d4ff' },
-  { id: 'bulletgt', name: 'Bullet GT', price: 400000, power: 700, color: '#ffd60a' },
-  { id: 'cheetah', name: 'Cheetah', price: 450000, power: 750, color: '#06d6a0' },
-  { id: 'infernus', name: 'Infernus', price: 500000, power: 800, color: '#ef233c' },
-  { id: 'phantomprime', name: 'iKON Phantom Prime', price: 1000000, power: 1500, color: '#b14bff' },
+  { id: 'kestrel', name: 'Kestrel', rarity: 'common', level: 1, price: k(8000), power: 90, color: '#9aa0b5' },
+  { id: 'hatchback', name: 'Rust Hatchback', rarity: 'common', level: 1, price: k(12000), power: 110, color: '#c0c6d4' },
+  { id: 'sultanrs', name: 'Sultan RS', rarity: 'common', level: 3, price: k(18000), power: 140, color: '#9aa0b5' },
+  { id: 'coupe', name: 'Night Coupe', rarity: 'common', level: 4, price: k(24000), power: 165, color: '#011627' },
+  { id: 'adder', name: 'Adder', rarity: 'uncommon', level: 6, price: k(32000), power: 200, color: '#c0c6d4' },
+  { id: 't20', name: 'T20', rarity: 'uncommon', level: 8, price: k(45000), power: 240, color: '#2ec4b6' },
+  { id: 'zentorno', name: 'Zentorno', rarity: 'uncommon', level: 10, price: k(60000), power: 285, color: '#ff9f1c' },
+  { id: 'comet', name: 'Comet Tribute', rarity: 'uncommon', level: 12, price: k(78000), power: 330, color: '#7b2cbf' },
+  { id: 'x80', name: 'X80', rarity: 'rare', level: 15, price: k(95000), power: 380, color: '#e71d36' },
+  { id: 'osiris', name: 'Osiris', rarity: 'rare', level: 18, price: k(120000), power: 430, color: '#011627' },
+  { id: 'entityxf', name: 'Entity XF', rarity: 'rare', level: 21, price: k(150000), power: 480, color: '#7b2cbf' },
+  { id: 'turismor', name: 'Turismo R', rarity: 'rare', level: 24, price: k(185000), power: 535, color: '#00d4ff' },
+  { id: 'bulletgt', name: 'Bullet GT', rarity: 'epic', level: 28, price: k(230000), power: 600, color: '#ffd60a' },
+  { id: 'cheetah', name: 'Cheetah', rarity: 'epic', level: 32, price: k(290000), power: 670, color: '#06d6a0' },
+  { id: 'infernus', name: 'Infernus', rarity: 'epic', level: 36, price: k(360000), power: 745, color: '#ef233c' },
+  { id: 'penetrator', name: 'Penetrator', rarity: 'epic', level: 40, price: k(440000), power: 820, color: '#b14bff' },
+  { id: 'autarch', name: 'Autarch', rarity: 'legendary', level: 46, price: k(560000), power: 930, color: '#00d4ff' },
+  { id: 'dignitas', name: 'Dignitas RS', rarity: 'legendary', level: 52, price: k(720000), power: 1050, color: '#ffd60a' },
+  { id: 'deus', name: 'Deus Vayanem', rarity: 'legendary', level: 58, price: k(900000), power: 1180, color: '#ef233c' },
+  { id: 'halftrack', name: 'Halftrack', rarity: 'mythic', level: 66, price: k(1200000), power: 1360, color: '#7b2cbf' },
+  { id: 'kairoz', name: 'Kairoz Phantom', rarity: 'mythic', level: 74, price: k(1500000), power: 1550, color: '#00d4ff' },
+  { id: 'phantomprime', name: 'iKON Phantom Prime', rarity: 'divine', level: 100, prime: true, price: k(2500000), power: 2600, color: '#b14bff' },
 ];
 
 const CAR_BY_ID = new Map(CARS.map((c) => [c.id, c]));
@@ -76,15 +96,35 @@ function findCar(ref) {
 // THE ARMOURY
 // ───────────────────────────────────────────────────────────
 
+/**
+ * THE ARMOURY — 22 weapons, cheapest to deadliest.
+ *
+ * Same shape as the garage: `level` gates the expensive end, `rarity` is stated
+ * rather than derived from row order, and prices are read 10x through k().
+ */
 const WEAPONS = [
-  { id: 'pistol', name: 'Pistol', price: 5000, dmg: 50, ammo: 12 },
-  { id: 'smg', name: 'SMG', price: 10000, dmg: 80, ammo: 30 },
-  { id: 'ak47', name: 'AK47', price: 20000, dmg: 120, ammo: 30 },
-  { id: 'shotgun', name: 'Shotgun', price: 25000, dmg: 150, ammo: 8 },
-  { id: 'sniper', name: 'Sniper', price: 40000, dmg: 200, ammo: 5 },
-  { id: 'rpg', name: 'RPG', price: 75000, dmg: 400, ammo: 2 },
-  { id: 'minigun', name: 'Minigun', price: 150000, dmg: 600, ammo: 200 },
-  { id: 'railgun', name: 'Railgun', price: 300000, dmg: 1000, ammo: 1 },
+  { id: 'fists', name: 'Bare Knuckles', rarity: 'common', level: 1, price: k(500), dmg: 25, ammo: 0 },
+  { id: 'bat', name: 'Alley Bat', rarity: 'common', level: 1, price: k(1500), dmg: 40, ammo: 0 },
+  { id: 'pistol', name: 'Pistol', rarity: 'common', level: 3, price: k(5000), dmg: 65, ammo: 12 },
+  { id: 'machete', name: 'Machete', rarity: 'common', level: 5, price: k(9000), dmg: 95, ammo: 0 },
+  { id: 'smg', name: 'SMG', rarity: 'common', level: 8, price: k(14000), dmg: 130, ammo: 30 },
+  { id: 'revolver', name: 'Heavy Revolver', rarity: 'uncommon', level: 11, price: k(20000), dmg: 175, ammo: 6 },
+  { id: 'ak47', name: 'AK47', rarity: 'uncommon', level: 14, price: k(28000), dmg: 230, ammo: 30 },
+  { id: 'shotgun', name: 'Shotgun', rarity: 'uncommon', level: 17, price: k(36000), dmg: 300, ammo: 8 },
+  { id: 'crossbow', name: 'Heavy Crossbow', rarity: 'uncommon', level: 20, price: k(45000), dmg: 380, ammo: 1 },
+  { id: 'sniper', name: 'Sniper', rarity: 'rare', level: 24, price: k(58000), dmg: 480, ammo: 5 },
+  { id: 'm240', name: 'M240', rarity: 'rare', level: 28, price: k(72000), dmg: 560, ammo: 100 },
+  { id: 'flare', name: 'Flare Launcher', rarity: 'rare', level: 32, price: k(88000), dmg: 640, ammo: 4 },
+  { id: 'rpg', name: 'RPG', rarity: 'rare', level: 36, price: k(105000), dmg: 780, ammo: 2 },
+  { id: 'tesla', name: 'Tesla Coil', rarity: 'epic', level: 41, price: k(135000), dmg: 940, ammo: 6 },
+  { id: 'gatling', name: 'Gatling Array', rarity: 'epic', level: 46, price: k(170000), dmg: 1100, ammo: 300 },
+  { id: 'plasma', name: 'Plasma Projector', rarity: 'epic', level: 51, price: k(210000), dmg: 1300, ammo: 15 },
+  { id: 'minigun', name: 'Minigun', rarity: 'epic', level: 56, price: k(260000), dmg: 1500, ammo: 200 },
+  { id: 'railgun', name: 'Railgun', rarity: 'legendary', level: 63, price: k(340000), dmg: 1900, ammo: 1 },
+  { id: 'antimatter', name: 'Anti-Matter Repeater', rarity: 'legendary', level: 70, price: k(450000), dmg: 2400, ammo: 8 },
+  { id: 'singularity', name: 'Singularity Launcher', rarity: 'mythic', level: 78, price: k(600000), dmg: 3000, ammo: 3 },
+  { id: 'voidcannon', name: 'Void Cannon', rarity: 'mythic', level: 86, price: k(800000), dmg: 3800, ammo: 2 },
+  { id: 'worldender', name: 'Worldender', rarity: 'divine', level: 100, price: k(2000000), dmg: 6500, ammo: 1 },
 ];
 
 const WEAPON_BY_ID = new Map(WEAPONS.map((w) => [w.id, w]));
@@ -107,30 +147,93 @@ function findWeapon(ref) {
 // ───────────────────────────────────────────────────────────
 
 const MISSIONS = [
+  // Twenty contracts, cheapest to worst. Risk rises with the payout, and the
+  // wanted level rises with it — a five-star job pays enough to matter and
+  // gets you noticed enough to matter.
   {
-    id: 'drugrun', name: 'Drug Run', risk: 0.30, reward: [1500, 4000], wanted: 1,
+    id: 'newscart', name: 'News Cart Run', rarity: 'common', level: 1, risk: 0.10, reward: [k(400), k(1200)], wanted: 0,
+    steps: ['Pushing the cart...', 'Half the papers are still wet...', 'Home before the block turns...'],
+  },
+  {
+    id: 'dougrun', name: 'Courier Run', rarity: 'common', level: 2, risk: 0.15, reward: [k(800), k(2000)], wanted: 0,
+    steps: ['Package in the satchel...', 'Taking the long way...', 'Delivered, unsealed, unbothered...'],
+  },
+  {
+    id: 'washes', name: 'Laundry Detour', rarity: 'common', level: 3, risk: 0.12, reward: [k(600), k(1800)], wanted: 0,
+    steps: ['Bagging the evidence...', 'Somebody is watching the laundromat...', 'Everything back in the bags...'],
+  },
+  {
+    id: 'towing', name: 'Late Night Tow', rarity: 'common', level: 4, risk: 0.20, reward: [k(1200), k(2800)], wanted: 1,
+    steps: ['Hooking it up...', 'It is lighter than it looks...', 'Dropped at the impound...'],
+  },
+  {
+    id: 'parkedin', name: 'Parking Job', rarity: 'common', level: 5, risk: 0.18, reward: [k(1500), k(3200)], wanted: 1,
+    steps: ['Circling the block...', 'Somebody else wants this space...', 'Reverse, park, leave...'],
+  },
+  {
+    id: 'errands', name: 'Cross-Town Errands', rarity: 'common', level: 6, risk: 0.15, reward: [k(1800), k(3600)], wanted: 1,
+    steps: ['Nine stops...', 'Six of them are on the wrong side...', 'Nobody opened the last one...'],
+  },
+  {
+    id: 'drugrun', name: 'Drug Run', rarity: 'uncommon', level: 8, risk: 0.30, reward: [k(1500), k(4000)], wanted: 1,
     steps: ['Driving to the drop...', 'Handing over the package...', 'Running the checkpoints...'],
   },
   {
-    id: 'bankjob', name: 'Bank Job', risk: 0.45, reward: [3000, 7000], wanted: 2,
-    steps: ['Casing the bank...', 'Inside. Counting seconds...', 'Out through the alley...'],
-  },
-  {
-    id: 'carsteal', name: 'Car Steal', risk: 0.35, reward: [2000, 5500], wanted: 1,
+    id: 'carsteal', name: 'Car Steal', rarity: 'uncommon', level: 10, risk: 0.35, reward: [k(2000), k(5500)], wanted: 1,
     steps: ['Breaking into the lock...', 'Ignition. Go...', 'Losing the tail...'],
   },
   {
-    id: 'hitman', name: 'Hitman Contract', risk: 0.55, reward: [4000, 9000], wanted: 3,
+    id: 'protection', name: 'Protection Detail', rarity: 'uncommon', level: 12, risk: 0.28, reward: [k(3000), k(7000)], wanted: 1,
+    steps: ['Outside the door...', 'Nobody came...', 'Paid anyway...'],
+  },
+  {
+    id: 'smuggle', name: 'Dock Smuggle', rarity: 'uncommon', level: 14, risk: 0.38, reward: [k(4000), k(9000)], wanted: 2,
+    steps: ['Counting the crates...', 'One crate is humming...', 'Off the pier before the fog...'],
+  },
+  {
+    id: 'streetrace', name: 'Street Race', rarity: 'uncommon', level: 16, risk: 0.40, reward: [k(2500), k(8000)], wanted: 1,
+    steps: ['Engine screaming...', 'Third corner...', 'Crossing the line...'],
+  },
+  {
+    id: 'forgery', name: 'Forgery Job', rarity: 'uncommon', level: 18, risk: 0.33, reward: [k(5000), k(11000)], wanted: 2,
+    steps: ['The stamp is wrong...', 'Nobody has noticed the stamp is wrong...', 'Filed under plausible...'],
+  },
+  {
+    id: 'bankjob', name: 'Bank Job', rarity: 'rare', level: 22, risk: 0.45, reward: [k(3000), k(7000)], wanted: 2,
+    steps: ['Casing the bank...', 'Inside. Counting seconds...', 'Out through the alley...'],
+  },
+  {
+    id: 'hitman', name: 'Hitman Contract', rarity: 'rare', level: 26, risk: 0.55, reward: [k(4000), k(9000)], wanted: 3,
     steps: ['Following the target...', 'The shot...', 'Getting off the street...'],
   },
   {
-    id: 'streetrace', name: 'Street Race', risk: 0.40, reward: [2500, 8000], wanted: 1,
-    steps: ['Engine screaming...', 'Third corner...', 'Crossing the line...'],
+    id: 'hostage', name: 'Hostage Negotiation', rarity: 'rare', level: 30, risk: 0.50, reward: [k(8000), k(18000)], wanted: 3,
+    steps: ['Talking them down...', 'They want something...', 'Nobody was supposed to pay that...'],
+  },
+  {
+    id: 'turfwar', name: 'Turf War', rarity: 'rare', level: 34, risk: 0.58, reward: [k(10000), k(22000)], wanted: 3,
+    steps: ['Marking the line...', 'They marked it back...', 'Holding what is left...'],
+  },
+  {
+    id: 'heistprep', name: 'Vault Prep', rarity: 'epic', level: 40, risk: 0.42, reward: [k(14000), k(30000)], wanted: 4,
+    steps: ['Reading the plans...', 'The plans are wrong...', 'Redrawing them in the car...'],
+  },
+  {
+    id: 'cartel', name: 'Cartel Negotiation', rarity: 'epic', level: 48, risk: 0.62, reward: [k(20000), k(45000)], wanted: 4,
+    steps: ['Sitting down...', 'Nobody speaks for a long time...', 'Leaving with more than expected...'],
+  },
+  {
+    id: 'warlord', name: 'Warlord Summons', rarity: 'epic', level: 56, risk: 0.66, reward: [k(30000), k(70000)], wanted: 5,
+    steps: ['Waiting in the cold...', 'A car that has not been seen in years...', 'Terms are non-negotiable...'],
+  },
+  {
+    id: 'citywide', name: 'City-Wide Sweep', rarity: 'mythic', level: 66, risk: 0.70, reward: [k(50000), k(120000)], wanted: 5,
+    steps: ['Every camera, one at a time...', 'The city is looking the other way...', 'Gone by morning...'],
   },
 ];
 
 const HARD_MISSION = {
-  id: 'coup', name: 'The Vault Coup', risk: 0.60, reward: [18000, 24000], wanted: 5,
+  id: 'coup', name: 'The Vault Coup', risk: 0.60, reward: [k(18000), k(24000)], wanted: 5,
   steps: ['Cutting the power...', 'Inside the vault...', 'The alarm. All of it...', 'Running.'],
 };
 
@@ -149,6 +252,13 @@ const COLORS = [
   { name: 'Gold', hex: '#ffd60a' }, { name: 'Neon Cyan', hex: '#00d4ff' },
   { name: 'Violet', hex: '#b14bff' }, { name: 'Mint', hex: '#06d6a0' },
   { name: 'Ash', hex: '#9aa0b5' }, { name: 'Amber', hex: '#ff9f1c' },
+  { name: 'Bone', hex: '#e8e3d3' }, { name: 'Rust', hex: '#a34a1f' },
+  { name: 'Deep Sea', hex: '#0b3954' }, { name: 'Toxic', hex: '#7cb518' },
+  { name: 'Hot Magenta', hex: '#ff2e88' }, { name: 'Ultraviolet', hex: '#5f0f87' },
+  { name: 'Cobalt', hex: '#0047ab' }, { name: 'Ember', hex: '#e85d04' },
+  { name: 'Frost', hex: '#a9d6e5' }, { name: 'Chrome', hex: '#d1d5db' },
+  { name: 'Obsidian', hex: '#1b1b1f' }, { name: 'Sulphur', hex: '#f5e663' },
+  { name: 'Plum', hex: '#6d466b' }, { name: 'Signal Orange', hex: '#fb8500' },
 ];
 
 // ───────────────────────────────────────────────────────────
@@ -669,7 +779,11 @@ const commands = [];
       // Cars are not just a flex: power below the mission floor makes the job
       // meaningfully harder, which is what keeps the garage worth buying.
       const power = carPower(userDoc);
-      const m = pick(MISSIONS);
+      // Draw from the contracts this hunter has actually unlocked. Twenty jobs
+      // with no gate means half of them are five-star contracts on turn one,
+      // and the wanted level becomes noise.
+      const unlocked = MISSIONS.filter((job) => (job.level || 1) <= (Number(userDoc.level) || 1));
+      const m = pick(unlocked.length ? unlocked : MISSIONS);
       const risk = power > 0 ? Math.min(0.85, m.risk + (power < 200 ? 0.10 : 0)) : m.risk + 0.15;
 
       await reply(`🎯 **${m.name.toUpperCase()}**\n· · · · · · ·\n📍 Risk ${Math.round(risk * 100)}% · Reward ${num(m.reward[0])} - ${num(m.reward[1])} ${CASH}\n📖 ${story()}`, event.messageID);
@@ -704,7 +818,9 @@ const commands = [];
 
       await earn(userDoc, net, 'gta:mission', { mission: m.id, reward: net });
       await bank(userDoc, net);
-      const ups = await grantXp(userDoc, 120 + reward);
+      // XP is deliberately NOT coin-derived. Missions now pay 10x, and if XP
+      // rode the payout every level gate in the game would be worthless.
+      const ups = await grantXp(userDoc, 120 + Math.round(reward / 10));
       // A clean run still leaves a little heat, which is the tax on greed.
       const stars2 = await addWanted(userDoc, 1);
 
@@ -713,7 +829,7 @@ const commands = [];
         + '· · · · · · ·\n'
         + `💰 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
         + `⭐ Wanted ${stars(stars2)} (${stars2}/5)\n`
-        + `🎖️ XP +${num(120 + reward)}${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
+        + `🎖️ XP +${num(120 + Math.round(reward / 10))}${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + (pet.note ? `${pet.note}\n` : '')
         + `📖 ${story()}`,
@@ -746,13 +862,13 @@ const commands = [];
       // is told exactly what to buy instead of watching a 60% bust.
       const power = carPower(userDoc);
       if (power < 400) {
-        const need = CARS.filter((c) => c.power + 20 >= 400).map((c) => c.name).join(', ');
+        const need = CARS.filter((c) => c.power + 20 >= 400).slice(0, 4).map((c) => c.name).join(', ');
         await reply(`❌ **Not the car for this.** You have ${num(power)} power, this needs 400.\n🏎️ ${need}`, event.messageID);
         return;
       }
       const dmg = weaponDmg(userDoc);
       if (dmg < 150) {
-        const need = WEAPONS.filter((w) => w.dmg >= 150).map((w) => w.name).join(', ');
+        const need = WEAPONS.filter((w) => w.dmg >= 150).slice(0, 4).map((w) => w.name).join(', ');
         await reply(`❌ **Not the gun for this.** You have ${num(dmg)} damage, this needs 150.\n🔫 ${need}`, event.messageID);
         return;
       }
@@ -814,23 +930,34 @@ const commands = [];
     name: 'gtacarshop',
     aliases: ['carshop', 'gtacars'],
     category: 'gta',
-    description: '🏎️ The garage — twelve cars and the one you should not buy',
+    description: '🏎️ The garage — every car, and the one you should not buy',
     usage: '!gtacarshop',
     cooldown: 30,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacarshop', async () => {
       await react('🏎️');
       const t = g(userDoc);
-      const lines = CARS.map((c) => {
+      // The prime is found by its flag, never by position: the old code took the
+      // last row, so appending a car silently put a shoppable car on the throne.
+      const forSale = CARS.filter((c) => !c.prime);
+      const prime = CARS.find((c) => c.prime) || forSale[forSale.length - 1];
+
+      // A locked car shows what is holding it back, so a level gate reads as a
+      // target rather than a shrug.
+      const lines = forSale.map((c) => {
         const owned = t.cars.some((x) => x && x.id === c.id);
-        return `${owned ? '✅' : '🔒'} **${c.name}** — ${kc(c.price)} · ${num(c.power)} pwr`;
+        const r = rarity.get(c.rarity);
+        const need = Number(c.level) || 0;
+        const level = Number(userDoc.level) || 1;
+        const gate = owned ? '' : need > level ? ` 🔒 Lv ${need}` : '';
+        return `${owned ? '✅' : '🔒'} ${r.symbol} **${c.name}** — ${kc(c.price)} · ${num(c.power)} pwr`
+          + ` · ${r.label}${gate}`;
       });
-      const prime = CARS[CARS.length - 1];
 
       await reply(
-        `🏎️ **THE GARAGE**\n`
+        `🏎️ **THE GARAGE** — ${forSale.length} cars\n`
         + '· · · · · · ·\n'
-        + `${lines.slice(0, -1).join('\n')}\n\n`
+        + `${lines.join('\n')}\n\n`
         + `👑 **${prime.name}** — ${kc(prime.price)} · ${num(prime.power)} pwr\n`
         + `📖 One exists. The man who sold it will not say where it came from.\n\n`
         + `💼 You have ${kc(userDoc.coins)}.\n`
@@ -863,6 +990,15 @@ const commands = [];
       }
       if (t.cars.some((c) => c && c.id === car.id)) {
         await reply(`🚗 You already own the ${car.name}. \`!gtagarage\` to switch to it.`, event.messageID);
+        return;
+      }
+
+      // Level before wallet. Somebody with the cash for a Kairoz at Level 3
+      // should be told they are early, not poor — otherwise the 10x economy
+      // just means everything is buyable immediately.
+      const gate = rarity.missing(userDoc, car);
+      if (gate) {
+        await reply(`${gate}\n🏎️ The garage holds cars you have earned a level for.`, event.messageID);
         return;
       }
 
@@ -1291,19 +1427,24 @@ const commands = [];
     name: 'gtaweaponshop',
     aliases: ['gunshop'],
     category: 'gta',
-    description: '🔫 The armoury — eight guns, from a pistol to a railgun',
+    description: '🔫 The armoury — the full stock, from bare knuckles to the Worldender',
     usage: '!gtaweaponshop',
     cooldown: 30,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaweaponshop', async () => {
       await react('🔫');
       const t = g(userDoc);
+      const level = Number(userDoc.level) || 1;
       const lines = WEAPONS.map((w) => {
         const owned = t.weapons.some((x) => x && x.id === w.id);
-        return `${owned ? '✅' : '🔒'} **${w.name}** — ${kc(w.price)} · ${num(w.dmg)} dmg`;
+        const r = rarity.get(w.rarity);
+        const need = Number(w.level) || 0;
+        const gate = owned ? '' : need > level ? ` 🔒 Lv ${need}` : '';
+        return `${owned ? '✅' : '🔒'} ${r.symbol} **${w.name}** — ${kc(w.price)} · ${num(w.dmg)} dmg`
+          + ` · ${r.label}${gate}`;
       });
       await reply(
-        `🔫 **THE ARMOURY**\n`
+        `🔫 **THE ARMOURY** — ${WEAPONS.length} weapons\n`
         + '· · · · · · ·\n'
         + `${lines.join('\n')}\n\n`
         + `💼 You have ${kc(userDoc.coins)}.\n`
@@ -1336,6 +1477,12 @@ const commands = [];
       }
       if (t.weapons.some((w) => w && w.id === gun.id)) {
         await reply(`🔫 You already own the ${gun.name}. \`!gtaweapons\` to switch to it.`, event.messageID);
+        return;
+      }
+
+      const gate = rarity.missing(userDoc, gun);
+      if (gate) {
+        await reply(`${gate}\n🔫 Missions and heists pay for the good ones.`, event.messageID);
         return;
       }
 

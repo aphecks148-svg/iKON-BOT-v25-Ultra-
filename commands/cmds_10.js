@@ -52,6 +52,17 @@ const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
 const { isGroupThread } = require('../bot/helpers');
 const userTarget = require('../bot/target');
+const { k, ...rarity } = require('../bot/content');
+
+/**
+ * Highest column a rarity key can sit in.
+ *
+ * Not one slot for the whole module: crops, fish, ores and gear all end
+ * `[... icon, rarity]`, but an animal carries a second price before the icon —
+ * `[id, label, meatPrice, skinPrice, weight, icon, rarity]` — so its rarity is
+ * one column further right than the rest.
+ */
+const RARITY_SLOT = 6;
 
 const CASH = 'K-Cash';
 
@@ -68,17 +79,32 @@ const CASH = 'K-Cash';
  * hand-written, so a crop can never cost more to plant than it returns.
  */
 const CROPS = [
-  ['wheat', 'Wheat', 5 * 60 * 1000, 100, '\u{1F33E}'],
-  ['rye', 'Rye', 8 * 60 * 1000, 180, '\u{1F33F}'],
-  ['corn', 'Corn', 15 * 60 * 1000, 300, '\u{1F33D}'],
-  ['barley', 'Barley', 20 * 60 * 1000, 400, '\u{1F33E}'],
-  ['potato', 'Potato', 30 * 60 * 1000, 600, '\u{1F954}'],
-  ['tomato', 'Tomato', 60 * 60 * 1000, 1200, '\u{1F345}'],
-  ['carrot', 'Carrot', 120 * 60 * 1000, 2500, '\u{1F955}'],
-  ['sugarcane', 'Sugarcane', 360 * 60 * 1000, 3500, '\u{1F33D}'],
-  ['goldapple', 'Gold Apple', 240 * 60 * 1000, 6000, '\u{1F34E}'],
-  ['ikonfruit', 'iKon Fruit', 480 * 60 * 1000, 15000, '\u{1F34C}'],
+  // Twenty, by grow time. Row shape is [ id, label, growMs, sellPrice, icon, rarity ].
+  // The sixth slot is new and load-bearing: rarity used to be derived from this
+  // row's position, so appending a crop silently promoted everything below it
+  // up a tier and re-scored every tournament.
+  ['wheat', 'Wheat', 5 * 60 * 1000, k(100), '\u{1F33E}', 'common'],
+  ['rye', 'Rye', 8 * 60 * 1000, k(180), '\u{1F33F}', 'common'],
+  ['turnip', 'Turnip', 12 * 60 * 1000, k(240), '\u{1FADC}', 'common'],
+  ['barley', 'Barley', 20 * 60 * 1000, k(400), '\u{1F33E}', 'common'],
+  ['potato', 'Potato', 30 * 60 * 1000, k(600), '\u{1F954}', 'common'],
+  ['onion', 'Onion', 45 * 60 * 1000, k(900), '\u{1F9C5}', 'common'],
+  ['tomato', 'Tomato', 60 * 60 * 1000, k(1200), '\u{1F345}', 'common'],
+  ['pepper', 'Bell Pepper', 90 * 60 * 1000, k(1800), '\u{1F336}', 'common'],
+  ['carrot', 'Carrot', 120 * 60 * 1000, k(2500), '\u{1F955}', 'uncommon'],
+  ['pumpkin', 'Pumpkin', 180 * 60 * 1000, k(3000), '\u{1F383}', 'uncommon'],
+  ['corn', 'Corn', 240 * 60 * 1000, k(3600), '\u{1F33D}', 'uncommon'],
+  ['cabbage', 'Cabbage', 300 * 60 * 1000, k(4200), '\u{1F96C}', 'uncommon'],
+  ['sugarcane', 'Sugarcane', 360 * 60 * 1000, k(5000), '\u{1F33D}', 'uncommon'],
+  ['cotton', 'Cotton', 480 * 60 * 1000, k(7000), '\u{1F9FB}', 'rare'],
+  ['goldapple', 'Gold Apple', 600 * 60 * 1000, k(9000), '\u{1F34E}', 'rare'],
+  ['moonroot', 'Moonroot', 720 * 60 * 1000, k(12000), '\u{1F344}', 'rare'],
+  ['starlily', 'Starlily', 900 * 60 * 1000, k(18000), '\u{1F33C}', 'rare'],
+  ['emberfruit', 'Emberfruit', 1080 * 60 * 1000, k(26000), '\u{1F34E}', 'epic'],
+  ['ikonfruit', 'iKon Fruit', 1440 * 60 * 1000, k(40000), '\u{1F34C}', 'epic'],
+  ['voidmelon', 'Voidmelon', 2160 * 60 * 1000, k(75000), '\u{1F348}', 'mythic'],
 ];
+
 
 /**
  * Ten fish. [ id, label, sellPrice, weight, icon ]
@@ -88,68 +114,161 @@ const CROPS = [
  * reliable coin floor and a megalodon is a story you tell afterwards.
  */
 const FISH = [
-  ['sardine', 'Sardine', 30, 24, '\u{1F41F}'],
-  ['shrimp', 'Shrimp', 50, 22, '\u{1F990}'],
-  ['bass', 'Bass', 150, 16, '\u{1F41F}'],
-  ['salmon', 'Salmon', 300, 12, '\u{1F41F}'],
-  ['tuna', 'Tuna', 600, 9, '\u{1F41F}'],
-  ['piranha', 'Piranha', 3000, 6, '\u{1F418}'],
-  ['shark', 'Shark', 1500, 5, '\u{1F988}'],
-  ['whale', 'Whale', 5000, 3, '\u{1F433}'],
-  ['megalodon', 'Megalodon', 20000, 2, '\u{1F9A9}'],
-  ['ikonfish', 'iKon Fish', 50000, 1, '\u{1F41F}'],
+  // Twenty. [ id, label, sellPrice, weight, icon, rarity ] — weight is the share
+  // of the draw pool, so the common fish still keep fishing a reliable income
+  // and the legendary ones stay a story you tell afterwards.
+  ['sardine', 'Sardine', k(30), 24, '\u{1F41F}', 'common'],
+  ['shrimp', 'Shrimp', k(50), 22, '\u{1F990}', 'common'],
+  ['anchovy', 'Anchovy', k(80), 20, '\u{1F41F}', 'common'],
+  ['mackerel', 'Mackerel', k(120), 18, '\u{1F41F}', 'common'],
+  ['bass', 'Bass', k(150), 16, '\u{1F41F}', 'common'],
+  ['perch', 'Perch', k(220), 15, '\u{1F41F}', 'common'],
+  ['carp', 'Carp', k(280), 13, '\u{1F41F}', 'common'],
+  ['salmon', 'Salmon', k(300), 12, '\u{1F41F}', 'common'],
+  ['trout', 'Trout', k(450), 11, '\u{1F41F}', 'common'],
+  ['tuna', 'Tuna', k(600), 9, '\u{1F41F}', 'common'],
+  ['catfish', 'Catfish', k(900), 8, '\u{1F42D}', 'uncommon'],
+  ['barracuda', 'Barracuda', k(1400), 7, '\u{1F980}', 'uncommon'],
+  ['piranha', 'Piranha', k(3000), 6, '\u{1F418}', 'uncommon'],
+  ['sturgeon', 'Sturgeon', k(1200), 6, '\u{1F40F}', 'uncommon'],
+  ['shark', 'Shark', k(1500), 5, '\u{1F988}', 'rare'],
+  ['octopus', 'Giant Octopus', k(2200), 5, '\u{1F419}', 'rare'],
+  ['whale', 'Whale', k(5000), 3, '\u{1F433}', 'rare'],
+  ['swordfish', 'Swordfish', k(7000), 3, '\u{1F981}', 'rare'],
+  ['megalodon', 'Megalodon', k(20000), 2, '\u{1F9A9}', 'legendary'],
+  ['ikonfish', 'iKon Fish', k(50000), 1, '\u{1F41F}', 'divine'],
 ];
+
 
 /** Ten ores. [ id, label, sellPrice, weight, icon ]. Weight falls as price climbs. */
 const ORES = [
-  ['stone', 'Stone', 30, 26, '\u{1FAA8}'],
-  ['coal', 'Coal', 80, 22, '\u{1F311}'],
-  ['iron', 'Iron', 200, 14, '\u{26CF}'],
-  ['copper', 'Copper', 200, 16, '\u{1FAA8}'],
-  ['gold', 'Gold', 500, 11, '\u{1FA99}'],
-  ['diamond', 'Diamond', 1200, 7, '\u{1F48E}'],
-  ['emerald', 'Emerald', 3000, 4, '\u{1F48E}'],
-  ['obsidian', 'Obsidian', 7000, 2, '\u{1F303}'],
-  ['netherite', 'Netherite', 15000, 1, '\u{1F9F4}'],
-  ['ikonium', 'iKonium', 50000, 1, '\u{1F9F4}'],
+  // Twenty. [ id, label, sellPrice, weight, icon, rarity ]
+  ['stone', 'Stone', k(30), 26, '\u{1FAA8}', 'common'],
+  ['flint', 'Flint', k(50), 24, '\u{1FAA6}', 'common'],
+  ['coal', 'Coal', k(80), 22, '\u{1F311}', 'common'],
+  ['clay', 'Clay', k(120), 20, '\u{1FAA4}', 'common'],
+  ['copper', 'Copper', k(200), 18, '\u{1FAA8}', 'common'],
+  ['iron', 'Iron', k(280), 16, '\u{26CF}', 'common'],
+  ['tin', 'Tin', k(380), 15, '\u{1FAA8}', 'common'],
+  ['silver', 'Silver', k(600), 13, '\u{1FA99}', 'uncommon'],
+  ['gold', 'Gold', k(900), 12, '\u{1FA99}', 'uncommon'],
+  ['ruby', 'Ruby', k(1200), 11, '\u{1F48E}', 'uncommon'],
+  ['sapphire', 'Sapphire', k(1500), 10, '\u{1F48E}', 'uncommon'],
+  ['emerald', 'Emerald', k(3000), 8, '\u{1F48E}', 'uncommon'],
+  ['diamond', 'Diamond', k(4000), 7, '\u{1F48E}', 'rare'],
+  ['topaz', 'Topaz', k(4800), 6, '\u{1F48E}', 'rare'],
+  ['amethyst', 'Amethyst', k(5600), 6, '\u{1F48E}', 'rare'],
+  ['titanite', 'Titanite', k(8000), 5, '\u{1F9F4}', 'rare'],
+  ['obsidian', 'Obsidian', k(11000), 4, '\u{1F303}', 'epic'],
+  ['voidiron', 'Voidiron', k(16000), 3, '\u{1F9F4}', 'epic'],
+  ['netherite', 'Netherite', k(25000), 2, '\u{1F9F4}', 'legendary'],
+  ['ikonium', 'iKonium', k(50000), 1, '\u{1F9F4}', 'divine'],
 ];
+
 
 /** Ten animals. [ id, label, meatPrice, skinPrice, weight, icon ] */
 const ANIMALS = [
-  ['squirrel', 'Squirrel', 25, 40, 22, '\u{1F43F}'],
-  ['rabbit', 'Rabbit', 60, 100, 19, '\u{1F407}'],
-  ['fox', 'Fox', 150, 300, 15, '\u{1F98A}'],
-  ['deer', 'Deer', 180, 300, 13, '\u{1F98C}'],
-  ['boar', 'Boar', 360, 600, 11, '\u{1F417}'],
-  ['wolf', 'Wolf', 720, 1200, 8, '\u{1F43A}'],
-  ['bear', 'Bear', 1800, 3000, 6, '\u{1F43B}'],
-  ['lion', 'Lion', 4200, 7000, 3, '\u{1F981}'],
-  ['dragonbaby', 'Dragon Baby', 12000, 20000, 2, '\u{1F409}'],
-  ['ikontitanbeast', 'iKon Titanbeast', 60000, 100000, 1, '\u{1F995}'],
+  // Twenty. [ id, label, meatPrice, skinPrice, weight, icon, rarity ]
+  ['squirrel', 'Squirrel', k(25), k(40), 22, '\u{1F43F}', 'common'],
+  ['rabbit', 'Rabbit', k(60), k(100), 20, '\u{1F407}', 'common'],
+  ['goat', 'Goat', k(90), k(140), 19, '\u{1F410}', 'common'],
+  ['fox', 'Fox', k(150), k(300), 18, '\u{1F98A}', 'common'],
+  ['deer', 'Deer', k(180), k(300), 17, '\u{1F98C}', 'common'],
+  ['badger', 'Badger', k(240), k(380), 16, '\u{1F9A4}', 'common'],
+  ['boar', 'Boar', k(360), k(600), 15, '\u{1F417}', 'common'],
+  ['lynx', 'Alley Lynx', k(500), k(800), 13, '\u{1F981}', 'uncommon'],
+  ['wolf', 'Wolf', k(720), k(1200), 12, '\u{1F43A}', 'uncommon'],
+  ['coyote', 'Coyote', k(900), k(1500), 11, '\u{1F98A}', 'uncommon'],
+  ['bison', 'Bison', k(1200), k(2000), 10, '\u{1F98E}', 'uncommon'],
+  ['bear', 'Bear', k(1800), k(3000), 9, '\u{1F43B}', 'rare'],
+  ['mantis', 'Mantis', k(2400), k(4000), 8, '\u{1F98E}', 'rare'],
+  ['panther', 'Panther', k(3000), k(5000), 7, '\u{1F98B}', 'rare'],
+  ['moose', 'Moose', k(3600), k(6000), 6, '\u{1F98C}', 'rare'],
+  ['tiger', 'Tiger', k(6000), k(10000), 5, '\u{1F405}', 'epic'],
+  ['lion', 'Lion', k(9000), k(15000), 4, '\u{1F981}', 'epic'],
+  ['grizzly', 'Grizzly Titan', k(14000), k(24000), 3, '\u{1F43B}', 'epic'],
+  ['dragonbaby', 'Dragon Baby', k(22000), k(38000), 2, '\u{1F409}', 'legendary'],
+  ['ikontitanbeast', 'iKon Titanbeast', k(60000), k(100000), 1, '\u{1F995}', 'divine'],
 ];
+
 
 /** Picks: price, durability, rare-weight boost. */
 const PICKS = [
-  ['wooden_pick', 'Wooden Pickaxe', 1000, 60, 0],
-  ['iron_pick', 'Iron Pickaxe', 5000, 100, 5],
-  ['diamond_pick', 'Diamond Pickaxe', 20000, 100, 12],
-  ['ikonium_pick', 'iKonium Pickaxe', 100000, 100, 20],
+  // Twenty. [ id, label, price, durability, rareWeightBoost, rarity ]
+  ['wooden_pick', 'Wooden Pickaxe', k(1000), 60, 0, 'common'],
+  ['stone_pick', 'Stone Pickaxe', k(2000), 70, 1, 'common'],
+  ['copper_pick', 'Copper Pickaxe', k(3500), 75, 2, 'common'],
+  ['iron_pick', 'Iron Pickaxe', k(5000), 100, 5, 'common'],
+  ['steel_pick', 'Steel Pickaxe', k(8000), 100, 6, 'common'],
+  ['silver_pick', 'Silver Pickaxe', k(12000), 100, 7, 'common'],
+  ['bone_pick', 'Bone Pickaxe', k(18000), 90, 8, 'uncommon'],
+  ['jade_pick', 'Jade Pickaxe', k(26000), 110, 9, 'uncommon'],
+  ['obsidian_pick', 'Obsidian Pickaxe', k(38000), 110, 10, 'uncommon'],
+  ['ruby_pick', 'Ruby Pickaxe', k(55000), 110, 11, 'uncommon'],
+  ['titan_pick', 'Titan Pickaxe', k(80000), 120, 12, 'rare'],
+  ['sapphire_pick', 'Sapphire Pickaxe', k(120000), 120, 13, 'rare'],
+  ['emerald_pick', 'Emerald Pickaxe', k(170000), 120, 14, 'rare'],
+  ['diamond_pick', 'Diamond Pickaxe', k(250000), 130, 15, 'rare'],
+  ['void_pick', 'Void Pickaxe', k(350000), 130, 16, 'epic'],
+  ['eclipse_pick', 'Eclipse Pickaxe', k(500000), 140, 17, 'epic'],
+  ['soul_pick', 'Soul Pickaxe', k(700000), 140, 18, 'epic'],
+  ['starsurge_pick', 'Starsurge', k(1000000), 150, 19, 'legendary'],
+  ['godpick', 'Godsworn Pick', k(1500000), 160, 20, 'mythic'],
+  ['ikonium_pick', 'iKonium Pickaxe', k(2500000), 200, 25, 'divine'],
 ];
+
 
 /** Rods: price, durability, rare-weight boost. */
 const RODS = [
-  ['basic_rod', 'Basic Rod', 1000, 60, 0],
-  ['pro_rod', 'Pro Rod', 5000, 100, 6],
-  ['ikon_rod', 'iKon Rod', 50000, 100, 14],
+  // Twenty. [ id, label, price, durability, rareWeightBoost, rarity ]
+  ['basic_rod', 'Basic Rod', k(1000), 60, 0, 'common'],
+  ['bamboo_rod', 'Bamboo Rod', k(1800), 70, 1, 'common'],
+  ['carbon_rod', 'Carbon Rod', k(3000), 80, 2, 'common'],
+  ['pro_rod', 'Pro Rod', k(5000), 100, 6, 'common'],
+  ['glass_rod', 'Glass Rod', k(8000), 80, 7, 'common'],
+  ['steel_rod', 'Steel Rod', k(12000), 100, 8, 'common'],
+  ['whalebone_rod', 'Whalebone Rod', k(18000), 100, 9, 'uncommon'],
+  ['graphite_rod', 'Graphite Rod', k(26000), 110, 10, 'uncommon'],
+  ['karbiner_rod', 'Karbiner Rod', k(38000), 110, 11, 'uncommon'],
+  ['deep_rod', 'Abyssal Rod', k(55000), 110, 12, 'uncommon'],
+  ['titan_rod', 'Titan Rod', k(80000), 120, 13, 'rare'],
+  ['coral_rod', 'Coral Rod', k(120000), 120, 14, 'rare'],
+  ['lumen_rod', 'Lumen Rod', k(170000), 130, 15, 'rare'],
+  ['storm_rod', 'Storm Rod', k(240000), 130, 16, 'epic'],
+  ['abyss_rod', 'Abyss Rod', k(340000), 140, 17, 'epic'],
+  ['dragon_rod', 'Dragon Rod', k(480000), 140, 18, 'epic'],
+  ['leviathan_rod', 'Leviathan Rod', k(700000), 150, 19, 'legendary'],
+  ['serpent_rod', 'Serpent Rod', k(950000), 150, 20, 'legendary'],
+  ['void_rod', 'Void Rod', k(1400000), 160, 21, 'mythic'],
+  ['ikon_rod', 'iKon Rod', k(2200000), 200, 25, 'divine'],
 ];
+
 
 /** Guns: price, durability, rare-weight boost. */
 const GUNS = [
-  ['pistol', 'Pistol', 2000, 60, 0],
-  ['rifle', 'Rifle', 10000, 100, 6],
-  ['sniper', 'Sniper', 30000, 100, 12],
-  ['ikon_railgun', 'iKon Railgun', 150000, 100, 20],
+  // Twenty. [ id, label, price, durability, rareWeightBoost, rarity ]
+  ['pistol', 'Pistol', k(2000), 60, 0, 'common'],
+  ['revolver', 'Revolver', k(3500), 70, 1, 'common'],
+  ['smg_mine', 'Mining SMG', k(6000), 80, 2, 'common'],
+  ['rifle', 'Rifle', k(10000), 100, 6, 'common'],
+  ['flamethrower', 'Flamethrower', k(15000), 80, 7, 'common'],
+  ['shotgun_mine', 'Shotgun', k(22000), 90, 8, 'common'],
+  ['carbine', 'Carbine', k(32000), 100, 9, 'uncommon'],
+  ['rail_pistol', 'Rail Pistol', k(48000), 100, 10, 'uncommon'],
+  ['autocannon', 'Autocannon', k(70000), 110, 11, 'uncommon'],
+  ['plasma_mine', 'Plasma Cutter', k(100000), 110, 12, 'uncommon'],
+  ['sniper', 'Sniper', k(150000), 120, 13, 'rare'],
+  ['cryo_gun', 'Cryo Gun', k(220000), 120, 14, 'rare'],
+  ['arc_gun', 'Arc Gun', k(320000), 130, 15, 'rare'],
+  ['grav_gun', 'Gravity Gun', k(450000), 130, 16, 'epic'],
+  ['tesla_mine', 'Tesla Coil', k(650000), 140, 17, 'epic'],
+  ['void_gun', 'Void Gun', k(900000), 140, 18, 'epic'],
+  ['railgun', 'Railgun', k(1300000), 150, 19, 'legendary'],
+  ['neutron_gun', 'Neutron Disintegrator', k(1800000), 150, 20, 'legendary'],
+  ['singularity_gun', 'Singularity Gun', k(2600000), 160, 21, 'mythic'],
+  ['ikon_railgun', 'iKon Railgun', k(4000000), 200, 25, 'divine'],
 ];
+
 
 /** Fixed costs. Nothing here is derived from a balance at runtime. */
 const PLOT_COST = 10000;
@@ -335,14 +454,30 @@ function gear(table, id) {
     price: found[2],
     dur: found[3],
     boost: found[4] || 0,
-    tier: table.indexOf(found),
+    tier: rarityOf(table, found[0]),
   };
 }
 
-/** How deep in a table an item sits. Used to score tournaments and duels. */
+/**
+ * How rare an item is, on the shared seven-rung ladder.
+ *
+ * This used to return `table.indexOf(found)` — "rarity 7" meant "the eighth
+ * row". That quietly meant every growth of the table re-scored every other one:
+ * append four fish and a sardine became as rare as the old megalodon, which the
+ * tournament and duel code both believed. The stated rarity now wins, and the
+ * index is only a fallback for a row that has not been given one.
+ */
 function rarityOf(table, id) {
   const found = row(table, id);
-  return found ? table.indexOf(found) : -1;
+  if (!found) return -1;
+  // Scan left from the last column for the rarity key instead of trusting one
+  // fixed column: a row that grows a price or an icon stays correct without
+  // anyone remembering to move a constant.
+  for (let i = Math.min(RARITY_SLOT, found.length - 1); i >= 0; i -= 1) {
+    const rank = rarity.rank(found[i]);
+    if (rank >= 0) return rank;
+  }
+  return table.indexOf(found);
 }
 
 /**
@@ -366,10 +501,17 @@ function gearById(table, raw, suffixes) {
   return null;
 }
 
-/** Rebuild a weight table, giving the tool's boost to everything past the 6th tier. */
+/**
+ * Rebuild a weight table, giving the tool's boost to everything rare.
+ *
+ * The boost used to land on "row six and up", which was another position-as-rarity
+ * test in disguise: the twenty-row tables handed every mid-tier row the top
+ * tool's bonus. Comparing stated rarity fixes the intent — a better pickaxe
+ * pulls the deep *rare* things more often, not merely the bottom half of a list.
+ */
 function weighted(table, boost, weightIndex, keepIcon) {
   return table.map((r) => {
-    const w = r[weightIndex] + (table.indexOf(r) >= 6 ? boost : 0);
+    const w = r[weightIndex] + (rarityOf(table, r[0]) >= rarity.rank('rare') ? boost : 0);
     return keepIcon === 5 ? [r[0], r[1], r[2], r[3], w, r[5]] : [r[0], r[1], r[2], w, r[4]];
   });
 }
@@ -1765,7 +1907,7 @@ commands.push({
       accent: '#3aa0ff',
     }), event.messageID, event.isGroup);
 
-    const big = rarityOf(FISH, catchOne[0]) >= 7;
+    const big = rarityOf(FISH, catchOne[0]) >= rarity.rank('epic');
     await reply(
       `${big ? '\u{1F929}' : '\u{1F41F}'} You pull up **${catchOne[4]} ${catchOne[1]}** — ${kc(catchOne[2])}.\n`
       + `The rod banks ${kc(coins)} straight away and you keep the fish.\n`

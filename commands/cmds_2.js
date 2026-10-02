@@ -26,6 +26,7 @@ const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const cards = require('../bot/cards');
 const userTarget = require('../bot/target');
+const { k, ...rarity } = require('../bot/content');
 
 const CASH = 'K-Cash';
 
@@ -33,28 +34,71 @@ const CASH = 'K-Cash';
 // BOOSTED ECONOMY TABLE — every payout is deliberately generous
 // ───────────────────────────────────────────────────────────
 const PAYOUT = {
-  daily: 10000,
-  hourly: 2500,
-  weekly: 75000,
-  monthly: 300000,
-  work: [500, 1500],
-  beg: [100, 1100],
-  fish: [200, 1000],
-  hunt: [300, 1300],
-  mine: [200, 1100],
-  crime: [500, 4500],
-  crimeFine: 1000,
-  heist: [5000, 15000],
-  heistLoss: 3000,
-  rob: [500, 5500],
-  robFine: 500,
+  // Authored at 1x, read 10x through k() — see bot/content.js.
+  daily: k(10000),        // 100,000
+  hourly: k(2500),       //  25,000
+  weekly: k(75000),      // 750,000
+  monthly: k(300000),    // 3,000,000
+  work: [k(500), k(1500)],
+  beg: [k(100), k(1100)],
+  fish: [k(200), k(1000)],
+  hunt: [k(300), k(1300)],
+  mine: [k(200), k(1100)],
+  crime: [k(500), k(4500)],
+  crimeFine: k(1000),
+  heist: [k(5000), k(15000)],
+  heistLoss: k(3000),
+  rob: [k(500), k(5500)],
+  robFine: k(500),
 };
 
+/**
+ * THE BLACK MARKET — 24 items, cheapest to dearest.
+ *
+ * `rarity` is a stated property, not a guess from position, so adding rows
+ * cannot change what any other row means. `level` is a hard gate: it is what
+ * stops a hunter with more money than sense from simply buying the endgame on
+ * day one, which is the whole reason the money was scaled 10x.
+ */
 const SHOP_ITEMS = {
-  sword: { emoji: '⚔️', name: 'iKON Sword', price: 5000, desc: 'Forged in the factory back room. RPG battles in cmds_3 will love it.' },
-  shield: { emoji: '🛡️', name: 'Vault Shield', price: 3000, desc: 'Robbers bounce off this one. Mostly.' },
-  potion: { emoji: '🧪', name: 'iKON Potion', price: 1000, desc: 'Restores a hunter in the middle of a dungeon run.' },
-  diamond: { emoji: '💎', name: 'K-Crystal Diamond', price: 10000, desc: 'Pure compressed wealth. Glows in the dark alleys.' },
+  // ── common ────────────────────────────────────────────────
+  potion: { emoji: '🧪', name: 'iKON Potion', rarity: 'common', level: 1, price: k(1000), desc: 'Restores a hunter in the middle of a dungeon run.' },
+  ration: { emoji: '🍞', name: 'Field Ration', rarity: 'common', level: 1, price: k(800), desc: 'Tastes like cardboard. Works like gold.' },
+  bandage: { emoji: '🩹', name: 'Field Bandage', rarity: 'common', level: 1, price: k(600), desc: 'Stops the bleeding. Eventually.' },
+  flare: { emoji: '🧯', name: 'Signal Flare', rarity: 'common', level: 1, price: k(1200), desc: 'Visible from three districts away. Mostly useful for running away.' },
+  lockpick: { emoji: '🗝️', name: 'Lockpick Set', rarity: 'common', level: 3, price: k(2500), desc: 'Opens doors. Doors do not open themselves.' },
+
+  // ── uncommon ──────────────────────────────────────────────
+  shield: { emoji: '🛡️', name: 'Vault Shield', rarity: 'uncommon', level: 3, price: k(3000), desc: 'Robbers bounce off this one. Mostly.' },
+  sword: { emoji: '⚔️', name: 'iKON Sword', rarity: 'uncommon', level: 5, price: k(5000), desc: 'Forged in the factory back room. RPG battles will love it.' },
+  duffelbag: { emoji: '🎒', name: 'Burglar Duffel', rarity: 'uncommon', level: 8, price: k(9000), desc: 'Everything fits. Evidence does not.' },
+  nightvision: { emoji: '🥽', name: 'Night Goggles', rarity: 'uncommon', level: 10, price: k(12000), desc: 'iKON City is dark because of policy.' },
+  crowbar: { emoji: '🪓', name: 'Crowbar', rarity: 'uncommon', level: 12, price: k(15000), desc: 'For prying and for settling arguments.' },
+
+  // ── rare ──────────────────────────────────────────────────
+  diamond: { emoji: '💎', name: 'K-Crystal Diamond', rarity: 'rare', level: 15, price: k(10000), desc: 'Pure compressed wealth. Glows in the dark alleys.' },
+  medkit: { emoji: '🩺', name: 'Trauma Kit', rarity: 'rare', level: 18, price: k(28000), desc: 'Everything a hospital would use, in one metal case.' },
+  incendiary: { emoji: '🔥', name: 'Thermite Charge', rarity: 'rare', level: 22, price: k(40000), desc: 'Melts one vault door. Loudly.' },
+  decrypter: { emoji: '💻', name: 'Ledger Decrypter', rarity: 'rare', level: 26, price: k(60000), desc: 'Reads the bank\'s books. Nobody asked it to.' },
+  vigilstone: { emoji: '💠', name: 'Vigil Stone', rarity: 'rare', level: 30, price: k(85000), desc: 'Warm. Not psychic. Probably.' },
+
+  // ── epic ──────────────────────────────────────────────────
+  ghostwire: { emoji: '🕸️', name: 'Ghostwire', rarity: 'epic', level: 35, price: k(120000), desc: 'Trip a vault alarm without tripping the vault.' },
+  nullsuit: { emoji: '🥷', name: 'Null Suit', rarity: 'epic', level: 40, price: k(180000), desc: 'Bends one shadow. Yours, ideally.' },
+  titanplate: { emoji: '🛡️', name: 'Titan Plate', rarity: 'epic', level: 45, price: k(260000), desc: 'Absorbs a car. Twice.' },
+  chronolock: { emoji: '⏳', name: 'Chrono Lock', rarity: 'epic', level: 50, price: k(340000), desc: 'Slows one thing down by one second. Choose well.' },
+
+  // ── legendary ─────────────────────────────────────────────
+  goldpass: { emoji: '🎫', name: 'Gold Pass', rarity: 'legendary', level: 60, price: k(500000), desc: 'Opens every door in the district. Doors open.' },
+  klerkey: { emoji: '🔑', name: "Klerk's Key", rarity: 'legendary', level: 70, price: k(750000), desc: 'Owner Aphecks lost it. Twice. This is the second.' },
+  blackstar: { emoji: '🌟', name: 'Black Star Shard', rarity: 'legendary', level: 80, price: k(1200000), desc: 'A piece of something that used to shine.' },
+
+  // ── mythic ────────────────────────────────────────────────
+  archiver: { emoji: '🗄️', name: 'The Archiver', rarity: 'mythic', level: 90, price: k(2000000), desc: 'Remembers every transaction in the city. Including yours.' },
+  ikonforge: { emoji: '⚒️', name: 'iKON Forge', rarity: 'mythic', level: 95, price: k(3200000), desc: 'Mints nothing. Forges everything. Do not ask how.' },
+
+  // ── divine ────────────────────────────────────────────────
+  ownerssignet: { emoji: '👑', name: "Owner's Signet", rarity: 'divine', level: 100, price: k(5000000), desc: 'One exists and it is not for sale. Listed anyway.' },
 };
 
 // ───────────────────────────────────────────────────────────
@@ -828,22 +872,58 @@ module.exports = [
     name: 'shop',
     aliases: ['store'],
     category: 'economy',
-    description: '🛒 iKON Black Market - Swords, shields, potions, diamonds',
-    usage: '!shop',
-    hint: 'Swords and shields raise battle odds; potions and diamonds are what duelists actually spend.',
+    description: '🛒 iKON Black Market — 25 items across seven rarities',
+    usage: '!shop [rarity]',
+    hint: 'Swords and shields raise battle odds. Everything past Rare is level-locked, so plan around that.',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'shop', async () => {
+    execute: async ({ args, userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'shop', async () => {
       await react('🛒');
-      const lines = Object.entries(SHOP_ITEMS).map(([id, item]) => `${item.emoji} **${item.name}** — ${kc(item.price)}\n   \`!buy ${id} [qty]\``);
-      await reply(
-        `🛒 **iKON BLACK MARKET**\n`
-        + '· · · · · · ·\n'
-        + `${lines.join('\n')}\n`
-        + `💵 Resale value is only 50% — the market is greedy.\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
+      const entries = Object.entries(SHOP_ITEMS);
+      const level = Number(userDoc && userDoc.level) || 1;
+      const want = String(args[0] || '').toLowerCase().trim();
+
+      // One rarity at a time. Twenty-five rows with a description each is a
+      // wall, and the interesting part of the market is the ladder, not the
+      // inventory list.
+      if (want) {
+        if (!rarity.rank(want) && rarity.rank(want) !== 0) {
+          await reply(`❓ No rarity called \`${want}\`. Try: ${rarity.LADDER.map((r) => `\`${r.key}\``).join(', ')}`, event.messageID);
+          return;
+        }
+        const picked = entries.filter(([, it]) => it.rarity === want);
+        if (!picked.length) {
+          await reply(`📭 The ${want} shelf is empty.`, event.messageID);
+          return;
+        }
+        const lines = picked.map(([id, it]) => {
+          const locked = (it.level || 1) > level;
+          return `${locked ? '🔒' : '🛒'} ${it.emoji} **${it.name}** — ${kc(it.price)} · ${locked ? `needs **Lv${it.level}**` : `Lv${it.level}`}\n   \`!buy ${id}\``;
+        });
+        await reply(
+          `${rarity.symbol(want)} **${rarity.get(want).label} — ${picked.length} of ${entries.length}**\n`
+          + '· · · · · · ·\n'
+          + `${lines.join('\n')}\n`
+          + `↩️ \`${config.PREFIX}shop\` — every shelf`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const out = [`🛒 **iKON BLACK MARKET** — ${entries.length} items`];
+      for (const r of rarity.LADDER) {
+        const group = entries.filter(([, it]) => it.rarity === r.key);
+        if (!group.length) continue;
+        out.push('', `${r.symbol} **${r.label}** · ${group.length}`);
+        out.push(group.map(([id, it]) => {
+          const locked = (it.level || 1) > level;
+          return locked ? `🔒\`${id}\`` : `\`${id}\``;
+        }).join(' '));
+      }
+      out.push('', '· · · · · · ·');
+      out.push(`🔎 \`${config.PREFIX}shop <rarity>\` — prices, and what you can afford`);
+      out.push(`💵 Resale value is only 50% — the market is greedy.`);
+      await reply(out.join('\n'), event.messageID);
     }),
   },
 
@@ -858,18 +938,27 @@ module.exports = [
     usage: '!buy <item> [qty]',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'buy', async () => {
+    execute: async ({ args, userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'buy', async () => {
       await react('🛍️');
       const itemId = String(args[0] || '').toLowerCase();
       const item = SHOP_ITEMS[itemId];
       if (!item) {
         await reply(
-          `❌ Unknown item. Try one of: ${Object.keys(SHOP_ITEMS).map((k) => `\`${k}\``).join(', ')}\n`
-          + '🛒 Full stock list: `!shop`',
+          `❌ Unknown item \`${itemId}\`.\n`
+          + `🛒 \`${config.PREFIX}shop\` lists all ${Object.keys(SHOP_ITEMS).length}, by rarity.`,
           event.messageID,
         );
         return;
       }
+      // The gate is checked before the wallet, so being too low a level reads as
+      // "come back later" rather than "you are poor" — which is the opposite of
+      // what actually stops them.
+      const blocked = rarity.missing(userDoc, item);
+      if (blocked) {
+        await reply(`${blocked}\n🛒 You are Level ${Number(userDoc.level) || 1}.`, event.messageID);
+        return;
+      }
+
       const qty = amountArg(args.slice(1), 1);
       const cost = item.price * qty;
       if (cost > (userDoc.coins || 0)) {
