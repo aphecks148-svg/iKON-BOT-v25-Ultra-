@@ -322,7 +322,7 @@ async function runFight(reply, { attacker, defender, mode, event }) {
 
   await reply(
     `⚔️ **${mode === 'arena' ? 'ARENA FIGHT' : 'HUNT'}**\n`
-    + '━━━━━━━━━━━━━━━\n'
+    + '· · · · · · ·\n'
     + `🔴 ${atkPet.emoji} ${atkPet.name} ⚡${num(atkPower)} · HP ${num(Math.ceil(atkHP))}\n`
     + `🔵 ${defPet.emoji} ${defPet.name} ⚡${num(defPower)} · HP ${num(Math.ceil(defHP))}\n`
     + `🔁 ${turns} turns. ${story()}`,
@@ -431,7 +431,7 @@ async function runFight(reply, { attacker, defender, mode, event }) {
 
   await reply(
     `${verdict}\n`
-    + '━━━━━━━━━━━━━━━\n'
+    + '· · · · · · ·\n'
     + `🏆 ${winnerPet.emoji || '🐉'} ${winnerPet.name} ⚡${num(powerOf(winnerPet))} (+${num(xpGained)} XP${levelsGained ? ` → Lv ${winnerPet.level}` : ''})\n`
     + `💀 ${loserPet.name} ⚡${num(powerOf(loserPet))} — hunger ${clamp(loserPet.hunger)}/100\n`
     + `💸 Loot taken: ${kc(loot)}\n`
@@ -477,7 +477,7 @@ module.exports = [
 
       await reply(
         `🐾 **${pet.emoji || '🐉'} ${pet.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `⚡ Power: ${num(power)}\n`
         + `📊 Level ${pet.level} · ${num(pet.xp)} XP\n`
         + `🍖 Hunger: ${clamp(pet.hunger)}/100\n`
@@ -502,6 +502,7 @@ module.exports = [
     category: 'pets',
     description: '🥚 Adopt a starter dragon (1k) or buy one of 15 dangerous pets',
     usage: '!adopt [starter | <pet id>]',
+    hint: '1,000 coins for a starter dragon, or buy one of fifteen dangerous pets outright.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'adopt', async () => {
@@ -595,7 +596,7 @@ module.exports = [
 
       await reply(
         `${spec.emoji} **YOU ADOPTED ${spec.name.toUpperCase()}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 Price: ${kc(spec.price)}\n`
         + `⚡ Base power: ${num(spec.power)}\n`
         + `📖 "${spec.lore}"\n`
@@ -633,12 +634,12 @@ module.exports = [
 
       await reply(
         `🔢 **POWER BREAKDOWN — ${pet.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🧬 Base power: ${num(base)}\n`
         + `📊 Level: ${level} → +${num(level * 10)}\n`
         + `👑 Prestige: ${prestige} → +${num(prestige * 50)}\n`
         + `⚡ TOTAL POWER: **${num(powerOf(pet))}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🍖 Hunger: ${clamp(pet.hunger)}/100\n`
         + `🛡️ Safe: ${pet.isSafe ? 'ON' : 'OFF ⚠️'}\n`
         + `⚔️ Battles: ${num(stats.battles)} · W ${num(stats.wins)} · L ${num(stats.losses)}\n`
@@ -695,7 +696,7 @@ module.exports = [
 
         await reply(
           `⚠️ **SAFE MODE OFF — ${pet.name} IS EXPOSED**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `💀 Anyone replying \`!petfight\` to your messages can attack it.\n`
           + `💸 If it loses, they steal 1,000 ${CASH}.\n`
           + `🚫 Rent waived. Protection costs.\n`
@@ -730,7 +731,7 @@ module.exports = [
 
       await reply(
         `🛡️ **SAFE MODE ON — ${pet.name} is locked down**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🏠 Vault rent: ${kc(500)}/day${owesRent ? ' (charged)' : ' (already paid today)'}\n`
         + `🔐 Attackers cannot touch it.\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -785,7 +786,7 @@ module.exports = [
         ]);
         await reply(
           `🔥 **EVOLUTION FAILED — ${pet.name} is not ready**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `📊 Needs Level ${next.level}, you are Level ${pet.level} (${short} short).\n`
           + `${next.stone ? `💎 Requires 1x ${STONES[next.stone].emoji} ${STONES[next.stone].name}.\n` : ''}`
           + `${line}\n`
@@ -799,7 +800,7 @@ module.exports = [
       if (next.stone && !takeStone(pet, next.stone, 1)) {
         await reply(
           `🔥 **EVOLUTION HALTED — missing stone**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `📊 Level ${pet.level} ✅ — but you need 1x ${STONES[next.stone].emoji} ${STONES[next.stone].name}.\n`
           + `👛 Buy it for ${kc(STONES[next.stone].price)} with \`!petshop ${next.stone}\`.\n`
           + `🗺️ Or find one in \`!petexplore\` (${Math.round((ZONES.find((z) => z.stones > 0.15) || ZONES[0]).stones * 100)}% in the deepest zones).\n`
@@ -822,7 +823,7 @@ module.exports = [
 
       await reply(
         `🔥 **${next.title.toUpperCase()} — ${pet.name} EVOLVED**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📖 "${next.blurb}"\n`
         + `⚡ Power: ${num(before)} → **${num(powerOf(pet))}** (+150 base)\n`
         + `📊 Level ${pet.level} · Hunger restored to ${clamp(pet.hunger)}\n`
@@ -856,7 +857,7 @@ module.exports = [
         const lines = catalogue.map((i) => `${i.emoji} **${i.name}** — ${kc(i.price)}\n   \`!petshop ${i.id} [qty]\``);
         await reply(
           `🛒 **iKON PET SUPPLY**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `${lines.join('\n')}\n`
           + `💎 Stones unlock evolution. Crystals bring back the dead.\n`
           + `📖 ${story()}`,
@@ -943,7 +944,7 @@ module.exports = [
 
       await reply(
         `💎 **${pet.name}'S STONES**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + (next
           ? `🔥 Next evolution: Level ${next.level}${next.stone ? ` + 1x ${STONES[next.stone].name}` : ' (final tier)'}\n`
@@ -1020,7 +1021,7 @@ module.exports = [
 
       const lines = [
         `🗺️ **${pet.name} explored ${zone.emoji} ${zone.name}**`,
-        '━━━━━━━━━━━━━━━',
+        '· · · · · · ·',
         `💰 +${kc(coins)}`,
         `✨ +${num(xp)} XP${levels ? ` (**LEVEL UP!** → Level ${pet.level})` : ''}`,
         `🍖 Hunger: ${clamp(pet.hunger)}/100`,
@@ -1048,6 +1049,7 @@ module.exports = [
     category: 'pets',
     description: '⚔️ Challenge a hunter — turn-by-turn fight, winner takes 20% + 100 XP',
     usage: '!petbattle <user>',
+    hint: 'Winner takes 20% and 100 XP. A hungry pet loses, so feed it before you challenge anyone.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petbattle', async () => {
@@ -1098,7 +1100,7 @@ module.exports = [
 
       await reply(
         `⚔️ **CHALLENGE SENT**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🐾 ${myPet.emoji} ${myPet.name} (⚡${num(powerOf(myPet))})\n`
         + `🎯 vs ${theirPet.emoji} ${theirPet.name} (⚡${num(powerOf(theirPet))})\n`
         + `⏳ ${target.name} has **2 minutes** to answer with \`!petaccept\` or \`!petdeny\`.\n`
@@ -1187,7 +1189,7 @@ module.exports = [
 
       await reply(
         `🚫 **CHALLENGE REFUSED**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🛡️ ${userDoc.name} says no.\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1289,7 +1291,7 @@ module.exports = [
 
         await reply(
           `⚠️ **UNSAFE PET DETECTED! ${userDoc.name} RIPPED ${victim.name}!**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🐾 ${myPet.emoji} ${myPet.name} ⚡${num(mine)}\n`
           + `💀 vs ${theirPet.emoji} ${theirPet.name} ⚡${num(theirs)}\n`
           + `💸 Stole ${kc(steal)} from ${victim.name}.\n`
@@ -1317,7 +1319,7 @@ module.exports = [
 
       await reply(
         `⚠️ **UNSAFE PET DETECTED! ${victim.name} RIPPED ${userDoc.name}!**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🐾 ${myPet.emoji} ${myPet.name} ⚡${num(mine)} — WEAKER\n`
         + `🛡️ vs ${theirPet.emoji} ${theirPet.name} ⚡${num(theirs)}\n`
         + `💸 You lost ${kc(loss)}.\n`
@@ -1391,7 +1393,7 @@ module.exports = [
 
       await reply(
         `💀 **${pet.name} IS BACK.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 Cost: ${kc(cost)}${hasCrystal ? ' (1x 💠 Revive Crystal used)' : ' — no crystal, full price'}\n`
         + `⚡ Power: ${num(powerOf(pet))}\n`
         + `🍖 Hunger: 40/100 — feed it before someone finds it\n`
@@ -1484,7 +1486,7 @@ module.exports = [
 
       await reply(
         `💪 **${pet.name} trained all morning.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `✨ +${num(xp)} XP${levels ? ` (**LEVEL UP!** → Level ${pet.level})` : ''}\n`
         + `⚡ Power: ${num(before)} → **${num(powerOf(pet))}**\n`
         + `🍖 Hunger: ${clamp(pet.hunger)}/100\n`
@@ -1530,7 +1532,7 @@ module.exports = [
 
       await reply(
         `🏆 **STRONGEST PETS IN iKON CITY**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `👑 Only one iKON Titan Prime can exist. One does.\n`
         + `📖 ${story()}`,
@@ -1558,7 +1560,7 @@ module.exports = [
 
       await reply(
         `🐉 **iKON BESTIARY — 15 DANGEROUS PETS**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `🥚 Cheaper start: \`!adopt starter\` for 1,000 ${CASH}.\n`
         + `📖 ${story()}`,
@@ -1641,7 +1643,7 @@ module.exports = [
 
       await reply(
         `🧬 **A NEW PET WAS BORN**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🥚 ${child.name}\n`
         + `⚡ Base power: ${num(childPower)} (inherited from ${stronger.name})\n`
         + `💸 Cost: ${kc(cost)}\n`
@@ -1703,7 +1705,7 @@ module.exports = [
 
         await reply(
           `🥚💥 **THE EGG HATCHED**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `${spec.emoji} **${spec.name}** ⚡${num(powerOf(hatching))}\n`
           + `📖 "${spec.lore}"\n`
           + `🍖 Hunger: 100/100 · 🛡️ Safe mode ON\n`
@@ -1732,7 +1734,7 @@ module.exports = [
 
       await reply(
         `🥚 You bought a **Mystery Egg** for ${kc(cost)}.\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `⏳ It hatches in 24 hours. Come back with \`!petegg\`.\n`
         + `📖 Common bloodlines are cheap here. So are the good ones.\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -1788,7 +1790,7 @@ module.exports = [
       const prey = pick(['a gullet rat', 'a neon hound', 'a vault sprite', 'a pigeon golem', 'a sewer troll']);
       await reply(
         `🗡️ **${pet.name} hunted ${prey}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💰 +${kc(loot)}\n`
         + `✨ +${num(xp)} XP${levels ? ` (**LEVEL UP!** → Level ${pet.level})` : ''}\n`
         + `🍖 Hunger: ${clamp(pet.hunger)}/100${hurt ? ' (hunted something bigger — injured)' : ''}\n`
@@ -1854,7 +1856,7 @@ module.exports = [
         await save(pet);
         await reply(
           `🚨 **THE HEIST FAILED**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🕵️ Your crew tried ${tier} and got made.\n`
           + `💸 Bail: ${kc(penalty)}\n`
           + `🍖 ${pet.name} hunger → ${clamp(pet.hunger)}/100\n`
@@ -1882,7 +1884,7 @@ module.exports = [
 
       await reply(
         `🕵️ **THE HEIST CAME OFF CLEAN**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🎯 Target: ${tier}\n`
         + `💰 Haul: ${kc(haul)}\n`
         + `👛 You: ${kc(mine)}\n`
@@ -1934,7 +1936,7 @@ module.exports = [
 
       await reply(
         `🎁 You sent ${target.name} a care package worth ${kc(cost)}.\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🍖 ${theirPet.name} hunger → ${clamp(theirPet.hunger)}/100\n`
         + `👛 Your wallet: ${kc(userDoc.coins)}\n`
         + `💚 Crew looks loyal. ${story()}`,
@@ -1975,7 +1977,7 @@ module.exports = [
 
       await reply(
         `🎾 ${miracle ? '🌟 **A BONDING MIRACLE**' : 'You played fetch.'}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${pick([
           'Your pet brought back the exact stick you threw. Twice.',
           'It rolled over. Voluntarily. Historic.',
@@ -2023,7 +2025,7 @@ module.exports = [
 
       await reply(
         `😴 **${pet.name} curled up and slept**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🍖 Hunger: +${gain} → ${clamp(pet.hunger)}/100\n`
         + `${rested ? '😌 It had been a long day. Proper rest kicked in.' : '💤 A short nap. Nothing heroic.'}\n`
         + `📖 ${story()}`,
@@ -2073,7 +2075,7 @@ module.exports = [
 
       await reply(
         `📊 **${userDoc.name || 'Hunter'}'S MENAGERIE**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `🐾 Pets: ${num(pets.length)} (${num(pets.filter((p) => p.isDead).length)} dead)\n`
         + `⚔️ Battles: ${num(total.battles)} · ${rate}% win rate\n`
@@ -2123,7 +2125,7 @@ module.exports = [
 
       await reply(
         `♻️ **${pet.name} REBORN**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📉 Level ${oldLevel} → 1\n`
         + `⚡ Power: ${num(before)} → **${num(powerOf(pet))}** (+50 prestige)\n`
         + `👑 Prestige: ${pet.prestige} (+${num(pet.prestige * 50)} permanent)\n`
@@ -2181,7 +2183,7 @@ module.exports = [
 
       await reply(
         `🧿 **CURSE LANDED**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🎯 ${target.name}'s ${theirPet.name} is cursed for 2 hours.\n`
         + `📉 -10% power while it lasts.\n`
         + `💸 Cost: ${kc(cost)}\n`
@@ -2224,7 +2226,7 @@ module.exports = [
 
       await reply(
         `🙏 **${pet.name} IS BLESSED**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📈 +10% power for 1 hour.\n`
         + `🍖 Hunger +15 → ${clamp(pet.hunger)}/100\n`
         + `💸 Cost: ${kc(cost)}\n`
@@ -2275,7 +2277,7 @@ module.exports = [
 
       await reply(
         `💘 **BOND DEEPENED**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${line}\n`
         + `🔗 Bond level: ${pet.bond}\n`
         + `⚡ Power: ${num(before)} → **${num(powerOf(pet))}** (+25 permanent)\n`
@@ -2311,7 +2313,7 @@ module.exports = [
         const owner = await User.findOne({ uid: existing.ownerUid });
         await reply(
           `👑 **THE iKON TITAN PRIME IS ALREADY SUMMONED.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🐾 ${existing.name} serves ${owner ? owner.name : 'someone'}.\n`
           + `😈 Only one exists per bot. Owner Aphecks does not allow exceptions.`,
           event.messageID,
@@ -2325,7 +2327,7 @@ module.exports = [
         const best = mine[0];
         await reply(
           `👑 **THE SUMMONING FAILS.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `📊 The iKON Titan Prime requires a pet at **Level 100**.\n`
           + (best ? `📈 Your strongest: ${best.name} — Level ${best.level}.\n` : '🐾 You have no pets at all.\n')
           + `🔥 Level it, evolve it with stones, then try again.\n`
@@ -2346,7 +2348,7 @@ module.exports = [
 
       await reply(
         `👑🌟 **THE iKON TITAN PRIME IS SUMMONED**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🐾 ${ready.name} ⚡${num(powerOf(ready))}\n`
         + `📖 Owner Aphecks says: "Finally. Do not waste it."\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -2381,7 +2383,7 @@ module.exports = [
 
       await reply(
         `🏟️ **iKON PET ARENA — THIS CHAT**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `⚔️ Battles fought: ${num(battles)}\n`
         + `🏆 Challenger wins: ${num(wins)}\n`
         + `⏳ Live challenges pending: ${num(pending)}\n`
@@ -2480,7 +2482,7 @@ module.exports = [
 
       await reply(
         `🕊️ **${pet.name} was released into the wild.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 The city paid you ${kc(refund)} (50% of ${kc(paid)}).\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + `📖 It walked into the fog without looking back. Gone for good.\n`
@@ -2582,7 +2584,7 @@ module.exports = [
 
       await reply(
         `🎒 **${userDoc.name || 'Hunter'}'S PET REGISTRY**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `🐾 Total: ${num(pets.length)} · Dead: ${num(pets.filter((p) => p.isDead).length)}\n`
         + (reaped.length ? `🪦 Deleted past 48h: ${reaped.join(', ')}\n` : '')

@@ -596,7 +596,7 @@ const commands = [];
 
       await reply(
         `🚗 **YOU ARE IN THE LIFE.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🎖️ Level 1 · ⭐ ${stars(0)}\n`
         + `🚙 You are handed a Sultan RS and a Pistol.\n`
         + `💵 Wallet: ${kc(userDoc.coins)}\n\n`
@@ -631,7 +631,7 @@ const commands = [];
 
       await reply(
         `📊 **${userDoc.name} — GTA RECORD**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🎖️ Level ${t.level} · XP ${num(t.xp)}/${num(need)} (${pct}%)\n`
         + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
         + `💰 GTA winnings: ${kc(t.money)}\n`
@@ -672,7 +672,7 @@ const commands = [];
       const m = pick(MISSIONS);
       const risk = power > 0 ? Math.min(0.85, m.risk + (power < 200 ? 0.10 : 0)) : m.risk + 0.15;
 
-      await reply(`🎯 **${m.name.toUpperCase()}**\n━━━━━━━━━━━━━━━\n📍 Risk ${Math.round(risk * 100)}% · Reward ${num(m.reward[0])} - ${num(m.reward[1])} ${CASH}\n📖 ${story()}`, event.messageID);
+      await reply(`🎯 **${m.name.toUpperCase()}**\n· · · · · · ·\n📍 Risk ${Math.round(risk * 100)}% · Reward ${num(m.reward[0])} - ${num(m.reward[1])} ${CASH}\n📖 ${story()}`, event.messageID);
 
       for (const step of m.steps) {
         await sleep(700);
@@ -687,7 +687,7 @@ const commands = [];
         const stars2 = await addWanted(userDoc, m.wanted);
         await reply(
           `💥 **IT WENT WRONG.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `⭐ Wanted ${stars(stars2)} (${stars2}/5)\n`
           + `💸 Nothing paid. The car is scratched.\n`
           + `📖 ${story()}`,
@@ -710,7 +710,7 @@ const commands = [];
 
       await reply(
         `✅ **CLEAN GETAWAY.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💰 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
         + `⭐ Wanted ${stars(stars2)} (${stars2}/5)\n`
         + `🎖️ XP +${num(120 + reward)}${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
@@ -757,7 +757,7 @@ const commands = [];
         return;
       }
 
-      await reply('💀 **THE VAULT COUP**\n━━━━━━━━━━━━━━━\n📍 60% bust rate\n📖 Somebody in here is definitely watching.', event.messageID);
+      await reply('💀 **THE VAULT COUP**\n· · · · · · ·\n📍 60% bust rate\n📖 Somebody in here is definitely watching.', event.messageID);
       for (const step of HARD_MISSION.steps) {
         await sleep(700);
         await reply(`▸ ${step}`);
@@ -772,7 +772,7 @@ const commands = [];
         await save(userDoc);
         await reply(
           `🚨 **THE COPS ARE ALL OVER YOU.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `⭐ Wanted ${stars(stars2)} (5/5)\n`
           + `👮 They will take half your coins unless you bribe or run.\n`
           + `📖 ${story()}`,
@@ -794,7 +794,7 @@ const commands = [];
 
       await reply(
         `🏆 **THE COUP LANDED.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💰 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
         + `⭐ Wanted ${stars(stars2)} (${stars2}/5)\n`
         + `🎖️ XP +900${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
@@ -829,7 +829,7 @@ const commands = [];
 
       await reply(
         `🏎️ **THE GARAGE**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.slice(0, -1).join('\n')}\n\n`
         + `👑 **${prime.name}** — ${kc(prime.price)} · ${num(prime.power)} pwr\n`
         + `📖 One exists. The man who sold it will not say where it came from.\n\n`
@@ -878,7 +878,7 @@ const commands = [];
 
       const card = await carCard(car, car.power, t.wanted, 'NEW');
       const text = `🛒 **${car.name} IS PARKED OUTSIDE.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 -${kc(car.price)}\n`
         + `⚡ ${num(car.power)} power\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -923,7 +923,7 @@ const commands = [];
           return `• **${base.name}** — ${num(base.power)} pwr — ${flags}`;
         });
         await reply(
-          `🔑 **YOUR GARAGE (${t.cars.length})**\n━━━━━━━━━━━━━━━\n${rows.join('\n')}\n\n`
+          `🔑 **YOUR GARAGE (${t.cars.length})**\n· · · · · · ·\n${rows.join('\n')}\n\n`
           + `Switch with \`!gtagarage <name>\``,
           event.messageID,
         );
@@ -1004,7 +1004,7 @@ const commands = [];
         const paid = await spend(userDoc, bill, 'gta:crash_bill', { car: rec.id });
         await reply(
           `💥 **YOU CRASHED.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🚙 The ${base.name} is on a lift.\n`
           + `🔧 Repair bill: ${kc(bill)}${paid.ok ? ' — paid' : ' — you cannot pay it'}\n`
           + `⛽ Fuel left: ${num(rec.fuel)}%\n`
@@ -1020,7 +1020,7 @@ const commands = [];
         await bank(userDoc, loot);
         await reply(
           `💵 **SOMETHING WAS IN THE GLOVEBOX.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `+${kc(loot)}\n⛽ Fuel left: ${num(rec.fuel)}%\n`
           + `📖 ${story()}`,
           event.messageID,
@@ -1030,7 +1030,7 @@ const commands = [];
 
       await reply(
         `🚙 **A CLEAN HOUR.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `⛽ Fuel left: ${num(rec.fuel)}%\n`
         + `💼 Wallet: ${kc(userDoc.coins)}\n`
         + `📖 ${story()}`,
@@ -1069,7 +1069,7 @@ const commands = [];
       rec.fuel = 100;
       await save(userDoc);
 
-      await reply(`⛽ **TANK FULL.**\n━━━━━━━━━━━━━━━\n💸 -500\n🚙 ${base.name}\n📖 ${story()}`, event.messageID);
+      await reply(`⛽ **TANK FULL.**\n· · · · · · ·\n💸 -500\n🚙 ${base.name}\n📖 ${story()}`, event.messageID);
     }),
   });
 
@@ -1109,7 +1109,7 @@ const commands = [];
 
       await reply(
         `🔧 **BACK ON THE ROAD.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 -${kc(bill)}\n`
         + `🚙 ${base.name}\n`
         + `📖 ${story()}`,
@@ -1139,13 +1139,13 @@ const commands = [];
       if (t.cars.filter((c) => c && c.crashed).length) {
         const wrecked = t.cars.filter((c) => c && c.crashed)
           .map((c) => `• ${(CAR_BY_ID.get(c.id) || {}).name || c.id}`).join('\n');
-        await reply(`💥 **ON THE LIFT**\n━━━━━━━━━━━━━━━\n${wrecked}\n🔧 \`!gtarepair\``, event.messageID);
+        await reply(`💥 **ON THE LIFT**\n· · · · · · ·\n${wrecked}\n🔧 \`!gtarepair\``, event.messageID);
         return;
       }
 
       await reply(
         `💥 **NOTHING IS ON THE LIFT.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🚙 ${base.name} is running.\n⛽ Fuel ${num(rec.fuel)}%\n`
         + `📖 The mechanic charges 500 an hour to look at it and find nothing.`,
         event.messageID,
@@ -1185,7 +1185,7 @@ const commands = [];
 
       await reply(
         `🔧 **TUNED.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🚙 ${base.name}: ${num(base.power)} → **${num(base.power + 20)} pwr**\n`
         + `💸 -10,000\n`
         + `📖 It sounds wrong and it is faster.`,
@@ -1214,7 +1214,7 @@ const commands = [];
       const want = String(args[0] || '').toLowerCase();
       if (!want) {
         await reply(
-          `🎨 **THE SWATCH BOOK**\n━━━━━━━━━━━━━━━\n${COLORS.map((c) => `• ${c.name} (\`${c.hex}\`)`).join('\n')}\n\n`
+          `🎨 **THE SWATCH BOOK**\n· · · · · · ·\n${COLORS.map((c) => `• ${c.name} (\`${c.hex}\`)`).join('\n')}\n\n`
           + `Repaint costs 1,000. \`!gtacustomize gold\``,
           event.messageID,
         );
@@ -1274,7 +1274,7 @@ const commands = [];
 
       await reply(
         `💨 **NITRO ARMED.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🚙 ${base.name}\n`
         + `💸 -5,000\n`
         + `📖 One burst. You will want it.`,
@@ -1304,7 +1304,7 @@ const commands = [];
       });
       await reply(
         `🔫 **THE ARMOURY**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n\n`
         + `💼 You have ${kc(userDoc.coins)}.\n`
         + `🛒 Buy with \`!gtabuyweapon <name>\``,
@@ -1351,7 +1351,7 @@ const commands = [];
 
       await reply(
         `🛒 **${gun.name.toUpperCase()} ACQUIRED.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 -${kc(gun.price)}\n`
         + `🎯 ${num(gun.dmg)} damage · ${num(gun.ammo)} rounds\n`
         + `👛 Wallet: ${kc(userDoc.coins)}`,
@@ -1384,7 +1384,7 @@ const commands = [];
           return `• **${base.name}** — ${num(base.dmg)} dmg — ${num(w.ammo)} rounds${w.id === t.activeWeapon ? ' — ▶ equipped' : ''}`;
         });
         await reply(
-          `🔫 **YOUR ARMOURY (${t.weapons.length})**\n━━━━━━━━━━━━━━━\n${rows.join('\n')}\n\n`
+          `🔫 **YOUR ARMOURY (${t.weapons.length})**\n· · · · · · ·\n${rows.join('\n')}\n\n`
           + `Equip with \`!gtaweapons <gun>\``,
           event.messageID,
         );
@@ -1450,7 +1450,7 @@ const commands = [];
         await save(target);
         await reply(
           `🎯 **YOU HIT ${target.name}.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `⭐ They are now wanted ${stars(target.gta.wanted)} (${target.gta.wanted}/5)\n`
           + `⭐ You are wanted ${stars(stars2)} (${stars2}/5)\n`
           + `📖 ${story()}`,
@@ -1510,7 +1510,7 @@ const commands = [];
 
       await reply(
         `⭐ **WANTED ${stars(wanted)}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${wanted}/5 · ${status}\n`
         + (collected ? `${collected}\n` : '')
         + (heatLines.length ? `${heatLines.join('\n')}\n` : '')
@@ -1552,7 +1552,7 @@ const commands = [];
         await save(userDoc);
         await reply(
           `🚨 **UNITS DISPATCHED.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `⭐ Five stars. The hunt runs for 10 minutes.\n`
           + `💸 If it expires they take ${kc(Math.floor((userDoc.coins || 0) * 0.5))}.\n`
           + `🛡️ \`!gtabribe\` to pay it off, \`!gtaescape\` to run.\n`
@@ -1565,7 +1565,7 @@ const commands = [];
       const mins = Math.ceil((new Date(t.copsHuntUntil).getTime() - Date.now()) / 60000);
       await reply(
         `🚨 **THE HUNT IS ON.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `⏱️ ${mins} min left.\n`
         + `💸 Due: ${kc(Math.floor((userDoc.coins || 0) * 0.5))} — half of what you are carrying.\n`
         + `🛡️ \`!gtabribe\` or \`!gtaescape\`.\n`
@@ -1615,7 +1615,7 @@ const commands = [];
 
       await reply(
         `🛡️ **THE HUNT IS OFF.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 -${kc(price)}\n`
         + `⭐ Wanted ${stars(0)} (0/5)\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -1675,7 +1675,7 @@ const commands = [];
         await save(userDoc);
         await reply(
           `🏆 **YOU LOST THEM.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
           + `🚨 The hunt is called off.\n`
           + `📖 ${story()}`,
@@ -1692,7 +1692,7 @@ const commands = [];
       await save(userDoc);
       await reply(
         `🚔 **BOXED IN ON WHEELER AVENUE.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🔒 10 minutes in the cell.\n`
         + `⭐ The heat is off your record.\n`
         + `📖 ${story()}`,
@@ -1725,7 +1725,7 @@ const commands = [];
       // Car power scales the take and shrinks the risk. Without a car this is a
       // 65% walk into a bank on foot, which should never be tempting.
       const risk = Math.max(0.25, Math.min(0.85, 0.65 - pwr / 4000));
-      await reply(`🏦 **THE BANK**\n━━━━━━━━━━━━━━━\n📍 Risk ${Math.round(risk * 100)}% · ⭐ +2 stars minimum\n📖 ${story()}`, event.messageID);
+      await reply(`🏦 **THE BANK**\n· · · · · · ·\n📍 Risk ${Math.round(risk * 100)}% · ⭐ +2 stars minimum\n📖 ${story()}`, event.messageID);
       for (const step of ['Case the front...', 'The teller stops talking...', 'Back to the car...', 'Running the checkpoints...']) {
         await sleep(650);
         await reply(`▸ ${step}`);
@@ -1736,7 +1736,7 @@ const commands = [];
         await jail(userDoc, 5, 'gta:jail_bank');
         await reply(
           `🚔 **YOU GOT THE DOOR BUT NOT THE STREET.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🔒 5 minutes in the cell.\n`
           + `💸 Nothing taken.\n`
           + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
@@ -1759,7 +1759,7 @@ const commands = [];
 
       await reply(
         `💰 **THE VAULT WAS LIGHT.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💵 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
         + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
         + `🎖️ XP +600${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
@@ -1805,7 +1805,7 @@ const commands = [];
 
       const pwr = carPower(userDoc);
       const risk = Math.max(0.20, Math.min(0.80, 0.40 - pwr / 6000));
-      await reply(`🎩 **THE BIG JOB**\n━━━━━━━━━━━━━━━\n📍 Risk ${Math.round(risk * 100)}%\n📖 Everyone gets one good idea a year.`, event.messageID);
+      await reply(`🎩 **THE BIG JOB**\n· · · · · · ·\n📍 Risk ${Math.round(risk * 100)}%\n📖 Everyone gets one good idea a year.`, event.messageID);
       for (const step of ['The plan takes four minutes...', 'The van is loaded...', 'The whole job is on one minute...', 'And it is now that minute.']) {
         await sleep(700);
         await reply(`▸ ${step}`);
@@ -1819,7 +1819,7 @@ const commands = [];
         await addWanted(userDoc, 3);
         await reply(
           `🚔 **THE JOB WAS A SETUP.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🔒 15 minutes in the cell.\n`
           + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
           + `📖 ${story()}`,
@@ -1841,7 +1841,7 @@ const commands = [];
 
       await reply(
         `🎩 **CLEAN.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💰 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
         + `🎖️ XP +1500${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -1873,7 +1873,7 @@ const commands = [];
         return;
       }
 
-      await reply('🏪 **CORNER STORE**\n━━━━━━━━━━━━━━━\n📍 The alarm is wired to nothing.', event.messageID);
+      await reply('🏪 **CORNER STORE**\n· · · · · · ·\n📍 The alarm is wired to nothing.', event.messageID);
       for (const step of ['In through the side door...', 'The till. Then the second till...', 'The kid behind the counter just watches...']) {
         await sleep(650);
         await reply(`▸ ${step}`);
@@ -1884,7 +1884,7 @@ const commands = [];
         await addWanted(userDoc, 1);
         await reply(
           `🚔 **SOMEONE IN THE BACK CALLED IT IN.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🔒 3 minutes in the cell.\n`
           + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
           + `📖 ${story()}`,
@@ -1906,7 +1906,7 @@ const commands = [];
 
       await reply(
         `💵 **TWO TILLS, ONE SHELF.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💰 +${kc(net)}${tax ? ` (${kc(tax)} to the cartel)` : ''}\n`
         + `🔫 +5 rounds\n`
         + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
@@ -1945,7 +1945,7 @@ const commands = [];
 
       await reply(
         `🔧 **SHIFT DONE.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💼 +${kc(pay)} for a full shift\n`
         + `🔫 +10 rounds\n`
         + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5) — unchanged\n`
@@ -1991,7 +1991,7 @@ const commands = [];
 
       await reply(
         `🎁 **DAILY.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💰 +${kc(reward)} (level ${t.level})\n`
         + `🎖️ XP +200${ups.length ? ` — **LEVEL ${ups[ups.length - 1]}**` : ''}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -2046,7 +2046,7 @@ const commands = [];
       // 45% at the bottom of the range, 95% on a maxed Phantom Prime.
       const chance = Math.max(0.35, Math.min(0.95, 0.45 + (pwr - 300) / 1600 + bonus / 100));
 
-      await reply(`🏁 **STREET RACE**\n━━━━━━━━━━━━━━━\n🚙 ${base.name} · ${num(pwr)} pwr\n💰 Staked: ${kc(stake)}\n📖 Two lanes, one working brake light.`, event.messageID);
+      await reply(`🏁 **STREET RACE**\n· · · · · · ·\n🚙 ${base.name} · ${num(pwr)} pwr\n💰 Staked: ${kc(stake)}\n📖 Two lanes, one working brake light.`, event.messageID);
       await sleep(700);
       await reply('▸ Green light...');
       await sleep(700);
@@ -2061,7 +2061,7 @@ const commands = [];
         await grantXp(userDoc, 150);
         await reply(
           `🏆 **YOU TOOK THE RACE.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `💰 +${kc(stake)}\n`
           + `🏁 Record: ${t.racesWon}W/${t.racesLost}L\n`
           + `👛 Wallet: ${kc(userDoc.coins)}`,
@@ -2075,7 +2075,7 @@ const commands = [];
       const paid = await spend(userDoc, stake, 'gta:race_loss', { stake });
       await reply(
         `💥 **YOU LOST THE RACE.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 -${kc(stake)}${paid.ok ? '' : ' (you could not cover it)'}\n`
         + `🏁 Record: ${t.racesWon}W/${t.racesLost}L\n`
         + `📖 The other car did not have a working brake light either.`,
@@ -2128,7 +2128,7 @@ const commands = [];
       const foPwr = carPower(foe);
       await reply(
         `⚔️ **DUEL**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🚙 ${CAR_BY_ID.get(myRec.id).name} — ${num(myPwr)} pwr\n`
         + `vs\n`
         + `🚙 ${CAR_BY_ID.get(foRec.id).name} — ${num(foPwr)} pwr\n`
@@ -2150,7 +2150,7 @@ const commands = [];
         await save(foe);
         await reply(
           `🏆 **YOU TOOK THE RACE.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `${foe.name} pays ${kc(fine)}${took.ok ? '' : ' — they cannot cover it'}.\n`
           + `⭐ They are wanted ${stars(foe.gta.wanted)} (${foe.gta.wanted}/5)\n`
           + `📖 ${story()}`,
@@ -2168,7 +2168,7 @@ const commands = [];
       await save(foe);
       await reply(
         `💥 **YOU LOST THE DUEL.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 Fine: ${kc(fine)}${took.ok ? '' : ' — you cannot cover it'}\n`
         + `⭐ Wanted ${stars(mine.wanted)} (${mine.wanted}/5)\n`
         + `📖 ${story()}`,
@@ -2220,7 +2220,7 @@ const commands = [];
       rec.ammo = clamp(rec.ammo) - 1;
       await save(userDoc);
 
-      await reply(`🔫 **PVP**\n━━━━━━━━━━━━━━━\n🎯 Your ${myDmg} dmg vs their ${theirDmg} dmg\n📖 No weapons on the ground.`, event.messageID);
+      await reply(`🔫 **PVP**\n· · · · · · ·\n🎯 Your ${myDmg} dmg vs their ${theirDmg} dmg\n📖 No weapons on the ground.`, event.messageID);
       await sleep(800);
 
       const total = myDmg + theirDmg || 1;
@@ -2253,7 +2253,7 @@ const commands = [];
 
       await reply(
         `${line}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `⭐ They are wanted ${stars(foe.gta.wanted)} (${foe.gta.wanted}/5)\n`
         + `⭐ You are wanted ${stars(t.wanted)} (${t.wanted}/5)\n`
         + `🔫 ${num(rec.ammo)} rounds left\n`
@@ -2301,7 +2301,7 @@ const commands = [];
 
       await reply(
         `💀 **CARTEL: ${String(cartel.name).toUpperCase()}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🏦 Vault: ${kc(cartel.vault)}\n`
         + `👥 Members: ${num((cartel.members || []).length)}\n`
         + `👑 Founder: ${member ? 'you' : String(cartel.founder)}\n`
@@ -2377,7 +2377,7 @@ const commands = [];
 
       await reply(
         `⚔️ **WAR DECLARED.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💀 ${String(group.cartel.name).toUpperCase()} against everyone.\n`
         + `⏱️ 30 minutes on the clock.\n`
         + `👥 ${members.length} people are in this chat.\n`
@@ -2433,7 +2433,7 @@ const commands = [];
 
       await reply(
         `🏆 **THE CITY BOARD**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${rows.join('\n')}\n\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -2485,7 +2485,7 @@ const commands = [];
 
       await reply(
         `📍 **YOUR POSITION**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🏆 Rank **#${place}** of ${num(total)}\n`
         + `📈 Top ${Math.max(1, 100 - pct)}%\n`
         + `🎖️ Level ${t.level} · ${kc(t.money)} won\n`
@@ -2532,7 +2532,7 @@ const commands = [];
       if (card) await reply({ attachment: { type: 'image', data: { url: card } } });
       await reply(
         `🎨 **THE BODYSHOP PICKED ${colour.name.toUpperCase()}.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🚙 ${base.name}\n`
         + `💸 -2,000\n`
         + `📖 ${story()}`,

@@ -750,6 +750,7 @@ commands.push({
   category: 'farming',
   description: '🌾 Your plots, timers and stores — with a card',
   usage: '!farm',
+  hint: 'Plots, crop timers and stores, rendered as a card. Check it often — crops rot on a timer.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'farm', async () => {

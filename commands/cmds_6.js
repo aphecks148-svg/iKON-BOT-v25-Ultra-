@@ -603,6 +603,7 @@ const commands = [];
     category: 'group',
     description: '👢 Remove somebody from this chat and say why',
     usage: '!kick @user [reason]',
+    hint: 'Tag the person — `!kick @Alice`. Typing a name makes the bot guess which member you meant.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'kick', async () => {
@@ -741,6 +742,7 @@ const commands = [];
     category: 'group',
     description: '🛡️ Lock the chat when a burst of joins lands inside 10 seconds',
     usage: '!antiraid on|off [burst]',
+    hint: 'Fires on a burst of joins inside 10 seconds. It is an automatic lock, not a manual one.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'antiraid', async () => {
@@ -823,7 +825,7 @@ const commands = [];
       // is that the banned hunter must not learn they were caught.
       await reply(
         `👻 **SOMEBODY HAS BEEN QUIETENED.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `⏳ They can still see their own messages for ${mins} minutes.\n`
         + `📖 They will not see why. That is the feature.`,
         event.messageID,
@@ -879,6 +881,7 @@ const commands = [];
     category: 'group',
     description: '🔒 Emoji only. One emoji gets through, the rest of the chat is muted',
     usage: '!lockdown [emoji|off]',
+    hint: 'Emoji only. Admins still get through — that is the escape hatch.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'lockdown', async () => {
@@ -953,7 +956,7 @@ const commands = [];
 
       await reply(
         `🔓 **EVERYTHING IS OPEN.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🚪 Lockdown: off\n⚔️ Warzone: off\n🛡️ Anti-raid: off\n👑 Domination: revoked\n`
         + `🔇 Mutes cleared: ${num(mutes)}\n🚫 Bans cleared: ${num(bans)}\n`
         + `📖 ${story()}`,
@@ -994,6 +997,7 @@ const commands = [];
     category: 'group',
     description: '🔇 Mute somebody — the bot deletes everything they say',
     usage: '!gcmute @user [minutes]',
+    hint: 'The bot deletes everything the muted person says. Admins are never muted.',
     cooldown: 15,
     permission: 'groupAdmin',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'gcmute', async () => {
@@ -1076,7 +1080,7 @@ const commands = [];
       await reply(
         muted
           ? `🤐 **EVERYONE IS MUTED.**\n`
-            + '━━━━━━━━━━━━━━━\n'
+            + '· · · · · · ·\n'
             + `🔇 ${num(muted)} hunters silenced for ${mins} minutes\n`
             + `🛡️ ${num(exempt.size)} admins kept talking. You always do.\n`
             + `📖 ${story()}`
@@ -1128,6 +1132,7 @@ const commands = [];
     category: 'group',
     description: '📋 Everyone the bot has locked out of this chat',
     usage: '!gcbanlist',
+    hint: 'Everyone this bot has locked out of this chat, with who did it and when.',
     cooldown: 20,
     permission: 'groupAdmin',
     execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'gcbanlist', async () => {
@@ -1188,7 +1193,7 @@ const commands = [];
 
       await reply(
         `📢 **ANNOUNCEMENT**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${msg}\n`
         + `📖 — ${OWNER} is watching this chat.`,
         event.messageID,
@@ -1259,7 +1264,7 @@ const commands = [];
         await save(group);
         await reply(
           `🚪 **INVITE WAR STARTED**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `⏱️ Five minutes.\n`
           + `🏆 Most invites wins ${kc(PRIZE)}.\n`
           + `📮 Join with \`!invitewar join\` after you add somebody.\n`
@@ -1332,7 +1337,7 @@ const commands = [];
       const nextAt = cfg.level >= 100 ? null : cfg.level * 100;
       await reply(
         `📈 **CHAT LEVEL ${cfg.level}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${bar(cfg.level)}\n`
         + `💬 Lifetime messages: ${num(cfg.msgs)}\n`
         + (nextAt ? `🎯 Level ${cfg.level + 1} at ${num(nextAt)} messages\n` : '👑 Maximum level. The chat has peaked.\n')
@@ -1364,7 +1369,7 @@ const commands = [];
       if (!hunters || !hunters.length) {
         await reply(
           '🏆 **NOTHING TO REPORT.**\n'
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `💬 Chat level ${cfg.level} · ${num(cfg.msgs)} messages\n`
           + 'No hunter has activity recorded in this chat yet. Use the bot and come back.',
           event.messageID,
@@ -1389,7 +1394,7 @@ const commands = [];
 
       await reply(
         `🏆 **THIS CHAT, JUDGED**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💰 Richest\n${top('coins', (n) => kc(n))}\n\n`
         + `📢 Loudest\n${top('gc.msgs', 'msg')}\n\n`
         + `☠️ Most toxic\n${top('gc.toxicity', 'command')}\n\n`
@@ -1446,7 +1451,7 @@ const commands = [];
 
       await reply(
         `👑 **THIS CHAT HAS BEEN CLAIMED.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📍 Chat level ${level} · ${num(cfg.msgs)} messages\n`
         + `🖼️ ${lore}\n\n`
         + `${lore}\n\n`
@@ -1487,7 +1492,7 @@ const commands = [];
         // The banner degrades to text so the admin still gets their artefact.
         await reply(
           `🖼️ **BANNER (text mode — no canvas binary here)**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🏙️ iKON CITY · CHAT ${tid.slice(-6)}\n`
           + `📈 LEVEL ${level}\n💬 ${num(msgs)} MESSAGES\n`
           + (cfg && cfg.dominated ? '👑 DOMINATED BY THE HOUSE\n' : '')
@@ -1536,7 +1541,7 @@ const commands = [];
       }
       await reply(
         `🖼️ **${icon}** would be the icon for this chat.\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + '⚠️ This build of ws3-fca cannot change a chat icon, so nothing was applied.',
         event.messageID,
       );
@@ -1576,7 +1581,7 @@ const commands = [];
 
       await reply(
         `📋 **CHAT RECORD**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🆔 ${tid}\n`
         + `👥 ${num(members)} members · 🛡️ ${num(admins)} admins\n`
         + `📈 Level ${cfg.level} · 💬 ${num(cfg.msgs)} messages\n`
@@ -1619,7 +1624,7 @@ const commands = [];
 
       await reply(
         `👥 **THE ROSTER**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👤 ${num(members.length)} members${members.length ? ' (this build can count them)' : ' (this build cannot list them)'}\n`
         + `🛡️ ${num(admins.length)} admins\n`
         + `📈 Level ${cfg ? cfg.level : '?'} · 💬 ${cfg ? num(cfg.msgs) : '?'} messages\n\n`
@@ -1696,7 +1701,7 @@ const commands = [];
 
       await reply(
         `🎭 **${truth ? 'TRUTH' : 'DARE'}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${question}\n\n`
         + `${userDoc.name}, you were handed it. There is no appeal.\n`
         + `📖 ${story()}`,
@@ -1736,7 +1741,7 @@ const commands = [];
 
       await reply(
         `🕯️ **A CONFESSION**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `> ${text}\n\n`
         + `— anonymous, ${cfg.confessions.length} on the wall\n`
         + `📖 ${story()}`,
@@ -1792,7 +1797,7 @@ const commands = [];
 
       await reply(
         `💣 **QUOTE BOMB**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n\n`
         + `⚠️ None of them said any of this. That is the joke.\n`
         + `📈 Chat level ${cfg.level} · ${num(cfg.msgs)} messages\n`
@@ -1812,6 +1817,7 @@ const commands = [];
     category: 'group',
     description: '⬇️ Give this chat its own command prefix',
     usage: '!setprefixgc <prefix|none>',
+    hint: 'Per-chat prefix. After changing it, help pages pick it up automatically.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, config, event, reply, react }) => guard(reply, event.messageID, 'setprefixgc', async () => {
@@ -1875,7 +1881,7 @@ const commands = [];
 
       await reply(
         `💥 **THIS CHAT HAS BEEN RESET.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + '👋 Welcome · 🚪 Goodbye · 📜 Policy\n'
         + '🔗 Ant-link · 🛡️ Anti-raid · ⚔️ Warzone · 🔒 Lockdown\n'
         + '🚫 Bans · 👻 Ghostbans · 🔇 Mutes · 📈 Level · 👑 Domination\n\n'
@@ -1915,7 +1921,7 @@ const commands = [];
 
       await reply(
         `🎖️ **CHAT APPROVED.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🆔 ${group.tid}\n`
         + `✅ Enabled\n🎖️ Approved\n⏳ Pending: no\n`
         + `📖 ${story()}`,
@@ -1948,7 +1954,7 @@ const commands = [];
 
       await reply(
         `🚫 **APPROVAL PULLED.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🆔 ${group.tid}\n`
         + `⏸️ The bot is paused here.\n📖 ${reason}\n`
         + `📖 ${OWNER} revoked it. That is the whole appeal process.`,

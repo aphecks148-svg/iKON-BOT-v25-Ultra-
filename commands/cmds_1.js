@@ -25,6 +25,8 @@ const loader = require('../bot/loader');
 const { fmt, describeSendError, lastSent } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
 const userTarget = require('../bot/target');
+const decks = require('../bot/categories');
+const menu = require('../bot/helpmenu');
 
 const BOT_ICON = '🤖';
 const OWNER_ICON = '👑';
@@ -57,6 +59,7 @@ module.exports = [
     category: 'system',
     description: 'Test the full chain: LOGIN -> DB -> LOADER -> MESSAGE -> PARSER -> COMMAND -> REPLY',
     usage: '!ping',
+    hint: 'The full chain test: login, database, loader, parser and send, all in one line.',
     cooldown: 3,
     permission: 'all',
     execute: async ({ reply, react, event }) => {
@@ -77,55 +80,107 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'help',
-    aliases: ['h', 'menu', 'cmdlist'],
+    aliases: ['h', 'menu', 'cmdlist', 'commands'],
     category: 'system',
-    description: 'List all commands, or show details for one command',
-    usage: '!help [command]',
+    description: 'Browse every deck, or read one command in detail',
+    usage: '!help [deck] [page] | !help <command>',
+    hint: 'Start here. `!help <deck>` opens one category, `!help <command>` opens one command.',
     cooldown: 3,
     permission: 'all',
     execute: async ({ args, registry, reply, react, event, config }) => guard(reply, event.messageID, 'help', async () => {
-      await react('📖');
+      const prefix = config.PREFIX;
+      const all = [...registry.values()];
+      const byCategory = decks.group(all);
+      const want = String(args[0] || '').trim().toLowerCase();
 
-      const target = (args[0] || '').toLowerCase();
-      if (target) {
-        const resolved = lookup(registry, target);
-        if (!resolved) {
-          await reply(`❌ No command called \`${target}\`. Try \`${config.PREFIX}help\`.`, event.messageID);
-          return;
-        }
-        const perms = {
-          all: 'Everyone',
-          owner: 'Bot owner only',
-          groupAdmin: 'Group admins',
-        };
+      // ── a deck, by its actual name ────────────────────────
+      // Only the deck's own key or label counts here. `economy` is both a deck
+      // and a command, and the index advertises `!help economy` as the deck, so
+      // that spelling has to open the deck — the collision is called out on the
+      // page itself, leaving the command one `!help cmd economy` away.
+      const cat = decks.findExact(want);
+      if (cat) {
+        await react(cat.emoji);
+        const pages = menu.paginate(byCategory.get(cat.key) || [], prefix);
+        const page = Math.min(Math.max(1, Number.parseInt(args[1], 10) || 1), pages.length);
         await reply(
-          `📖 ${config.PREFIX}${resolved.name}\n`
-          + `🏷 Category: ${resolved.category}\n`
-          + `📝 ${resolved.description}\n`
-          + `💬 Usage: ${resolved.usage}\n`
-          + `⏱ Cooldown: ${resolved.cooldown}s\n`
-          + `🔒 Permission: ${perms[resolved.permission] || resolved.permission}\n`
-          + `🔗 Aliases: ${resolved.aliases.length ? resolved.aliases.join(', ') : 'none'}`,
+          menu.categoryPage({
+            cat,
+            // The commands for THIS page. Passing the whole deck here is what
+            // made `!help pets` a 3,200-character wall while its own footer
+            // claimed "Page 1 of 2".
+            commands: pages[page - 1],
+            prefix,
+            page,
+            pages: pages.length,
+            collidesWith: registry.has(cat.key),
+          }),
           event.messageID,
         );
         return;
       }
 
-      const all = [...registry.values()];
-      const categories = [...new Set(all.map((c) => c.category))];
-
-      const lines = [`📖 ${config.BOT_NAME} — ${all.length} commands available`, ''];
-      for (const cat of categories) {
-        const list = all.filter((c) => c.category === cat);
-        lines.push(`━━ ${cat.toUpperCase()} (${list.length}) ━━`);
-        // Chunk into rows of 4 so the list stays readable on a phone.
-        for (let i = 0; i < list.length; i += 4) {
-          lines.push(list.slice(i, i + 4).map((c) => `\`${c.name}\``).join('  '));
+      // ── one command, by its exact name ────────────────────
+      // Checked before the loose category words on purpose. `kick` is listed in
+      // Group's lookfor words, so letting those win made `!help kick` open all
+      // 34 commands in the deck instead of the one command being asked about.
+      if (want) {
+        const name = String((want === 'cmd' ? args[1] : args[0]) || '').toLowerCase();
+        const resolved = lookup(registry, name);
+        if (resolved) {
+          await react(menu.iconFor(resolved));
+          await reply(menu.commandPage({ cmd: resolved, prefix }), event.messageID);
+          return;
         }
-        lines.push('');
+
+        // Not a command. It may still be a deck someone knows by its subject
+        // rather than its name — "street" for Street Life, "hunt" for a deck.
+        const loose = decks.find(want);
+        if (loose) {
+          await react(loose.emoji);
+          const list = byCategory.get(loose.key) || [];
+          const pages = menu.paginate(list, prefix);
+          await reply(
+            menu.categoryPage({
+              cat: loose,
+              commands: pages[0],
+              prefix,
+              page: 1,
+              pages: pages.length,
+              collidesWith: registry.has(loose.key),
+            }),
+            event.messageID,
+          );
+          return;
+        }
+
+        await react('🔍');
+        await reply(menu.noSuchThing({ query: name, prefix }), event.messageID);
+        return;
       }
-      lines.push(`Type \`${config.PREFIX}help <command>\` for details.`);
-      await reply(lines.join('\n'), event.messageID);
+
+      // ── the front page ────────────────────────────────────
+      await react('📚');
+      const aliases = all.reduce((n, c) => n + (c.aliases || []).length, 0);
+      await reply(
+        menu.indexPage({ byCategory, total: all.length, prefix, botName: config.BOT_NAME, aliases }),
+        event.messageID,
+      );
+    }),
+  },
+
+  {
+    name: 'hints',
+    aliases: ['tips', 'hint'],
+    category: 'system',
+    description: 'Shortcuts and habits that make the whole bot easier to use',
+    usage: '!hints',
+    hint: 'Every tip here is a habit, not a command — the commands are in `!help`.',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ config, reply, react, event }) => guard(reply, event.messageID, 'hints', async () => {
+      await react('💡');
+      await reply(menu.hintsPage({ prefix: config.PREFIX }), event.messageID);
     }),
   },
 
@@ -138,13 +193,14 @@ module.exports = [
     category: 'system',
     description: 'Show bot name, owner, uptime and command count',
     usage: '!botinfo',
+    hint: 'Uptime, version, database state and the live send counters.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ config, registry, reply, react, event }) => guard(reply, event.messageID, 'botinfo', async () => {
       await react(BOT_ICON);
       await reply(
         `${BOT_ICON} ${config.BOT_NAME}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${OWNER_ICON} Owner: ${config.OWNER}\n`
         + `🏷 Version: v${config.VERSION}\n`
         + `⏱ Uptime: ${dur(process.uptime())}\n`
@@ -204,7 +260,7 @@ module.exports = [
       ]);
       await reply(
         `📊 ${'BOT'} database stats\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👤 Users: ${users}\n`
         + `👥 Groups: ${groups}\n`
         + `✅ Approved groups: ${approved}\n`
@@ -223,12 +279,13 @@ module.exports = [
     category: 'system',
     description: 'Show your Facebook ID and this thread ID',
     usage: '!id',
+    hint: 'Your Facebook id and this chat\'s id. Moderation commands accept either.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ event, reply }) => guard(reply, event.messageID, 'id', async () => {
       await reply(
         '🆔 IDs\n'
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👤 Your ID: ${event.senderID}\n`
         + `💬 Thread ID: ${event.threadID}\n`
         + `📨 Message ID: ${event.messageID}\n`
@@ -264,7 +321,7 @@ module.exports = [
       const real = u.transient ? 'offline (not saved)' : 'saved';
       await reply(
         `👤 Profile\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `Name: ${liveName || u.name || 'Unknown'}\n`
         + `ID: ${event.senderID}\n`
         + `⭐ Level: ${u.level ?? 1}\n`
@@ -317,7 +374,7 @@ module.exports = [
 
       await reply(
         `👥 Group info\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `Name: ${info.threadTitle || info.name || 'Unknown'}\n`
         + `Members: ${members.length}\n`
         + `Admins: ${admins.length}\n`
@@ -348,7 +405,7 @@ module.exports = [
       const owners = permissions.ownerIds();
       const lines = [
         `${OWNER_ICON} Bot admins (${owners.length})`,
-        '━━━━━━━━━━━━━━━',
+        '· · · · · · ·',
         ...(owners.length ? owners.map((id) => `• ${id}`) : ['• none configured — set ADMIN_IDS in the Render environment']),
       ];
 
@@ -608,6 +665,7 @@ module.exports = [
     category: 'system',
     description: 'Show which commands are enabled or disabled in this group',
     usage: '!listcmds',
+    hint: 'What is on and off in this chat. Off means an admin switched it off for this group only.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ event, registry, reply }) => guard(reply, event.messageID, 'listcmds', async () => {
@@ -624,7 +682,7 @@ module.exports = [
 
       const lines = [
         `⚙️ Commands in this group (${all.length} total)`,
-        '━━━━━━━━━━━━━━━',
+        '· · · · · · ·',
         `✅ Enabled: ${enabled.length}`,
         ...chunk(enabled.map((c) => `\`${c.name}\``), 4),
         '',
@@ -644,6 +702,7 @@ module.exports = [
     category: 'system',
     description: 'Show all 10 command modules and how many commands each holds',
     usage: '!listmods',
+    hint: 'Which of the ten modules are loaded, and how many commands each holds.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ event, registry, reply }) => guard(reply, event.messageID, 'listmods', async () => {
@@ -654,7 +713,7 @@ module.exports = [
         (group ? group.disabledModules || [] : []).forEach((m) => disabled.add(m));
       }
 
-      const lines = ['📦 Modules (target 35 each)', '━━━━━━━━━━━━━━━'];
+      const lines = ['📦 Modules (target 35 each)', '· · · · · · ·'];
       let total = 0;
       for (let i = 1; i <= 10; i += 1) {
         const key = `cmds_${i}`;
@@ -895,7 +954,7 @@ module.exports = [
       const status = mongo.status();
       await reply(
         '⚙️ Configuration (secrets hidden)\n'
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `Bot name: ${config.BOT_NAME}\n`
         + `Owner: ${config.OWNER}\n`
         + `Version: ${config.VERSION}\n`
@@ -905,16 +964,16 @@ module.exports = [
         + `Cache TTL: ${Math.round((config.CACHE_TTL || 0) / 1000)}s\n`
         + `Environment: ${config.NODE_ENV}\n`
         + `Port: ${config.PORT}\n`
-        + '──── database ────\n'
+        + '💾 database\n'
         + `Connected: ${status.connected ? 'yes' : 'no'}\n`
         + `Host: ${maskHost(config.MONGO_URI)}\n`
-        + '──── facebook ────\n'
+        + '📡 facebook\n'
         + `Cookies: ${config.APPSTATE.length} loaded (values hidden)\n`
         + `Admins: ${permissions.ownerIds().length}\n`
         // Loud when empty, because with no ADMIN_IDS every owner-only command
         // is silently unreachable and the bot looks broken rather than locked.
         + (permissions.ownerIds().length ? '' : '⚠️ none configured — set ADMIN_IDS in the Render environment\n')
-        + '──── ai ────\n'
+        + '🧠 ai\n'
         + `Gemini: ${config.GEMINI_API_KEY ? 'configured' : 'not set'}\n`
         // The live model, not just the configured one: the client falls back
         // when the configured model is unavailable to the key's project.
@@ -946,7 +1005,7 @@ module.exports = [
 
       await reply(
         `🩺 ${config.BOT_NAME} status: ${ok ? 'HEALTHY' : 'DEGRADED'}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🔌 Facebook login: ${ik.STATE.loggedIn ? 'connected' : 'not logged in'}\n`
         + `💾 Database: ${mongo.isReady() ? `ready (${dbLatency}ms)` : 'offline'}\n`
         + `📚 Commands: ${ik.registry.size} loaded, ${ik.aliases.size} aliases\n`
@@ -984,7 +1043,7 @@ module.exports = [
       await reply(
         `🏷 ${config.BOT_NAME} v${pkg.version}\n`
         + `Engine: node >=20 | ${process.version}\n`
-        + '━━━━ dependencies ━━━━\n'
+        + '📦 dependencies\n'
         + deps,
         event.messageID,
       );
@@ -1006,7 +1065,7 @@ module.exports = [
       await react(OWNER_ICON);
       await reply(
         `${OWNER_ICON} Bot owner\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `Name: ${config.OWNER}\n`
         + `Role: Developer of ${config.BOT_NAME}\n`
         + `Bot version: v${config.VERSION}\n`
@@ -1031,7 +1090,7 @@ module.exports = [
       await react('🆘');
       await reply(
         '🆘 Support\n'
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `Owner: ${config.OWNER}\n`
         + '• Report bugs with the exact command you ran.\n'
         + `• Built-in help: \`${config.PREFIX}help\`\n`
@@ -1109,7 +1168,7 @@ module.exports = [
 
       const lines = [
         '🔍 Registry check',
-        '━━━━━━━━━━━━━━━',
+        '· · · · · · ·',
         `Commands: ${ik.registry.size}`,
         `Aliases: ${ik.aliases.size}`,
         `Categories: ${categories}`,
@@ -1159,7 +1218,7 @@ module.exports = [
       }
 
       const passed = results.filter((r) => r.passed).length;
-      const lines = [`🧪 Self test — ${passed}/${results.length} passed`, '━━━━━━━━━━━━━━━'];
+      const lines = [`🧪 Self test — ${passed}/${results.length} passed`, '· · · · · · ·'];
       results.forEach((r) => lines.push(`${r.passed ? '✅' : '❌'} ${r.label}`));
       await reply(lines.join('\n'), event.messageID);
     }),
@@ -1174,6 +1233,7 @@ module.exports = [
     category: 'system',
     description: 'Ban a user from using the bot (tag, mention or numeric ID)',
     usage: '!ban <user> [reason]',
+    hint: 'Blocks someone from using the bot at all. To unban the same person, tag them for `!unban` too.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'ban', async () => {
@@ -1237,6 +1297,7 @@ module.exports = [
     category: 'system',
     description: 'Lift a ban so a user can use the bot again',
     usage: '!unban <user>',
+    hint: 'Use a tag. Searching by name alone used to be the only option, which is why nobody could be unbanned.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'unban', async () => {
@@ -1292,7 +1353,7 @@ module.exports = [
 
       const parts = [
         '⏱ Advanced ping',
-        '━━━━━━━━━━━━━━━',
+        '· · · · · · ·',
         `🤖 Engine: ${engineMs}ms`,
         `💾 Database: ${dbMs === null ? 'offline' : `${dbMs}ms`}`,
         `⏳ Bot uptime: ${dur(process.uptime())}`,

@@ -661,7 +661,7 @@ const commands = [];
       await react('💚');
       await reply(
         `🤗 **${userDoc.name} HUGGED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💚 +${kc(got)}${petBonus ? ` (includes +${petBonus} pet bonus${pet && pet.name ? ` — ${pet.name}` : ''})` : ''}\n`
         + `👛 Their wallet: ${kc(who.coins)}\n`
         + `📖 _This is a message and a transfer. Nobody was hugged._`,
@@ -722,7 +722,7 @@ const commands = [];
       await react('💢');
       await reply(
         `👋 **${userDoc.name} SLAPPED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 They lost ${kc(lost.took)}${lost.short ? ' (that is everything they had)' : ''}\n`
         + `💰 You took ${kc(stole)}\n`
         + `👛 Their wallet: ${kc(who.coins)}\n`
@@ -783,7 +783,7 @@ const commands = [];
       await react('❤️');
       await reply(
         `💋 **${userDoc.name} KISSED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(rand(10, 95), '❤️ LOVE METER')}\n`
         + `${petLine}\n`
         + `👛 Your wallet: ${kc(userDoc.coins)}\n`
@@ -852,7 +852,7 @@ const commands = [];
       const pct = Math.min(100, scored.score);
       await reply(
         `💘 **${a.name} x ${b.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(pct, '💘 SHIP SCORE')}\n`
         + `➕ +${added} from ${userDoc.name}\n`
         + `📈 Total: ${num(scored.score)}\n`
@@ -900,7 +900,7 @@ const commands = [];
       await react('🙌');
       await reply(
         `🫶 **${userDoc.name} PATTED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💚 +${kc(lift)}\n`
         + `👛 Their wallet: ${kc(who.coins)}\n`
         + `📖 _A gentle message. Genuinely harmless._`,
@@ -945,7 +945,7 @@ const commands = [];
       await react('☁️');
       await reply(
         `🧸 **${userDoc.name} CUDDLED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(shared, '☁️ COZY METER')}\n`
         + (pet
           ? `🐾 ${pet.name} got involved immediately and ruined it.`
@@ -995,7 +995,7 @@ const commands = [];
       await react('💥');
       await reply(
         `👊 **${userDoc.name} PUNCHED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 They lost ${kc(lost.took)}\n`
         + `🤕 You lost ${kc(youGot.took)} in the rebound\n`
         + `👛 Their wallet: ${kc(who.coins)}\n`
@@ -1043,7 +1043,7 @@ const commands = [];
       await react('🔒');
       await reply(
         `💫 **BONK!**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${userDoc.name} bonked ${who.name} into horny jail.\n`
         + `🔒 3 minutes. No appeals.\n`
         + `👛 Your wallet: ${kc(userDoc.coins)}\n`
@@ -1089,7 +1089,7 @@ const commands = [];
       await react('🩸');
       await reply(
         `🔪 **${userDoc.name} STABBED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🔪 With ${weapon}.\n`
         + `💸 They lost ${kc(lost.took)}\n`
         + `👛 Their wallet: ${kc(who.coins)}\n`
@@ -1159,7 +1159,7 @@ const commands = [];
       await react('⚰️');
       await reply(
         `💀 **${userDoc.name} KILLED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🔪 Cause of death: ${method[0]}. ${method[1]}.\n`
         + `💸 They lost ${kc(lost.took)}\n`
         + `👛 Their wallet: ${kc(who.coins)}\n`
@@ -1211,7 +1211,7 @@ const commands = [];
       await react('🪓');
       await reply(
         `🚪 **${userDoc.name} KICKED ${who.name} FROM THE CHAT**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📄 Reason: ${pick1(reasons)}.\n`
         + `💸 They lost ${kc(lost.took)}\n`
         + `👛 Their wallet: ${kc(who.coins)}\n`
@@ -1256,7 +1256,7 @@ const commands = [];
       await react('💫');
       await reply(
         `🚀 **${userDoc.name} YEETED ${who.name} INTO THE SUN**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + '📍 Trajectory: up and to the left, mostly.\n'
         + `💸 They lost ${kc(lost.took)}\n`
         + `👛 Their wallet: ${kc(who.coins)}\n`
@@ -1303,7 +1303,7 @@ const commands = [];
       await react('💀');
       await reply(
         `🔥 **${userDoc.name} ROASTED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${line}\n\n`
         + `👛 Your wallet: ${kc(userDoc.coins)}\n`
         + '📖 _Pre-written. No AI was involved in this one._',
@@ -1347,7 +1347,7 @@ const commands = [];
       await react('🙃');
       await reply(
         `🪞 **${userDoc.name} COMPLIMENTED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${line}\n\n`
         + `👛 Your wallet: ${kc(userDoc.coins)}\n`
         + '📖 _Mean it however you want._',
@@ -1394,7 +1394,7 @@ const commands = [];
       await react('📂');
       await reply(
         `🕵️ **EXPOSED: ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💀 Kills: ${num(t.kills)} · Stabs: ${num(t.stabs)} · Slaps dealt: ${num(t.slaps)}\n`
         + `🔥 Roasts: ${num(t.roasts)} · Dares failed: ${num(t.daresFailed)}\n`
         + `🤗 Hugs received: ${num(t.giftsIn)} · Given: ${num(t.giftsOut)}\n`
@@ -1473,7 +1473,7 @@ const commands = [];
         await save(userDoc);
         await reply(
           `💍 **DIVORCE. MARRIAGE. ALL IN ONE NIGHT.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `💸 -5,000 to leave ${(current && current.name) || 'your old spouse'}\n`
           + `💑 ${userDoc.name} is now married to ${who.name}\n`
           + `👛 Your wallet: ${kc(userDoc.coins)}\n`
@@ -1528,7 +1528,7 @@ const commands = [];
       if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
       await reply(
         `💍 **${userDoc.name} MARRIED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 -5,000\n`
         + `💑 Both sides now point at each other.\n`
         + `👛 Your wallet: ${kc(userDoc.coins)}\n`
@@ -1580,7 +1580,7 @@ const commands = [];
       await react('🗑️');
       await reply(
         `💔 **${userDoc.name} DIVORCED ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 -10,000\n`
         + `📅 It lasted ${num(years)} day(s).\n`
         + `👛 Your wallet: ${kc(userDoc.coins)}\n`
@@ -1674,7 +1674,7 @@ const commands = [];
 
       await reply(
         `💑 **THE COUPLES (${rows.length})**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${rows.slice(0, 15).join('\n')}\n`
         + (rows.length > 15 ? `…and ${rows.length - 15} more.\n` : '')
         + (mine ? `\n💖 You are married to ${mine.name}.` : '\n💔 You are single. 5,000 fixes that.'),
@@ -1748,7 +1748,7 @@ const commands = [];
       await react('✨');
       await reply(
         `🫂 **${userDoc.name} + ${who.name}: BESTIES**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(Math.min(100, scored.score), '🫂 BFF SCORE')}\n`
         + `➕ +${added}\n`
         + `📈 Total: ${num(scored.score)}\n`
@@ -1822,7 +1822,7 @@ const commands = [];
       await react('🔥');
       await reply(
         `⚔️ **${userDoc.name} vs ${who.name}: ENEMIES**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(Math.min(100, scored.score), '⚔️ RIVALRY')}\n`
         + `➕ +${added}\n`
         + `📈 Total: ${num(scored.score)}\n`
@@ -1870,7 +1870,7 @@ const commands = [];
 
       await reply(
         `☣️ **${who.name} — TOXICITY**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(perMsg, level)}\n`
         + `💬 Group messages tracked: ${num(msgs)}\n`
         + `⌨️ Commands run: ${num(tox)}\n`
@@ -1913,7 +1913,7 @@ const commands = [];
 
       await reply(
         `🥀 **${who.name} — SIMP METER**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(scorePct, verdict)}\n`
         + `💸 Given away: ${num(out)} coins of affection\n`
         + `🎁 Received: ${num(incoming)}\n`
@@ -1951,7 +1951,7 @@ const commands = [];
 
       await reply(
         `🕵️ **${who.name} — SUS METER**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(scorePct, verdict)}\n`
         + `💀 Fake kills: ${num(t.kills)} (+${clamp(t.kills) * 12})\n`
         + `🔪 Stabs: ${num(t.stabs)} (+${clamp(t.stabs) * 9})\n`
@@ -1994,7 +1994,7 @@ const commands = [];
 
       await reply(
         `😏 **${who.name} — RIZZ**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(scorePct, verdict)}\n`
         + `🐾 ${pet ? `${pet.emoji || '🐾'} ${pet.name} — ${num(petPowerN)} pwr` : 'no pet. that is most of the problem.'}\n`
         + `💸 Gifts sent: ${num(t.giftsOut)} · 🤗 Hugs: ${num(t.hugs)} · 💋 Kisses: ${num(t.kisses)}\n\n`
@@ -2032,7 +2032,7 @@ const commands = [];
 
       await reply(
         `😬 **${who.name} — CRINGE METER**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(scorePct, verdict)}\n`
         + `🎭 Public attempts: ${num(attempts)}\n`
         + `🔥 Roasts ${num(t.roasts)} · 🪞 Compliments ${num(t.compliments)} · 💪 Flexes ${num(t.flexes)} · 💀 Kills ${num(t.kills)} · 🚀 Yeets ${num(t.yeets)}\n`
@@ -2088,7 +2088,7 @@ const commands = [];
 
       await reply(
         `⚡ **${who.name} — AURA ${aura > 0 ? '+' : ''}${num(aura)} / 1000**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${meter(Math.round((aura + 1000) / 20), title)}\n`
         + `💰 Wallet: ${kc(who.coins)} (${wealth > 0 ? '+' : ''}${num(wealth)})\n`
         + `🐾 Pet power: ${num(petPowerN)} (${petPowerN > 0 ? '+' : ''}${num(Math.round(petPowerN * 0.1))})\n`
@@ -2153,7 +2153,7 @@ const commands = [];
       if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
       await reply(
         `💪 **${userDoc.name} IS FLEXING**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👛 ${kc(userDoc.coins)}${rank ? ` · rank #${num(rank)}` : ''}\n`
         + `🐾 ${pet ? `${pet.emoji || '🐾'} ${pet.name} — ${num(petPower(pet))} pwr` : 'no pet'}\n`
         + `💸 -${kc(FEES.flex)} to post this\n\n`
@@ -2206,7 +2206,7 @@ const commands = [];
       if (!args[0] && open) {
         await reply(
           `🎯 **YOU HAVE A DARE OPEN**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `😈 **${open.dare}**\n`
           + `🎯 ${open.by} dared you.\n`
           + `⏱️ ${Math.max(1, Math.ceil((open.expires - Date.now()) / 1000))}s left.\n\n`
@@ -2224,7 +2224,7 @@ const commands = [];
           await save(userDoc);
           await reply(
             `✅ **DARE DONE.**\n`
-            + '━━━━━━━━━━━━━━━\n'
+            + '· · · · · · ·\n'
             + `😈 It was: *${open.dare}*\n`
             + `🎯 ${open.by} dared you and you did it.\n`
             + '📖 _Nobody checked. You are trusted, which is a mistake but an honest one._',
@@ -2245,7 +2245,7 @@ const commands = [];
         await save(userDoc);
         await reply(
           `💸 **WEASELLED OUT.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `😈 It was: *${open.dare}*\n`
           + `💸 -500 to ${open.by}\n`
           + `👛 Your wallet: ${kc(userDoc.coins)}\n`
@@ -2283,7 +2283,7 @@ const commands = [];
       await react('😈');
       await reply(
         `🎯 **${userDoc.name} DARES ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `😈 **${open_dare_line(dare)}**\n\n`
         + `⏱️ 2 minutes.\n`
         + `▶️ \`!dare done\` to do it, \`!dare no\` to weasel out for 500.\n`
@@ -2310,7 +2310,7 @@ const commands = [];
       cache.putPendingGame('truth', event.threadID, '', { q, by: userDoc.name });
       await reply(
         `🫢 **TRUTH**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `❓ **${q}**\n\n`
         + `👤 ${userDoc.name} asked.\n`
         + '📖 _Answer in the chat. There is no enforcement and no punishment._',
@@ -2348,7 +2348,7 @@ const commands = [];
         if (!total) {
           await reply(
             `📊 **NOBODY VOTED.**\n`
-            + '━━━━━━━━━━━━━━━\n'
+            + '· · · · · · ·\n'
             + `1️⃣ ${open.pair[0]}\n`
             + `2️⃣ ${open.pair[1]}\n\n`
             + 'The chat has chosen nothing, loudly.',
@@ -2360,7 +2360,7 @@ const commands = [];
         const pct = Math.round((Math.max(one, two) / total) * 100);
         await reply(
           `📊 **THE CHAT HAS SPOKEN**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `1️⃣ ${open.pair[0]} — ${num(one)} vote(s)\n`
           + `2️⃣ ${open.pair[1]} — ${num(two)} vote(s)\n\n`
           + (winner === null
@@ -2376,7 +2376,7 @@ const commands = [];
       cache.putPendingGame('wyr', event.threadID, '', { pair, votes: {} });
       await reply(
         `🤔 **WOULD YOU RATHER**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `1️⃣ ${pair[0]}\n`
         + `2️⃣ ${pair[1]}\n\n`
         + `👤 ${userDoc.name} started it. 2 minutes. Neither option is safe.\n`
@@ -2406,7 +2406,7 @@ const commands = [];
         const answered = clamp(open.answered);
         await reply(
           `📊 **THE TALLY**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `❓ *${open.item}*\n`
           + `🙋 ${num(answered)} people said they were still here.\n\n`
           + `${answered === 0 ? 'The silence is the answer.' : 'And the chat continues regardless.'}\n`
@@ -2420,7 +2420,7 @@ const commands = [];
       cache.putPendingGame('nhi', event.threadID, '', { item, by: userDoc.name, answered: 0 });
       await reply(
         `🍻 **NEVER HAVE I EVER**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `❓ Never have I ever **${item}**?\n\n`
         + `👤 ${userDoc.name} asked. 2 minutes.\n`
         + '📖 _Self-reporting only. There is no way to check anybody._',
@@ -2465,7 +2465,7 @@ const commands = [];
       cache.putPendingGame('2t1l', event.threadID, '', { order, truths: picked, lie: line });
       await reply(
         `🃏 **TWO TRUTHS, ONE LIE**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${order.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n`
         + `👤 ${userDoc.name}. Pick the lie.\n`
         + '📖 _The first two are read from your own record. Only one of the three is invented._',
@@ -2495,7 +2495,7 @@ const commands = [];
       const fact = pick1(FACT_TEMPLATES)(f(who));
       await reply(
         `🧾 **FACT ABOUT ${who.name.toUpperCase()}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${fact}\n\n`
         + `👛 Their wallet: ${kc(who.coins)}\n`
         + '📖 _True, in the sense that it is a number from their own account._',
@@ -2531,7 +2531,7 @@ const commands = [];
       const line = pick1(PICKUP_LINES);
       await reply(
         `💘 **${userDoc.name} → ${who.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `"${line}"\n\n`
         + `👛 Your wallet: ${kc(userDoc.coins)}\n`
         + '📖 _Pre-written. There is no AI in this module._',
@@ -2593,7 +2593,7 @@ const commands = [];
 
       await reply(
         `👨‍👩‍👧‍👦 **THE iKON FAMILY**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👑 **${OWNER}** — founder, and the only person who cannot be removed.\n`
         + `💍 ${num(Math.floor(married / 2))} married couple(s) in the database.\n`
         + `👥 ${num(pets)} hunter(s) on record.\n\n`

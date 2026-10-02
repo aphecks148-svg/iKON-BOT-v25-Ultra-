@@ -262,7 +262,7 @@ module.exports = [
 
       await reply(
         `💳 **${userDoc.name || 'Hunter'}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👛 Wallet: ${kc(coins)}\n`
         + `🏦 Vault: ${kc(bank)}\n`
         + `💎 Net worth: ${kc(coins + bank)}\n`
@@ -282,6 +282,7 @@ module.exports = [
     category: 'economy',
     description: "🏦 Your secure vault - Coins in bank can't be robbed",
     usage: '!bank',
+    hint: 'Coins in the vault cannot be robbed. Moving money in is one command and worth doing early.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'bank', async () => {
@@ -289,7 +290,7 @@ module.exports = [
       const bank = userDoc.bank || 0;
       await reply(
         `🏦 **iKON VAULT — ${userDoc.name || 'Hunter'}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🔐 Secured: ${kc(bank)}\n`
         + `👛 Loose cash: ${kc(userDoc.coins || 0)}\n`
         + `🛡️ Robbers cannot touch vault money.\n`
@@ -385,6 +386,7 @@ module.exports = [
     aliases: [],
     description: '🎁 Daily blessing from Owner Aphecks - Claim 10,000 K-Cash every 24h',
     usage: '!daily',
+    hint: '10,000 K-Cash every 24 hours. Miss a day and the streak is gone, so claim it early.',
     amount: PAYOUT.daily,
     periodMs: 86400000,
     icon: '🎁',
@@ -399,6 +401,7 @@ module.exports = [
     category: 'economy',
     description: '💼 Work at iKON factory - Earn 500-1500 and 50 XP, honest living',
     usage: '!work',
+    hint: 'The honest income. 500-1500 plus XP, and it never fails — unlike the casino.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'work', async () => {
@@ -558,6 +561,7 @@ module.exports = [
     category: 'economy',
     description: '🎰 Gamble at iKON Casino - 48% win chance, high risk high reward',
     usage: '!gamble <amount>',
+    hint: '48% win rate, so it loses more often than it wins. The house always wins eventually.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gamble', async () => {
@@ -717,6 +721,7 @@ module.exports = [
     category: 'economy',
     description: '🏆 Who runs iKON City? Top 10 richest hunters',
     usage: '!leaderboard',
+    hint: 'Top 10 by bank balance. Money sitting in `!bank` counts — not just pocket coins.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'leaderboard', async () => {
@@ -751,7 +756,7 @@ module.exports = [
       const lines = top.map((u, i) => `${medals[i] || `${i + 1}.`} ${u.name} — ${kc(u.coins)} (Lv ${u.level || 1})`);
       await reply(
         `🏆 **iKON CITY — RICHEST HUNTERS**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `💵 Total on display: ${kc(top.reduce((s, u) => s + (u.coins || 0), 0))}\n`
         + `📖 ${story()}`,
@@ -806,7 +811,7 @@ module.exports = [
       const lines = top.map((u, i) => `${medals[i] || `${i + 1}.`} ${u.name} — ${kc(u.bank)} (Lv ${u.level || 1})`);
       await reply(
         `🏦 **VAULT KINGS**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `🔐 Total locked away: ${kc(total)}\n`
         + `🛡️ Robbers read this list and change careers.\n`
@@ -825,6 +830,7 @@ module.exports = [
     category: 'economy',
     description: '🛒 iKON Black Market - Swords, shields, potions, diamonds',
     usage: '!shop',
+    hint: 'Swords and shields raise battle odds; potions and diamonds are what duelists actually spend.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'shop', async () => {
@@ -832,7 +838,7 @@ module.exports = [
       const lines = Object.entries(SHOP_ITEMS).map(([id, item]) => `${item.emoji} **${item.name}** — ${kc(item.price)}\n   \`!buy ${id} [qty]\``);
       await reply(
         `🛒 **iKON BLACK MARKET**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `💵 Resale value is only 50% — the market is greedy.\n`
         + `📖 ${story()}`,
@@ -941,6 +947,7 @@ module.exports = [
     category: 'economy',
     description: '🎒 Your backpack - What treasures you carry',
     usage: '!inventory',
+    hint: 'Your backpack. Items are stacks — the count is what matters, not how many rows it takes.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'inventory', async () => {
@@ -967,7 +974,7 @@ module.exports = [
 
       await reply(
         `🎒 **${userDoc.name || 'Hunter'}'s BACKPACK**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `💎 Gear value: ${kc(total)} (resale ${kc(Math.floor(total / 2))})\n`
         + `⚔️ RPG battles in cmds_3 will read this list.\n`
@@ -1073,6 +1080,7 @@ module.exports = [
     category: 'economy',
     description: '🎣 Fish at iKON Lake - Peaceful 200-1000, relax and earn',
     usage: '!fish',
+    hint: 'The calm one. Same money as hunting, none of the energy cost.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'fish', async () => {
@@ -1106,6 +1114,7 @@ module.exports = [
     category: 'economy',
     description: '🏹 Hunt monsters outside city - 300-1300 bounty per kill',
     usage: '!hunt',
+    hint: '300-1,300 bounty per kill, but it costs energy. Farming earns that energy back.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'hunt', async () => {
@@ -1145,6 +1154,7 @@ module.exports = [
     category: 'economy',
     description: '⛏️ Mine K-Crystals in caves - 200-1100 per ore',
     usage: '!mine',
+    hint: '200-1,100 per ore. The variance is wide, so mine several times before judging it.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'mine', async () => {
@@ -1375,6 +1385,7 @@ module.exports = [
     category: 'economy',
     description: '🏦 Bank wire - Transfer vault money to friends, safe transfer',
     usage: '!transfer <user> <amount>',
+    hint: 'Vault to vault, so it skips the robbery risk entirely. Sending to yourself is blocked.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'transfer', async () => {
@@ -1446,7 +1457,7 @@ module.exports = [
 
       await reply(
         `💎 **NET WORTH — ${userDoc.name || 'Hunter'}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👛 Wallet: ${kc(coins)}\n`
         + `🏦 Vault: ${kc(bank)}\n`
         + `🎒 Gear: ${kc(gear)}\n`
@@ -1617,7 +1628,7 @@ module.exports = [
 
       await reply(
         `🌐 **iKON CITY GDP**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💵 Loose K-Cash: ${kc(row.coins)}\n`
         + `🏦 Vaulted: ${kc(row.bank)}\n`
         + `💠 Total in circulation: ${kc(circulating)}\n`

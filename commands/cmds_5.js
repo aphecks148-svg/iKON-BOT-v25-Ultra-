@@ -254,7 +254,7 @@ async function bannedCheck(reply, userDoc, event) {
   if (left <= 0) return false;
   await reply(
     `🚫 **THE ARCADE HAS BANNED YOU**\n`
-    + '━━━━━━━━━━━━━━━\n'
+    + '· · · · · · ·\n'
     + `⏳ Back in ${fmt.dur(Math.ceil(left / 1000))}.\n`
     + `📖 You pulled the trigger. Do it again in an hour.`,
     event.messageID,
@@ -329,7 +329,7 @@ const commands = [];
 
       await reply(
         `🔤 **HANGMAN** — ${kc(bet)} on the line\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📝 ${word.split('').map(() => '_').join(' ')}\n`
         + `${'❤️'.repeat(6)}\n`
         + `💡 Guess a letter: \`!hangletter <a-z>\`\n`
@@ -383,7 +383,7 @@ const commands = [];
           await payout(userDoc, bet * 2, 'game:hangman_win', { word, bet });
           await reply(
             `🔤 🏆 **SOLVED** — ${word}\n`
-            + '━━━━━━━━━━━━━━━\n'
+            + '· · · · · · ·\n'
             + `📝 ${board}\n${'❤️'.repeat(lives)}\n`
             + `💰 +${kc(bet * 2)}\n`
             + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -396,7 +396,7 @@ const commands = [];
         cache.setGameState(event.senderID, 'hangman', state.payload, 5 * 60 * 1000);
         await reply(
           `🔤 ✅ **${guess}** is in the word.\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `📝 ${board}\n${'❤️'.repeat(lives)}\n`
           + `💡 Keep going: \`!hangletter <a-z>\``,
           event.messageID,
@@ -421,7 +421,7 @@ const commands = [];
       cache.setGameState(event.senderID, 'hangman', state.payload, 5 * 60 * 1000);
       await reply(
         `🔤 ❌ No **${guess}** in there.\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📝 ${board}\n${'❤️'.repeat(left)}\n`
         + `💡 Keep going: \`!hangletter <a-z>\``,
         event.messageID,
@@ -462,7 +462,7 @@ const commands = [];
       }
       await reply(
         `🧮 **MATH DUEL**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💵 Pot: ${kc(bet)}\n`
         + `⏳ ${target.name}: \`!mathaccept\` — add \`no\` to duck.`,
         event.messageID,
@@ -517,7 +517,7 @@ const commands = [];
 
       await reply(
         `🧮 **YOUR QUESTION**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `❓ What is ${n} + ${n}?\n`
         + `💵 Pot: ${kc(bet * 2)}\n`
         + `⏱️ 60 seconds. \`!mathsolve <number>\`\n`
@@ -557,7 +557,7 @@ const commands = [];
         await payout(userDoc, bet * 2, 'game:mathduel_win', { answer, bet });
         await reply(
           `✅ **${answer} — CORRECT**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `💰 +${kc(bet * 2)}\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
           + `📖 ${story()}`,
@@ -612,7 +612,7 @@ const commands = [];
         }, 10 * 60 * 1000);
         await reply(
           `⛓️ **CHAIN STARTED**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `📝 ${word}\n`
           + `▶️ Next word must start with **${word.slice(-1)}**. Break it and pay 200.\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -646,7 +646,7 @@ const commands = [];
       cache.setGameState(`chain:${event.threadID}`, 'chain', { open }, 10 * 60 * 1000);
       await reply(
         `⛓️ **${open.words.length} IN THE CHAIN**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📝 ${open.words.join(' → ')}\n`
         + `▶️ Next word must start with **${open.last}**.`,
         event.messageID,
@@ -703,7 +703,7 @@ const commands = [];
 
       await reply(
         `💣 **THE BOMB IS LIT**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `⏱️ It ticks down from ${ticks}. Nobody can defuse it — only pass it.\n`
         + `📮 ${userDoc.name}, you are holding it. Pass it with \`!passbomb\`.\n`
         + `🔁 Times lit in this chat: ${passes}\n`
@@ -763,7 +763,7 @@ const commands = [];
 
       await reply(
         `💣 **PASSED**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📮 ${target.name}, it is yours now. Pass it with \`!passbomb\`.\n`
         + `💵 It carries ${kc(group.gameBomb.amount)}\n`
         + `📖 ${story()}`,
@@ -809,7 +809,7 @@ const commands = [];
       }
       await reply(
         `⭕ **TIC-TAC-TOE**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💵 Pot: ${kc(bet)}\n`
         + `⏳ ${target.name}: \`!tttaccept\` — add \`no\` to duck.`,
         event.messageID,
@@ -1050,7 +1050,7 @@ const commands = [];
       }
       await reply(
         `♟️ **CHESS DUEL**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💵 Pot: ${kc(bet)}\n`
         + `⏳ ${target.name}: \`!chessaccept\` — add \`no\` to duck.`,
         event.messageID,
@@ -1107,7 +1107,7 @@ const commands = [];
 
       await reply(
         `♟️ **WHITE MOVES FIRST**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${chessBoard(board)}\n`
         + `♔ ${challenger.name} (white) vs ♚ ${userDoc.name} (black)\n`
         + `💵 Pot: ${kc(bet * 2)}\n`
@@ -1210,7 +1210,7 @@ const commands = [];
       const crown = `${moving === 'K' ? (side === 'w' ? '♔' : '♚') : (side === 'w' ? '♘' : '♞')}`;
       const winText = (who) => (
         `🏆 **${who} WINS** — the king is taken.\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${chessBoard(board)}\n`
         + `📖 ${story()}`
       );
@@ -1241,7 +1241,7 @@ const commands = [];
 
       await reply(
         `♟️ Move ${state.moves}: **${f1}${r1} → ${f2}${r2}**${captured ? ` — captured a ${captured === 'K' ? 'KING' : 'knight'}!` : ''}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${chessBoard(board)}\n`
         + `⏳ Next: ${isWhite ? state.bName : state.wName} (\`!chessplay <move>\`)`,
         event.messageID,
@@ -1287,7 +1287,7 @@ const commands = [];
 
       await reply(
         `🪙 **FLIP CHALLENGE**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💵 Pot: ${kc(bet)}\n`
         + `⏳ ${target.name}: \`!cfaccept\` — add \`no\` to duck.`,
         event.messageID,
@@ -1350,7 +1350,7 @@ const commands = [];
 
       await reply(
         `🪙 **IT CAME UP ${landed}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🏆 ${winner.name} takes ${kc(pot)}\n`
         + `👛 Wallet: ${kc(winner.coins)}\n`
         + `📖 ${story()}`,
@@ -1392,7 +1392,7 @@ const commands = [];
       }
       await reply(
         `🎲 **DICE WAR**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💵 Pot: ${kc(bet)}\n`
         + `⏳ ${target.name}: \`!dicewaraccept\` — add \`no\` to duck.`,
         event.messageID,
@@ -1452,7 +1452,7 @@ const commands = [];
 
       await reply(
         `🎲 ${userDoc.name}: ${mine} · ${challenger.name}: ${theirs}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🏆 ${winner.name} takes ${kc(pot)}\n`
         + `👛 Wallet: ${kc(winner.coins)}\n`
         + `📖 ${story()}`,
@@ -1494,7 +1494,7 @@ const commands = [];
       }
       await reply(
         `✊ **ROCK PAPER SCISSORS**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💵 Pot: ${kc(bet)}\n`
         + `⏳ ${target.name}: \`!rpsaccept rock|paper|scissors\` — add \`no\` to duck.`,
         event.messageID,
@@ -1577,7 +1577,7 @@ const commands = [];
       await recordLoss(loser, 'game:rps_loss');
       await reply(
         `✊ ${mine} vs ${theirs}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🏆 ${winner.name} takes ${kc(pot)}\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1618,7 +1618,7 @@ const commands = [];
       }
       await reply(
         `🃏 **POKER DUEL**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💵 Pot: ${kc(bet)}\n`
         + `⏳ ${target.name}: \`!pokeraccept\` — add \`no\` to duck.`,
         event.messageID,
@@ -1711,7 +1711,7 @@ const commands = [];
       await reply(
         `🃏 ${userDoc.name}: ${handName(mine)}\n`
         + `🃏 ${challenger.name}: ${handName(theirs)}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🏆 ${winner.name} takes ${kc(pot)}\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1751,7 +1751,7 @@ const commands = [];
         const rec = g(userDoc);
         await reply(
           `💀 **CLICK** — empty chamber.\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🟢 You walked away with ${kc(bet * 2)}\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
           + `🔥 Streak: ${rec.streak}\n`
@@ -1765,7 +1765,7 @@ const commands = [];
       await recordLoss(userDoc, 'game:rr_loss');
       await reply(
         `💥 **CLICK.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 -${kc(bet)}\n`
         + `🚫 The arcade has banned you for one hour.\n`
         + `📖 ${story()}`,
@@ -1805,7 +1805,7 @@ const commands = [];
 
       await reply(
         `🎴 **BLACKJACK**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🃏 You: ${show(hand)} = ${totalOf(hand)}\n`
         + `🃏 Dealer: ${label(dealer[0])} ?\n`
         + `💵 Pot: ${kc(bet * 2)}\n`
@@ -1840,7 +1840,7 @@ const commands = [];
       await reply(
         `🎴 You: ${show(hand)} = ${mine}\n`
         + `🃏 Dealer: ${show(dealer)} = ${theirs}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 -${kc(bet)}\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1882,7 +1882,7 @@ const commands = [];
         await payout(userDoc, all * 2, 'game:gambaall_win', { all });
         await reply(
           `🎰 **JACKPOT**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `💰 ${kc(all * 2)} off a ${kc(all)} stake\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
           + `📖 The house always smiles. That is the warning.`,
@@ -1897,7 +1897,7 @@ const commands = [];
       await ledger(userDoc.uid, 'game:gambaall_loss', 0, userDoc.coins, { lost: true });
       await reply(
         `🎰 **Nothing.**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💸 -${kc(all)}\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1930,7 +1930,7 @@ const commands = [];
         await payout(userDoc, bet * 3, 'game:anarchy_win', { bet, roll });
         await reply(
           `🌀 **THE ALGORITHM LIED.**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🎲 ${roll} — that should not have happened\n`
           + `💰 +${kc(bet * 3)}\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -2030,7 +2030,7 @@ const commands = [];
       cache.setGameState(event.senderID, 'quote', { author: q.author, bet }, 90 * 1000);
       await reply(
         `💬 **WHO SAID THIS?**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `"${q.text}"\n\n`
         + `💵 Pot: ${kc(bet * 2)}\n`
         + `⏱️ 90 seconds. \`!quoteanswer <name>\`\n`
@@ -2067,7 +2067,7 @@ const commands = [];
         await payout(userDoc, bet * 2, 'game:quote_win', { author, bet });
         await reply(
           `✅ **CORRECT** — ${author}\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `💰 +${kc(bet * 2)}\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
           + `📖 ${story()}`,
@@ -2109,7 +2109,7 @@ const commands = [];
       cache.setGameState(event.senderID, 'riddle', { answer: r.a, bet }, 120 * 1000);
       await reply(
         `🧩 **RIDDLE**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${r.q}\n\n`
         + `💵 Pot: ${kc(bet * 2)}\n`
         + `⏱️ 2 minutes. \`!riddleanswer <answer>\`\n`
@@ -2187,7 +2187,7 @@ const commands = [];
       cache.setGameState(event.senderID, 'trivia', { answer: t.a, bet }, 30 * 1000);
       await reply(
         `🧠 **TRIVIA SPRINT** — ${kc(bet)} on the line\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `❓ ${t.q}\n`
         + `⏱️ 30 seconds. \`!triviaanswer <answer>\`\n`
         + `📖 ${story()}`,
@@ -2248,7 +2248,7 @@ const commands = [];
 
       await reply(
         `📊 **${userDoc.name} — ARCADE RECORD**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🎮 Games played: ${num(played)}\n`
         + `🏆 Wins: ${num(rec.wins)} · 💀 Losses: ${num(rec.losses)}\n`
         + `📉 Win rate: ${rate}%\n`

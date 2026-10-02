@@ -34,6 +34,41 @@ const profile = require('./profile');
 const cards = require('./cards');
 const config = require('../config');
 const target = require('./target');
+const decks = require('./categories');
+const menu = require('./helpmenu');
+
+/** Box-drawing and block characters the house style forbids in a message. */
+const BOX_CHARS = /[\u2500-\u257F\u2580-\u259F]/;
+
+/**
+ * Every page the help system can produce, for the tests that assert on them.
+ * @returns {{name:string,text:string}[]}
+ */
+function renderAllPages(registry) {
+  const all = [...registry.values()];
+  const byCategory = decks.group(all);
+  const out = [{
+    name: 'index',
+    text: menu.indexPage({ byCategory, total: all.length, prefix: '!', botName: 'iKON-BOT', aliases: 384 }),
+  }];
+  for (const key of decks.ORDER) {
+    menu.paginate(byCategory.get(key) || [], '!').forEach((page, i) => {
+      out.push({
+        name: `deck:${key}#${i + 1}`,
+        text: menu.categoryPage({ cat: decks.get(key), commands: page, prefix: '!', page: i + 1, pages: menu.paginate(byCategory.get(key) || [], '!').length }),
+      });
+    });
+  }
+  // A command from each deck, so a per-command renderer bug in one category
+  // cannot hide behind the others.
+  for (const key of decks.ORDER) {
+    const cmd = (byCategory.get(key) || [])[0];
+    if (cmd) out.push({ name: `cmd:${cmd.name}`, text: menu.commandPage({ cmd, prefix: '!' }) });
+  }
+  out.push({ name: 'hints', text: menu.hintsPage({ prefix: '!' }) });
+  out.push({ name: 'nomatch', text: menu.noSuchThing({ query: 'zzzz', prefix: '!' }) });
+  return out;
+}
 
 const User = require('../models/User');
 const Group = require('../models/Group');
@@ -1354,6 +1389,253 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     }
     assert.strictEqual(broken.length, 0, broken.join('; '));
     return 'every target command has api in scope, so guard() cannot hide it';
+  });
+
+  // ── 25. the help deck ─────────────────────────────────────
+  await step('every category has a unique name, emoji, blurb and hint', () => {
+    const labels = new Set();
+    const emojis = new Set();
+    for (const cat of decks.CATEGORIES) {
+      assert.ok(cat.label && cat.label.length > 3, `${cat.key}: needs a real name`);
+      assert.ok(cat.emoji && cat.emoji.trim(), `${cat.key}: needs an emoji`);
+      assert.ok(cat.symbol && cat.symbol.trim().length <= 2, `${cat.key}: symbol must be a glyph, not a word`);
+      assert.ok(cat.blurb && cat.blurb.length > 15, `${cat.key}: needs a blurb`);
+      assert.ok(cat.hint && cat.hint.length > 15, `${cat.key}: needs a hint`);
+      // "unique category names" was the ask, so a duplicate label is a bug.
+      assert.ok(!labels.has(cat.label.toLowerCase()), `duplicate label "${cat.label}"`);
+      assert.ok(!emojis.has(cat.emoji), `duplicate emoji "${cat.emoji}"`);
+      labels.add(cat.label.toLowerCase());
+      emojis.add(cat.emoji);
+    }
+    assert.strictEqual(decks.CATEGORIES.length, 10, 'ten decks, one per module');
+    return `${labels.size} unique labels, ${emojis.size} unique emojis`;
+  });
+
+  await step('every category in use has display metadata', () => {
+    // A typo in a category name used to produce a silent new category. It would
+    // now produce a section with a bare word where a name should be.
+    const unknown = decks.unknownKeys([...loaded.registry.values()].map((c) => c.category));
+    assert.strictEqual(unknown.length, 0, `no display metadata for: ${unknown.join(', ')}`);
+    // And the reverse: no deck in the table is empty, or !help advertises a
+    // deck that opens to nothing.
+    const byCat = decks.group([...loaded.registry.values()]);
+    for (const key of decks.ORDER) {
+      assert.ok((byCat.get(key) || []).length > 0, `deck "${key}" is advertised but holds nothing`);
+    }
+    return 'all ten decks resolve to a name and hold commands';
+  });
+
+  await step('a deck is findable by its key, its name and a loose word', () => {
+    for (const cat of decks.CATEGORIES) {
+      assert.strictEqual(decks.find(cat.key), cat, `${cat.key} must find itself`);
+      assert.strictEqual(decks.find(cat.label), cat, `"${cat.label}" must find itself`);
+      // No spaces, wrong case — how people actually type.
+      assert.strictEqual(decks.find(cat.label.replace(/\s/g, '')), cat, `"${cat.label}" without spaces`);
+      assert.strictEqual(decks.find(cat.label.toUpperCase()), cat, 'case must not matter');
+    }
+    assert.strictEqual(decks.find('nothing like this'), null);
+    return 'key, label, squashed label and any case all resolve';
+  });
+
+  await step('no help page draws a box', () => {
+    // The ask was explicit. Emoji, bold, italics and `mono` reflow on a phone;
+    // a grid of box-drawing characters does not, and wraps at whatever width
+    // the phone happens to be.
+    const pages = renderAllPages(loaded.registry);
+    for (const { name, text } of pages) {
+      assert.ok(!BOX_CHARS.test(text), `${name} emits a box-drawing character`);
+      // Also the characters the old index used as its rule.
+      assert.ok(!text.includes('━'), `${name} still uses a heavy rule`);
+      assert.ok(!text.includes('────'), `${name} still uses a boxed section header`);
+    }
+    return `${pages.length} pages checked, none draw a frame`;
+  });
+
+  await step('every page is short enough to read on a phone', () => {
+    // The old !help sent all 351 command names in one message. That is a wall
+    // of text nobody scrolls, and it is why help now pages.
+    const pages = renderAllPages(loaded.registry);
+    for (const { name, text } of pages) {
+      assert.ok(text.length < 3200, `${name} is ${text.length} chars — too long for one message`);
+      assert.ok(text.split('\n').length < 60, `${name} has ${text.split('\n').length} lines — too tall`);
+    }
+    const idx = pages.find((p) => p.name === 'index');
+    const one = pages.find((p) => p.name.startsWith('deck:system'));
+    assert.ok(idx && one, 'the index and a deck page must both render');
+    assert.ok(idx.text.length < one.text.length * 3, 'the index must stay an index');
+    return `${pages.length} pages, longest ${Math.max(...pages.map((p) => p.text.length))} chars`;
+  });
+
+  await step('every command page carries an icon, a name and a way back', () => {
+    const seg = new Intl.Segmenter('en', { granularity: 'grapheme' });
+    let withHint = 0;
+    for (const cmd of loaded.registry.values()) {
+      const text = menu.commandPage({ cmd, prefix: '!' });
+      assert.ok(text.length > 60, `${cmd.name}: page is suspiciously short`);
+      assert.ok(/^\S+\s+\*\*/.test(text), `${cmd.name}: does not open with an icon and a bold title`);
+      // The icon must be one whole user-perceived character. `✍️` is a pencil
+      // plus a variation selector, and slicing one code point off leaves an
+      // invisible selector floating in front of the text.
+      // One grapheme, not one code point: ⚙️ is the gear plus a variation
+      // selector, so length 2 is correct and 1 would mean it got sliced.
+      const icon = Array.from(seg.segment(text))[0].segment;
+      assert.strictEqual(Array.from(seg.segment(icon)).length, 1, `${cmd.name}: icon is split across clusters`);
+      assert.ok(text.includes(`↩️ \`!help ${cmd.category}\``), `${cmd.name}: no way back to its deck`);
+      assert.ok(text.includes('💡') === Boolean(cmd.hint), `${cmd.name}: hint shown but not authored, or authored but hidden`);
+      if (cmd.hint) withHint += 1;
+    }
+    assert.ok(withHint > 20, `expected a decent number of authored hints, got ${withHint}`);
+    return `${loaded.registry.size} pages, all with a whole icon and a way back; ${withHint} carry a hint`;
+  });
+
+  await step('a hint is never inherited from the deck', () => {
+    // A deck hint printed under 35 different commands is noise, and a wrong one
+    // is worse: telling someone reading `!ping` about `!adminon` teaches them
+    // that hints are not worth reading.
+    const authored = loaded.registry.get('ping');
+    assert.ok(authored && authored.hint, 'ping has a hint of its own, authored');
+    // And a command with no hint of its own must not borrow the deck's.
+    const bare = [...loaded.registry.values()].find((c) => !c.hint && c.category === 'system');
+    assert.ok(bare, 'expected a system command with no hint');
+    assert.strictEqual(bare.hint, '', `${bare.name} must not inherit the system deck hint`);
+    const hint = decks.get('system').hint;
+    assert.ok(!menu.commandPage({ cmd: bare, prefix: '!' }).includes(hint),
+      `${bare.name}'s page must not carry the deck hint`);
+    // The deck hint belongs on the deck page, where it is about everything.
+    assert.ok(menu.categoryPage({ cat: decks.get('system'), commands: [], prefix: '!' }).includes(hint),
+      'the deck page must still carry its own hint');
+    return 'deck hints stay on the deck page';
+  });
+
+  await step('every page that needs a prefix uses the live one', () => {
+    // usage is stored with whatever prefix existed when the command was
+    // written. A help page that says !kick in a group using / is worse than no
+    // help at all, because it teaches a prefix that does not work there.
+    for (const prefix of ['!', '/', '.']) {
+      const text = menu.commandPage({ cmd: loaded.registry.get('kick'), prefix });
+      // The heading is the call form, and it must use the live prefix.
+      assert.ok(text.startsWith('👢 **🛡️ `' + prefix + 'kick'), `prefix "${prefix}" wrong in the heading: ${text.slice(0, 40)}`);
+      assert.ok(text.includes(`\`${prefix}help group\``), `prefix "${prefix}" wrong in the way back`);
+      const idx = menu.indexPage({ byCategory: decks.group([...loaded.registry.values()]), total: 1, prefix, botName: 'x' });
+      assert.ok(idx.includes(`\`${prefix}help system\``), `prefix "${prefix}" wrong in the index`);
+    }
+    return '! / and . all render correctly in the call forms';
+  });
+
+  await step('help resolves a deck, a command and an alias without colliding', () => {
+    // `economy` is BOTH a deck and a command. Decks win, because "show me
+    // everything about money" is what someone typing that means — and the page
+    // has to say the command is still reachable.
+    assert.ok(loaded.registry.has('economy'), 'the economy command should exist');
+    assert.strictEqual(decks.find('economy').key, 'economy', 'economy must also be a deck');
+    const cat = decks.get('economy');
+    const page = menu.categoryPage({
+      cat,
+      commands: decks.group([...loaded.registry.values()]).get('economy'),
+      prefix: '!',
+      collidesWith: true,
+    });
+    assert.ok(page.includes('Economy & Treasury'), 'the deck page must be titled, not "economy"');
+    assert.ok(page.includes('!help cmd economy'), 'the colliding command must stay reachable');
+    // An alias must still open the command page.
+    assert.ok(loaded.registry.get('help').aliases.includes('h'), '!h should be an alias');
+    return 'economy opens the deck and still points at the command';
+  });
+
+  await step('an exact command name beats a loose deck word', async () => {
+    // Regression. `kick` is in Group Administration's lookfor words, so when the
+    // loose list was consulted first, `!help kick` opened all 34 commands in the
+    // deck instead of the one command being asked about — the most-used way to
+    // ask for help, answering with the wrong page.
+    assert.ok(decks.find('kick'), 'kick is a loose word for the group deck');
+    assert.strictEqual(decks.findExact('kick'), null, 'but it is not the deck\'s own name');
+
+    const help = loaded.registry.get('help');
+    const ask = async (args) => {
+      const out = [];
+      await help.execute({
+        args,
+        registry: loaded.registry,
+        reply: async (m) => { out.push(m); },
+        react: async () => {},
+        event: { messageID: 'm' },
+        config: { PREFIX: '!', BOT_NAME: 'iKON-BOT' },
+      });
+      return out.join('\n');
+    };
+
+    const kick = await ask(['kick']);
+    assert.ok(kick.startsWith('👢'), `!help kick must open the command, got: ${kick.slice(0, 40)}`);
+    assert.ok(kick.includes('!kick'), 'and must describe !kick');
+
+    // The deck still wins where the collision is real and advertised: `economy`
+    // is the deck's own key, so the index must not lie about what that opens.
+    const economy = await ask(['economy']);
+    assert.ok(economy.includes('Economy & Treasury'), '!help economy must open the deck');
+    assert.ok(economy.includes('!help cmd economy'), 'and must point at the same-named command');
+
+    // A loose word that is not a command still finds its deck.
+    const street = await ask(['street']);
+    assert.ok(street.includes('Street Life'), 'a subject word must still find its deck');
+
+    return 'commands win over loose words, decks win over same-named commands';
+  });
+
+  await step('a deck that needs more than one page says so', async () => {
+    const help = loaded.registry.get('help');
+    const ask = async (args) => {
+      const out = [];
+      await help.execute({
+        args,
+        registry: loaded.registry,
+        reply: async (m) => { out.push(m); },
+        react: async () => {},
+        event: { messageID: 'm' },
+        config: { PREFIX: '!', BOT_NAME: 'iKON-BOT' },
+      });
+      return out.join('\n');
+    };
+    const one = await ask(['pets']);
+    const two = await ask(['pets', '2']);
+    // Regression: the footer claimed "page 2" while the body rendered page 1.
+    assert.ok(one.includes('Page 1/2'), `page 1 must say so: ${one.slice(-120)}`);
+    assert.ok(two.includes('Page 2/2'), 'page 2 must say so');
+    assert.ok(one !== two, 'the two pages must actually differ');
+    assert.ok(two.length < one.length, 'the last page is shorter');
+    return 'paged deck: page 1 and page 2 are genuinely different';
+  });
+
+  await step('an unknown topic suggests the closest decks', () => {
+    const text = menu.noSuchThing({ query: 'gtaa', prefix: '!' });
+    assert.ok(text.includes('gta'), 'a near miss should offer the real deck');
+    assert.ok(text.includes('!help'), 'and must point back at the index');
+    const empty = menu.noSuchThing({ query: '', prefix: '!' });
+    assert.ok(empty.length > 0, 'an empty query must not produce an empty reply');
+    return 'near misses get suggestions';
+  });
+
+  await step('no user-facing string draws a box or a heavy rule', () => {
+    // The house style applies to all 352 commands, not only to help. Progress
+    // bars (█ ░ ▰ ▱) are data and stay; rules and frames do not.
+    const fs2 = require('fs');
+    const path2 = require('path');
+    const dir = path2.join(__dirname, '..', 'commands');
+    const offenders = [];
+    for (const f of fs2.readdirSync(dir)) {
+      if (!f.endsWith('.js')) continue;
+      const src = fs2.readFileSync(path2.join(dir, f), 'utf8');
+      // Only string literals matter; the comment banners are allowed to box.
+      for (const line of src.split('\n')) {
+        if (/^\s*\/\//.test(line)) continue;
+        for (const [, lit] of line.matchAll(/'((?:[^'\\]|\\.)*)'/g)) {
+          if (/[━─]/.test(lit)) {
+            offenders.push(`${f}: ${lit.slice(0, 40)}`);
+          }
+        }
+      }
+    }
+    assert.strictEqual(offenders.length, 0, offenders.slice(0, 5).join('; '));
+    return 'no command message draws a rule or a frame';
   });
 
   // ── summary ───────────────────────────────────────────────

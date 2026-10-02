@@ -589,7 +589,7 @@ const commands = [];
 
       await reply(
         `📥 **${typeof data.data.title === 'string' ? data.data.title : 'Facebook video'}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🔗 ${link}\n\n`
         + `${caption}\n\n`
         + `⬇️ ${hit}`,
@@ -645,7 +645,7 @@ const commands = [];
 
       await reply(
         `📥 **${item.title || 'TikTok'}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👤 ${item.author || 'unknown'}\n`
         + `🎵 ${item.music || 'unknown'}\n\n`
         + `${roast}\n\n`
@@ -706,7 +706,7 @@ const commands = [];
 
       await reply(
         `📥 **${item.title || 'Instagram reel'}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👤 ${item.author || 'unknown'}\n\n`
         + `${caption}\n\n`
         + `⬇️ ${item.play}`,
@@ -922,7 +922,7 @@ const commands = [];
 
       await reply(
         `🔍 **PICKS FOR "${topic.toUpperCase()}"**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${picks}\n\n`
         + `🔗 https://www.pinterest.com/search/pins/?q=${encodeURIComponent(topic)}`,
         event.messageID,
@@ -980,7 +980,7 @@ const commands = [];
       const text = String(found).trim();
       await reply(
         `🎤 **${String(data.title || q).toUpperCase()}**${data.artist ? `\n🎙️ ${data.artist}` : ''}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${read}\n`
         + `━━━━━━━━━━━━━━━\n${text.slice(0, 1800)}${text.length > 1800 ? '\n_(truncated)_' : ''}`,
         event.messageID,
@@ -1025,7 +1025,7 @@ const commands = [];
       const lines = found ? String(found).trim().split('\n').slice(0, 12).join('\n') : '';
       await reply(
         `🎙️ **SINGING: ${q.toUpperCase()}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${guide}\n`
         + (lines ? `━━━━━━━━━━━━━━━\n🎵 First lines:\n${lines}` : ''),
         event.messageID,
@@ -1141,6 +1141,7 @@ const commands = [];
     category: 'downloader',
     description: '💎 Raw Gemini with the full iKON lore injected, nothing softened',
     usage: '!gemini <prompt>',
+    hint: 'Raw Gemini with the full iKON lore injected and nothing softened. This one costs AI credit.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gemini', async () => {
@@ -1805,7 +1806,7 @@ const commands = [];
 
       await reply(
         `🌦️ **${String(spot && spot.name ? spot.name : place).toUpperCase()}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🌡️ Now: ${cur.temperature_2m ?? '—'}C · High ${max}C / Low ${min}C\n`
         + `💨 Wind: ${cur.wind_speed_10 ?? '—'} km/h\n\n`
         + `${read}\n💸 ${kc(FEES.weatherai)}`,
@@ -1881,7 +1882,7 @@ const commands = [];
 
       await reply(
         `📚 **${String((data && data.title) || topic).toUpperCase()}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${extract ? `📄 ${extract.slice(0, 700)}\n\n` : ''}`
         + `🧒 ${eli5}\n💸 ${kc(FEES.wiki)}`,
         event.messageID,
@@ -1929,7 +1930,7 @@ const commands = [];
 
       await reply(
         `📖 **${String(word).toUpperCase()}**${phonetic ? ` ${phonetic}` : ''}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + (defs.length ? `${defs.slice(0, 4).join('\n')}\n\n` : '⚠️ Not in the dictionary.\n\n')
         + `${usage}\n💸 ${kc(FEES.define)}`,
         event.messageID,

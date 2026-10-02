@@ -319,6 +319,7 @@ module.exports = [
     category: 'rpg',
     description: '🧬 Your hunter ID card - Level, XP, coins, rank in iKON Academy',
     usage: '!profile',
+    hint: 'Your hunter card, with the real Facebook name and profile picture.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'profile', async () => {
@@ -357,7 +358,7 @@ module.exports = [
 
       await reply(
         `🧬 **iKON ACADEMY ID CARD**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👤 ${userDoc.name || 'Hunter'}\n`
         + `📊 Level ${userDoc.level || 1} · ${num(userDoc.xp)}/${num(xpNeeded(userDoc.level || 1))} XP\n`
         + `💰 ${kc(userDoc.coins)}\n`
@@ -381,6 +382,7 @@ module.exports = [
     category: 'rpg',
     description: '📊 Check your level progress - How close to next rank?',
     usage: '!level',
+    hint: 'Progress toward the next rank. XP comes from chatting, quests and work — not from duels.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'level', async () => {
@@ -395,7 +397,7 @@ module.exports = [
 
       await reply(
         `📊 **LEVEL ${level}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${bar} ${pct}%\n`
         + `✨ ${num(xp)}/${num(needed)} XP\n`
         + `🎯 ${num(needed - xp)} XP to Level ${level + 1}\n`
@@ -455,7 +457,7 @@ module.exports = [
 
       await reply(
         `🏅 **iKON ACADEMY RANK**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -472,6 +474,7 @@ module.exports = [
     category: 'rpg',
     description: '✨ Your experience points - Lvl up by chatting and quests',
     usage: '!xp',
+    hint: 'Chatting is the cheapest XP there is. Dueling is the most expensive per point.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'xp', async () => {
@@ -504,7 +507,7 @@ module.exports = [
 
       await reply(
         `✨ **${userDoc.name || 'Hunter'}'s EXPERIENCE**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📊 Level ${level}\n`
         + `✨ ${num(userDoc.xp)} / ${num(needed)} XP\n`
         + `📈 Lifetime: ${lifetime} XP total\n`
@@ -549,7 +552,7 @@ module.exports = [
 
       await reply(
         `👑 **PRESTIGE ${userDoc.prestige}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📉 Reset Level ${oldLevel} → 1\n`
         + `💰 Aphecks pays the rebirth bonus: ${kc(bonus)}\n`
         + `📈 Permanent income bonus: +${Math.round((prestigeBonus(userDoc) - 1) * 100)}%\n`
@@ -601,7 +604,7 @@ module.exports = [
 
       await reply(
         `📜 **QUEST COMPLETE**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🎯 ${mission}\n`
         + `💰 +${kc(coins)}\n`
         + `${(await xpTail(userDoc, xp, levels, newTitles)).join('\n')}\n`
@@ -663,7 +666,7 @@ module.exports = [
 
       await reply(
         `🗓️ **DAILY MISSION**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🎯 ${mission}\n`
         + `💰 +${kc(coins)}\n`
         + `${(await xpTail(userDoc, xp, levels, newTitles)).join('\n')}\n`
@@ -808,7 +811,7 @@ module.exports = [
 
         await reply(
           `⚔️ **VICTORY** — ${monster.emoji} ${monster.name} (Lv ${monster.level})\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `📊 Win chance: ${Math.round(chance * 100)}% · Roll ${Math.round(roll * 100)}%\n`
           + `💰 +${kc(coins)}\n`
           + `${(await xpTail(userDoc, xp, levels, newTitles)).join('\n')}\n`
@@ -829,7 +832,7 @@ module.exports = [
 
       await reply(
         `🩸 **DEFEAT** — ${monster.emoji} ${monster.name} (Lv ${monster.level})\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📊 Win chance: ${Math.round(chance * 100)}% · Roll ${Math.round(roll * 100)}%\n`
         + `💸 -${kc(loss)}\n`
         + `${(await xpTail(userDoc, xp, levels, newTitles)).join('\n')}\n`
@@ -990,7 +993,7 @@ module.exports = [
 
       await reply(
         `📈 **${userDoc.name || 'Hunter'} — FIGHT RECORD**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `⚔️ Battles: ${num(total)}\n`
         + `🏆 Wins: ${num(s.wins)}\n`
         + `🩸 Losses: ${num(s.losses)}\n`
@@ -1059,7 +1062,7 @@ module.exports = [
 
       await reply(
         `🏆 **HALL OF FAME**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `📜 Engraved on the academy's front wall.\n`
         + `📖 ${story()}`,
@@ -1088,7 +1091,7 @@ module.exports = [
 
       await reply(
         `🎭 **HUNTER CLASSES**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + (current ? `✅ Yours: ${current.emoji} ${current.name} (${current.bonus})` : '📋 You have not chosen. The registrar is waiting.')
         + `\n📖 ${story()}`,
@@ -1139,7 +1142,7 @@ module.exports = [
 
       await reply(
         `✅ **CLASS LOCKED: ${cls.emoji} ${cls.name}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🎁 Bonus: ${cls.bonus}\n`
         + `📖 "${cls.blurb}" — Instructor Klerk\n`
         + `📖 ${story()}`,
@@ -1171,7 +1174,7 @@ module.exports = [
 
       await reply(
         `🔮 **${userDoc.name || 'Hunter'}'S SKILLS**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${learned}\n`
         + (cls ? `🎭 Class power (${cls.name}): ${cls.bonus}` : '🎭 No class chosen yet — \`!class\`')
         + `\n📚 Learn more with \`!learn\`\n`
@@ -1227,7 +1230,7 @@ module.exports = [
 
       await reply(
         `📚 **Learned ${skill.emoji} ${skill.name}!**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🎁 Effect: ${skill.effect}\n`
         + `💸 Cost: ${kc(cost)}\n`
         + `${(await xpTail(userDoc, xp, levels, newTitles)).join('\n')}\n`
@@ -1278,7 +1281,7 @@ module.exports = [
 
       await reply(
         `🎒 **${userDoc.name || 'Hunter'}'S RPG PACK**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `⚔️ Equip with \`!equip <item>\`, take off with \`!unequip <item>\`\n`
         + `🧪 \`!heal\` drinks a potion\n`
@@ -1297,6 +1300,7 @@ module.exports = [
     category: 'rpg',
     description: '⚔️ Equip sword/shield - Boost battle win chance',
     usage: '!equip <item>',
+    hint: 'Equipping a sword and shield raises your battle win rate. Unequipped gear does nothing.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'equip', async () => {
@@ -1414,7 +1418,7 @@ module.exports = [
 
         await reply(
           `👹 **BOSS DOWN — ${boss.emoji} ${boss.name} (Lv ${boss.lvl})**\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `📊 Win chance ${Math.round(chance * 100)}%\n`
           + `💰 +${kc(coins)}\n`
           + `${(await xpTail(userDoc, xp, levels, newTitles)).join('\n')}\n`
@@ -1433,7 +1437,7 @@ module.exports = [
 
       await reply(
         `🩸 **BOSS WINS — ${boss.emoji} ${boss.name} (Lv ${boss.lvl})**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📊 Win chance ${Math.round(chance * 100)}% — it was not enough.\n`
         + `💸 -${kc(loss)}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -1453,6 +1457,7 @@ module.exports = [
     category: 'rpg',
     description: '🤺 Duel @user - Winner takes 1k from loser',
     usage: '!duel <user>',
+    hint: 'Winner takes 1,000. Both sides are wagering, so tag someone who can actually afford it.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'duel', async () => {
@@ -1484,7 +1489,7 @@ module.exports = [
 
         await reply(
           `🤺 **YOU WIN** vs ${target.name}!\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `📊 Win chance ${Math.round(chance * 100)}%\n`
           + `💰 +${kc(won)} taken from the loser\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -1507,7 +1512,7 @@ module.exports = [
 
       await reply(
         `🤺 **YOU LOSE** to ${target.name}.\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📊 Win chance ${Math.round(chance * 100)}%\n`
         + `💸 -${kc(loss)}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -1527,6 +1532,7 @@ module.exports = [
     category: 'rpg',
     description: '⚔️ Same as duel - PvP arena',
     usage: '!pvp <user>',
+    hint: 'Identical to `!duel`, different arena. Pick one and use it — there is no advantage to switching.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pvp', async () => {
@@ -1564,7 +1570,7 @@ module.exports = [
 
         await reply(
           `⚔️ **ARENA VICTORY** vs ${target.name}\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `🏟️ Win chance ${Math.round(chance * 100)}%\n`
           + `💰 +${kc(purse)} purse, ${kc(entry)} entry\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -1587,7 +1593,7 @@ module.exports = [
 
       await reply(
         `🩸 **ARENA DEFEAT** vs ${target.name}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🏟️ Win chance ${Math.round(chance * 100)}%\n`
         + `💸 -${kc(loss)}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -1618,7 +1624,7 @@ module.exports = [
 
       await reply(
         `👾 **iKON BESTIARY** (you are Level ${level})\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `⚔️ Fight one with \`!battle\`.\n`
         + `📖 ${story()}`,
@@ -1664,7 +1670,7 @@ module.exports = [
 
         await reply(
           `🐉 **SLAINED ${boss.emoji} ${boss.name}** (Lv ${boss.level})\n`
-          + '━━━━━━━━━━━━━━━\n'
+          + '· · · · · · ·\n'
           + `📊 Win chance ${Math.round(chance * 100)}%\n`
           + `💰 +${kc(coins)}\n`
           + `${(await xpTail(userDoc, xp, levels, newTitles)).join('\n')}\n`
@@ -1684,7 +1690,7 @@ module.exports = [
 
       await reply(
         `🩸 **${boss.emoji} ${boss.name} (Lv ${boss.level}) FLIES AWAY**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📊 Win chance ${Math.round(chance * 100)}%\n`
         + `💸 -${kc(loss)}\n`
         + `${(await xpTail(userDoc, xp, levels, newTitles)).join('\n')}\n`
@@ -1729,7 +1735,7 @@ module.exports = [
 
       await reply(
         `💉 **FREE HEAL** — the academy medic did not charge you.\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `🩹 Wounds closed, stance cleared.\n`
         + `⏳ One free heal per hour.\n`
         + `📖 ${story()}`,
@@ -1761,8 +1767,8 @@ module.exports = [
 
       await reply(
         `⚡ **STAMINA ${data.stamina}/${cap}**\n`
-        + '━━━━━━━━━━━━━━━\n'
-        + '━'.repeat(data.stamina) + '░'.repeat(Math.max(0, cap - data.stamina)) + '\n'
+        + '· · · · · · ·\n'
+        + '▰'.repeat(data.stamina) + '▱'.repeat(Math.max(0, cap - data.stamina)) + '\n'
         + (data.stamina >= cap
           ? '✅ Fully rested. Go burn it on something.'
           : `⏳ +1 stamina in ${fmt.dur(Math.ceil(untilNext / 1000))}`)
@@ -1807,7 +1813,7 @@ module.exports = [
 
       await reply(
         `🔄 **REBIRTH ${userDoc.prestige}**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `📉 Level ${oldLevel} → 1, XP cleared.\n`
         + `💰 Rebirth grant: ${kc(bonus)}\n`
         + `📈 Permanent income: +${Math.round((prestigeBonus(userDoc) - 1) * 100)}%\n`
@@ -1867,7 +1873,7 @@ module.exports = [
 
       await reply(
         `🥇 **MOST WINS**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1928,7 +1934,7 @@ module.exports = [
 
       await reply(
         `🌟 **TOP XP GRINDERS**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1994,7 +2000,7 @@ module.exports = [
 
       await reply(
         `🏷️ **TITLES** (Level ${level})\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + `🎖️ Earned: ${owned.length ? owned.join(', ') : 'none yet'}\n`
         + `📖 Titles unlock automatically when you level up.\n`
@@ -2047,7 +2053,7 @@ module.exports = [
 
       await reply(
         `🌐 **iKON ACADEMY CENSUS**\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `👥 Hunters enrolled: ${num(hunters)}\n`
         + `📊 Average level: ${num(avgLevel)}\n`
         + `✨ Average XP: ${num(avgXp)}\n`

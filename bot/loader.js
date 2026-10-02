@@ -13,12 +13,33 @@
 const fs = require('fs');
 const path = require('path');
 const { log, error } = require('./helpers');
+const deckMeta = require('./categories');
 
 const MODULE_COUNT = 10;
 const COMMANDS_DIR = path.join(__dirname, '..', 'commands');
 
 /** Required fields every command must define. */
 const REQUIRED = ['name', 'category', 'execute'];
+
+/**
+ * The leading emoji of a description, as one user-visible character.
+ *
+ * This is a grapheme cluster and not a code point: `✍️` is the pencil plus a
+ * variation selector, and slicing one code point off leaves an invisible
+ * selector floating in front of the text.
+ *
+ * @param {string} text
+ * @returns {string} the emoji, or '' when there is not one
+ */
+function helpIcon(text) {
+  const s = String(text || '').trim();
+  if (!s) return '';
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    const first = Array.from(new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(s))[0];
+    return first && /^\p{Extended_Pictographic}/u.test(first.segment) ? first.segment : '';
+  }
+  return /^\p{Extended_Pictographic}/u.test(s[0]) ? s[0] : '';
+}
 
 /**
  * When true, command files are evicted from require.cache before being loaded,
@@ -39,6 +60,10 @@ function loadCommands(dir = COMMANDS_DIR) {
   const registry = new Map();
   const aliases = new Map();
   const categories = new Map();
+  // A category with no row in bot/categories.js still loads — it must not break
+  // help for everybody else — but it is reported, because it will render as a
+  // bare word in the deck index.
+  const unknownCategories = new Set();
   let loaded = 0;
   let skipped = 0;
 
@@ -94,6 +119,21 @@ function loadCommands(dir = COMMANDS_DIR) {
       cmd.permission = cmd.permission || 'all';
       cmd.module = file.replace('.js', '');
 
+      // Give every command an icon, so the whole bot presents the same way
+      // without 352 edits to descriptions that already read well. A command that
+      // leads its own description with an emoji keeps it; one that does not
+      // inherits its deck's.
+      if (!deckMeta.get(cmd.category)) unknownCategories.add(cmd.category);
+      cmd.icon = String(cmd.icon || '').trim()
+        || (helpIcon(cmd.description) || deckMeta.get(cmd.category).emoji);
+
+      // `hint` is deliberately NOT inherited from the deck. A deck hint printed
+      // under 35 different commands is noise, and a wrong one is worse: telling
+      // someone reading `!ping` about `!adminon` teaches them that hints are not
+      // worth reading. A hint is authored per command, for the commands where
+      // there is something non-obvious to say.
+      cmd.hint = String(cmd.hint || '').trim();
+
       if (registry.has(cmd.name)) {
         error(`[LOADER] Duplicate command "${cmd.name}" in ${file} — keeping the first one`);
         skipped += 1;
@@ -116,6 +156,10 @@ function loadCommands(dir = COMMANDS_DIR) {
 
   // Global access for commands that want registry/config without importing.
   global.ikon = { registry, aliases, categories, config: require('../config') };
+
+  if (unknownCategories.size) {
+    error(`[LOADER] ${unknownCategories.size} category key(s) have no display metadata: ${[...unknownCategories].join(', ')} — add them to bot/categories.js`);
+  }
 
   log(`[LOADER] Loaded ${loaded} commands from ${MODULE_COUNT} module(s), ${aliases.size} aliases, ${categories.size} categories`
     + (skipped ? `, ${skipped} skipped` : ''));
