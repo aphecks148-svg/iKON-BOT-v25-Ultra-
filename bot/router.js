@@ -21,7 +21,12 @@ function parse(body, prefix = '!') {
   if (!prefix) return null;
   if (!text.startsWith(prefix)) return null;
 
-  const withoutPrefix = text.slice(prefix.length);
+  // Trim before splitting. " pet".split(/\s+/) is ["", "pet"], so shifting the
+  // name yields an empty string and the `!name` guard below rejected the whole
+  // message — which is why `! pet` and `! profile` did nothing at all while
+  // `!ping` worked. A prefix is a prefix; the space after it is nobody's
+  // business.
+  const withoutPrefix = text.slice(prefix.length).trim();
   if (!withoutPrefix) return null;
 
   // Only the first token is the command name; everything else is args.

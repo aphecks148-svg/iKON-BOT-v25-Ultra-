@@ -167,6 +167,37 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     return 'prefix + args + rejects plain text';
   });
 
+  // " pet".split(/\s+/) is ["", "pet"], so shifting the command name off the
+  // front yielded an empty string and the `!name` guard dropped the whole
+  // message. `! pet` and `! profile` did nothing at all, silently, while
+  // `!ping` worked — so the bot looked broken to anybody who types a space.
+  await step('a space after the prefix is not the end of the command', () => {
+    for (const [spaced, plain] of [['! ping', '!ping'], ['! profile', '!profile'], ['! pet', '!pet']]) {
+      const a = router.parse(spaced, '!');
+      const b = router.parse(plain, '!');
+      assert.ok(a, `${spaced} must parse`);
+      assert.deepStrictEqual(a.name, b.name, `${spaced} must resolve the same command as ${plain}`);
+      assert.deepStrictEqual(a.args, b.args, `${spaced} must carry the same args as ${plain}`);
+    }
+    // Any amount of whitespace, and a tab, is the same separator.
+    assert.strictEqual(router.parse('!   profile', '!').name, 'profile');
+    assert.strictEqual(router.parse('!\tping', '!').name, 'ping');
+    // Args still split correctly once the leading space is gone.
+    assert.deepStrictEqual(router.parse('! bank deposit 50', '!').args, ['deposit', '50']);
+
+    // A multi-character prefix must behave identically — a fix that only
+    // handled "!" would break anybody running the bot on "/".
+    assert.strictEqual(router.parse('/ ping', '/').name, 'ping');
+    assert.deepStrictEqual(router.parse('/ bank deposit 50', '/').args, ['deposit', '50']);
+
+    // Still a command must mean a command. Whitespace is not a name.
+    assert.strictEqual(router.parse('!', '!'), null, 'a bare prefix is not a command');
+    assert.strictEqual(router.parse('! ', '!'), null, 'a prefix and a space is not a command');
+    assert.strictEqual(router.parse('   ', '!'), null, 'whitespace alone is not a command');
+    assert.strictEqual(router.parse('hello everyone', '!'), null, 'plain chat is still plain chat');
+    return '! pet, ! profile, / ping and tabs all parse; junk is still rejected';
+  });
+
   // ── 4. command lookup ─────────────────────────────────────
   await step('command resolves by name and alias', () => {
     const byName = loader.findCommand('ping', loaded.registry, loaded.aliases);
@@ -1776,6 +1807,41 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
       assert.strictEqual(loader.scaleCooldown(sec), sec, `${sec}s must be left alone`);
     }
     return 'short cooldowns raised, long ones untouched';
+  });
+
+  // `! pet` parsed to null, so the handler was never reached. This asserts the
+  // whole chain, not just the parser: a parse fix that the router then undid
+  // would still leave the user staring at nothing.
+  await step('a spaced command reaches its handler, not just the parser', async () => {
+    const ik = require('../ws3-fca');
+    const sent = [];
+    const api = {
+      ...mockApi(),
+      async sendMessage(payload) { sent.push(payload.body || ''); return { messageID: `m${sent.length}` }; },
+    };
+    const run = async (body) => {
+      sent.length = 0;
+      for (const name of ['ping', 'profile', 'pet']) cooldown.clear('spaced_probe', name);
+      await ik.handleMessage(api, {
+        threadID: 't_spaced', messageID: 'sp_mid', senderID: '999000111',
+        isGroup: false, mentions: {}, body,
+      });
+      return sent.join('\n');
+    };
+
+    // `!pet` and `!petX` are different commands, so compare against the exact
+    // real command names the user named.
+    for (const name of ['pet', 'profile']) {
+      assert.ok(loaded.registry.has(name), `${name} must exist for this to mean anything`);
+      const plain = await run(`!${name}`);
+      const spaced = await run(`! ${name}`);
+      assert.ok(plain.length > 0, `!${name} must reply`);
+      assert.strictEqual(spaced, plain, `! ${name} must produce exactly what !${name} does`);
+      assert.ok(!/no command/i.test(spaced), `! ${name} must not fall through to "no command"`);
+    }
+    // Aliases get the same treatment: "! p" is how most people type ping.
+    assert.strictEqual(await run('! p'), await run('!p'), 'a spaced alias must work too');
+    return '! pet, ! profile and ! p all match their unspaced output exactly';
   });
 
   // ── 20. welcome / goodbye ─────────────────────────────────
