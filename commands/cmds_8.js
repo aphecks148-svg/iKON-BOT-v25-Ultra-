@@ -1,10 +1,10 @@
 'use strict';
 
 /**
- * MODULE 8 — DOWNLOAD + AI, GEMINI ONLY (35 commands)
+ * MODULE 8 — DOWNLOAD + AI, GROQ ONLY (35 commands)
  *
  * iKON-BOT v2 Ultra. The download half of the bot and the AI half, wired
- * together: every one of these 35 commands calls Gemini, and the downloaders
+ * together: every one of these 35 commands calls Groq, and the downloaders
  * use it to write the caption rather than just handing back a file.
  *
  * Exports a plain array. No factories, no legacy loader.
@@ -12,18 +12,18 @@
  * Shape required for every command:
  * { name, aliases, category, description, usage, cooldown, permission, execute }
  *
- * execute receives: { api, event, args, config, registry, gemini, reply, react, userDoc }
+ * execute receives: { api, event, args, config, registry, ai, reply, react, userDoc }
  * `reply` and `react` are already bound to the current thread, so a command
  * never calls api.sendMessage directly. Attachments go out through
  * reply({ body, attachment }, messageID).
  *
- * GEMINI
- * Every handler routes through askGemini(). That is the single place that
- * knows how to talk to generativelanguage.googleapis.com, which matters for two
- * reasons: the endpoint is spelt the same way 35 times or it is spelt wrong 35
- * times, and a missing API key has to degrade to a mock in exactly one spot
- * instead of crashing a command. geminiMock() builds the fallback from the same
- * prompt so the reply still has something true in it.
+ * AI — GROQ ONLY
+ * Every handler routes through askGroq(). That is the single place that knows
+ * how to talk to api.groq.com, which matters for two reasons: the endpoint is
+ * spelt the same way 35 times or it is spelt wrong 35 times, and a missing API
+ * key has to degrade to a placeholder in exactly one spot instead of crashing
+ * a command. aiOffline() builds that fallback from the same prompt so the reply
+ * still has something true in it.
  *
  * The external download APIs (tikwm, lyrics.ovh, football-data, pollinations)
  * are all free and all flaky. Every one of them is wrapped in fetchJson /
@@ -42,7 +42,7 @@ const User = require('../models/User');
 const Economy = require('../models/Economy');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
-const gemini = require('../bot/gemini');
+const groq = require('../bot/groq');
 
 const config = require('../config');
 
@@ -52,7 +52,7 @@ const POLLINATIONS = 'https://image.pollinations.ai/prompt/';
 const OPENLIGADB = 'https://www.openligadb.de/api/getmatchdata';
 
 /**
- * The persona prefix. Injected into every prompt so that a raw Gemini call and
+ * The persona prefix. Injected into every prompt so that a raw Groq call and
  * an iKON call do not quietly return different voices.
  */
 const LORE = [
@@ -64,52 +64,52 @@ const LORE = [
 ].join(' ');
 
 // ───────────────────────────────────────────────────────────
-// GEMINI
+// AI — GROQ
 // ───────────────────────────────────────────────────────────
 
 /**
- * Ask Gemini a question.
+ * Ask Groq a question.
  *
- * The HTTP call lives in bot/gemini.js so the engine and these commands share
- * one client. This wrapper only adds the iKON persona and the offline
- * placeholder, so every AI command keeps its existing behaviour: a real answer
- * when Gemini answers, an honest placeholder when it cannot.
+ * The HTTP call lives in bot/groq.js so the engine and these commands share one
+ * client. This wrapper only adds the iKON persona and the offline placeholder,
+ * so every AI command keeps its existing behaviour: a real answer when Groq
+ * answers, an honest placeholder when it cannot.
  *
  * @param {string} prompt the user-facing question, already worded
  * @param {string} style extra persona instruction for this kind of task
  * @returns {Promise<string>} never throws
  */
-async function askGemini(prompt, style = '') {
+async function askGroq(prompt, style = '') {
   const text = String(prompt || '').trim();
-  if (!text) return geminiMock('', style);
+  if (!text) return aiOffline('', style);
 
-  const answer = await gemini.ask(text, {
+  const answer = await groq.ask(text, {
     system: LORE,
     style,
-    maxOutputTokens: 2048,
+    maxTokens: 2048,
   });
   if (answer) return answer;
 
-  // Distinguish "no key" from "key present but Gemini refused": telling a user
-  // with a working key to go set GEMINI_API_KEY sends them nowhere.
-  const why = gemini.available()
-    ? `Gemini did not answer: ${gemini.lastErrorMessage() || 'no response'}`
-    : 'no GEMINI_API_KEY on the bot';
-  return `${geminiMock(text, style)}\n\n_(⚠️ ${why})_`;
+  // Distinguish "no key" from "key present but Groq refused": telling a user
+  // with a working key to go set GROQ_API_KEY sends them nowhere.
+  const why = groq.available()
+    ? `Groq did not answer: ${groq.lastErrorMessage() || 'no response'}`
+    : 'no GROQ_API_KEY on the bot';
+  return `${aiOffline(text, style)}\n\n_(⚠️ ${why})_`;
 }
 
 /**
  * The offline answer. Deterministic where it can be, and honest about the fact
- * that it is a stand-in, so nobody mistakes it for a real Gemini response.
+ * that it is a stand-in, so nobody mistakes it for a real Groq response.
  */
-function geminiMock(prompt, style = '') {
+function aiOffline(prompt, style = '') {
   const topic = String(prompt || '').replace(/\s+/g, ' ').trim();
   const short = topic.length > 90 ? `${topic.slice(0, 87)}...` : topic;
   const tagged = /roast|insult|diss/i.test(style);
   return [
-    '⚠️ **GEMINI OFFLINE** — this is a placeholder, not a real answer.',
+    '⚠️ **AI OFFLINE** — this is a placeholder, not a real answer.',
     tagged
-      ? `iKON would have roasted "${short}" into the ground. It did not happen, because Gemini is not answering.`
+      ? `iKON would have roasted "${short}" into the ground. It did not happen, because Groq is not answering.`
       : `You asked: *"${short}"*`,
   ].filter(Boolean).join('\n');
 }
@@ -267,7 +267,7 @@ async function loadImage(url) {
   }
 }
 
-/** Named CSS colours Gemini can pick from for the knock-out. */
+/** Named CSS colours Groq can pick from for the knock-out. */
 const BGCOLOURS = {
   white: '#ffffff', black: '#000000', grey: '#808080', gray: '#808080',
   blue: '#2a52c4', green: '#2e8b57', red: '#c42a2a', yellow: '#f2e629',
@@ -321,7 +321,7 @@ async function upscale(url, factor) {
 }
 
 /**
- * Apply a Gemini-chosen treatment. `fix` is a canvas filter keyword, `strength`
+ * Apply a Groq-chosen treatment. `fix` is a canvas filter keyword, `strength`
  * is the multiplier, and it is clamped here rather than trusted from the model.
  * @returns {Promise<string|null>} data URL
  */
@@ -346,7 +346,7 @@ async function enhanceImage(url, fix, strength) {
  * a busy scene, which is exactly what the caveat promises.
  *
  * @param {string} url source image
- * @param {string} colour a word Gemini named, or a hex value
+ * @param {string} colour a word Groq named, or a hex value
  * @returns {Promise<{url:string, keyed:boolean}|null>} keyed is false when no
  *   colour was understood, so the caller can say so instead of claiming a cut
  *   it did not perform.
@@ -450,7 +450,7 @@ async function captionCard({ title, subtitle = '', body = '', footer = '', accen
 
 /**
  * Draw wrapped text and return the y position just past the last line.
- * Needed because Gemini answers are longer than any single line.
+ * Needed because Groq answers are longer than any single line.
  */
 function wrap(ctx, text, x, y, maxWidth, lineHeight) {
   const words = String(text || '').split(/\s+/).filter(Boolean);
@@ -506,7 +506,7 @@ const FEES = {
   say: 50,
   ask: 50,
   ai: 50,
-  gemini: 50,
+  groq: 50,
   translate: 50,
   generate: 200,
   imagine: 200,
@@ -537,14 +537,14 @@ const commands = [];
 // ───────────────────────────────────────────────────────────
 
 // ───────────────────────────────────────────────────────────
-// DOWNLOADERS — every one of these ends with Gemini writing the caption
+// DOWNLOADERS — every one of these ends with Groq writing the caption
 // ───────────────────────────────────────────────────────────
 
   commands.push({
     name: 'fbdown',
     aliases: ['fb', 'fbdl'],
     category: 'downloader',
-    description: '📥 Facebook video downloader — Gemini writes the caption and title',
+    description: '📥 Facebook video downloader — Groq writes the caption and title',
     usage: '!fbdown <fb link>',
     cooldown: 15,
     permission: 'all',
@@ -568,9 +568,9 @@ const commands = [];
       const hit = data && data.data && data.data.play;
       await reply('🔎 Fetching it...', event.messageID);
 
-      // Gemini writes the caption whether or not the file came back, so the
+      // Groq writes the caption whether or not the file came back, so the
       // command is useful even when the free API is down.
-      const caption = await askGemini(
+      const caption = await askGroq(
         `Write a short savage Facebook caption for this video, and give it a title line. `
         + `Platform: Facebook. Link: ${link}. Under 40 words total.`,
         'Style: a caption someone would actually post. Punchy, no emoji spam.',
@@ -581,7 +581,7 @@ const commands = [];
           `⚠️ **The download API did not answer** — the free FB endpoints are down.\n\n`
           + `${caption}\n\n`
           + `_(Your ${kc(FEES.fbdown)} fee was already charged.)_\n`
-          + `📎 Try again in a minute, or hand the link to Gemini yourself: ${link}`,
+          + `📎 Try again in a minute, or hand the link to the AI yourself: ${link}`,
           event.messageID,
         );
         return;
@@ -602,7 +602,7 @@ const commands = [];
     name: 'tiktokdown',
     aliases: ['ttdown', 'tiktok'],
     category: 'downloader',
-    description: '📥 TikTok downloader in HD — Gemini roasts what the video probably is',
+    description: '📥 TikTok downloader in HD — Groq roasts what the video probably is',
     usage: '!tiktokdown <link>',
     cooldown: 15,
     permission: 'all',
@@ -629,7 +629,7 @@ const commands = [];
       const item = (data && data.data) || {};
       await reply('🔎 Fetching it...', event.messageID);
 
-      const roast = await askGemini(
+      const roast = await askGroq(
         `Write one savage two-sentence roast of whatever this TikTok is probably about, `
         + `based on the link: ${link}. Title it in one line first.`,
         'Style: brutal, funny, and harmless. No hate, no real names.',
@@ -659,7 +659,7 @@ const commands = [];
     name: 'igdown',
     aliases: ['igdl', 'insta'],
     category: 'downloader',
-    description: '📥 Instagram reel/post downloader — Gemini captions it',
+    description: '📥 Instagram reel/post downloader — Groq captions it',
     usage: '!igdown <reel link>',
     cooldown: 15,
     permission: 'all',
@@ -688,7 +688,7 @@ const commands = [];
       const item = (data && data.data) || {};
       await reply('🔎 Fetching it...', event.messageID);
 
-      const caption = await askGemini(
+      const caption = await askGroq(
         `Write a short Instagram caption for this post, plus a one-line title. Link: ${link}.`,
         'Style: cool and dry. Emoji only if earned.',
       );
@@ -719,7 +719,7 @@ const commands = [];
     name: 'ytdown',
     aliases: ['ytdl', 'yt'],
     category: 'downloader',
-    description: '📥 YouTube info, thumbnail and a Gemini summary of the title',
+    description: '📥 YouTube info, thumbnail and a Groq summary of the title',
     usage: '!ytdown <yt link>',
     cooldown: 15,
     permission: 'all',
@@ -748,7 +748,7 @@ const commands = [];
       const card = await fetchBuffer(thumb);
       await reply('🔎 Reading it...', event.messageID);
 
-      const summary = await askGemini(
+      const summary = await askGroq(
         `Summarise what this YouTube video is probably about from its id and title, `
         + `and give it a one-line iKON verdict on whether it is worth the watch. `
         + `Video id: ${vid}. Be honest that you are guessing from the link.`,
@@ -781,7 +781,7 @@ const commands = [];
     name: 'twitterdown',
     aliases: ['xdown', 'twdl'],
     category: 'downloader',
-    description: '📥 X/Twitter video downloader — Gemini explains the tweet',
+    description: '📥 X/Twitter video downloader — Groq explains the tweet',
     usage: '!twitterdown <x link>',
     cooldown: 15,
     permission: 'all',
@@ -808,7 +808,7 @@ const commands = [];
       const data = await fetchJson(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}&hd=1`);
       const item = (data && data.data) || {};
 
-      const read = await askGemini(
+      const read = await askGroq(
         `Explain what this tweet is reacting to and give it a one-line savage read. Link: ${link}.`
         + (statusId ? ` Status id: ${statusId}.` : ''),
         'Style: funny, mean in a harmless way.',
@@ -831,7 +831,7 @@ const commands = [];
     name: 'pinterestdown',
     aliases: ['pindown', 'pin'],
     category: 'downloader',
-    description: '📌 Pinterest pin downloader — Gemini describes what the pin is',
+    description: '📌 Pinterest pin downloader — Groq describes what the pin is',
     usage: '!pinterestdown <pin link>',
     cooldown: 15,
     permission: 'all',
@@ -862,7 +862,7 @@ const commands = [];
       const title = (meta.match(/<meta[^>]+property="og:title"[^>]+content="([^"]+)"/i) || [])[1] || '';
 
       await reply('🔎 Fetching it...', event.messageID);
-      const desc = await askGemini(
+      const desc = await askGroq(
         `Describe what this Pinterest pin probably shows and give it a one-line iKON title. `
         + `Pin title on the page: "${title || 'not found'}". Link: ${link}.`,
         'Style: vivid, a bit mean, short.',
@@ -890,7 +890,7 @@ const commands = [];
     name: 'pinterestsearch',
     aliases: ['pinsearch', 'pinfind'],
     category: 'downloader',
-    description: '🔍 Search Pinterest and let Gemini pick the five worth seeing',
+    description: '🔍 Search Pinterest and let Groq pick the five worth seeing',
     usage: '!pinterestsearch <topic>',
     cooldown: 20,
     permission: 'all',
@@ -910,10 +910,10 @@ const commands = [];
 
       await reply(`🔍 Looking for pins about "${topic}"...`, event.messageID);
 
-      // Pinterest has no free keyless search API, so Gemini does the picking and
+      // Pinterest has no free keyless search API, so Groq does the picking and
       // the links it returns are real pinterest.com search URLs, not invented
       // pin ids.
-      const picks = await askGemini(
+      const picks = await askGroq(
         `Give me the 5 best Pinterest search angles for "${topic}". For each, one line: `
         + `a specific search term, then why it finds something good. `
         + `Do not invent pin URLs.`,
@@ -938,7 +938,7 @@ const commands = [];
     name: 'lyrics',
     aliases: ['lyric'],
     category: 'downloader',
-    description: '🎤 Lyrics from lyrics.ovh, then Gemini explains the meaning and rates it',
+    description: '🎤 Lyrics from lyrics.ovh, then Groq explains the meaning and rates it',
     usage: '!lyrics <song> [artist]',
     cooldown: 15,
     permission: 'all',
@@ -961,7 +961,7 @@ const commands = [];
       const found = data && data.lyrics;
       await reply('🔎 Looking it up...', event.messageID);
 
-      const read = await askGemini(
+      const read = await askGroq(
         `Explain what this song means, name its mood, and give it a savage iKON review out of 10. `
         + `Song: ${q}.`
         + (found ? `\nFirst lines of the lyrics for context:\n${found.slice(0, 400)}` : '\nI could not fetch the lyrics, so work from the title alone.'),
@@ -992,7 +992,7 @@ const commands = [];
     name: 'sing',
     aliases: ['singing', 'singalong'],
     category: 'downloader',
-    description: '🎙️ Sing-along sheet — Gemini turns the lyrics into a vocal guide',
+    description: '🎙️ Sing-along sheet — Groq turns the lyrics into a vocal guide',
     usage: '!sing <song> [artist]',
     cooldown: 20,
     permission: 'all',
@@ -1015,7 +1015,7 @@ const commands = [];
       const found = data && data.lyrics;
       await reply('🎙️ Building the vocal sheet...', event.messageID);
 
-      const guide = await askGemini(
+      const guide = await askGroq(
         `Turn this into a sing-along vocal guide. Give: the key feel, the tempo, the hardest line to hit, `
         + `and a 4-line "warm up like this" exercise. Song: ${q}.`
         + (found ? `\nLyrics:\n${String(found).slice(0, 900)}` : '\nNo lyrics were found, so write the guide from the title and say so.'),
@@ -1037,7 +1037,7 @@ const commands = [];
     name: 'say',
     aliases: ['sayultra2', 'savage'],
     category: 'downloader',
-    description: '🗣️ Gemini rewrites your text into full iKON savage mode',
+    description: '🗣️ Groq rewrites your text into full iKON savage mode',
     usage: '!say <text>',
     cooldown: 15,
     permission: 'all',
@@ -1055,7 +1055,7 @@ const commands = [];
         return;
       }
 
-      const savage = await askGemini(
+      const savage = await askGroq(
         `Rewrite this in maximum iKON savage mode. Keep the original meaning, hit harder. `
         + `Give 3 versions: savage, colder, and funny. Text: "${text}"`,
         'Style: brutal, harmless, no slurs, no real names.',
@@ -1098,7 +1098,7 @@ const commands = [];
         return;
       }
 
-      const answer = await askGemini(q, `Answer as iKON-BOT v2 Ultra. The owner is ${OWNER}. Be brief and useful.`);
+      const answer = await askGroq(q, `Answer as iKON-BOT v2 Ultra. The owner is ${OWNER}. Be brief and useful.`);
       await reply(`🤖 **${q.slice(0, 80)}**\n━━━━━━━━━━━━━━━\n${answer}\n💸 ${kc(FEES.ask)}`, event.messageID);
     }),
   });
@@ -1126,7 +1126,7 @@ const commands = [];
       }
 
       await reply('⚡ Thinking...', event.messageID);
-      const answer = await askGemini(
+      const answer = await askGroq(
         `Answer this properly. State the answer in the first line, then give the reasoning in at most 4 short lines. `
         + `Question: ${q}`,
         `Style: iKON pro mode. Sharper than !ask, same brevity rule. Owner is ${OWNER}.`,
@@ -1136,23 +1136,26 @@ const commands = [];
   });
 
   commands.push({
-    name: 'gemini',
-    aliases: ['geminia', 'rawgemini'],
+    name: 'groq',
+    // `ai` and `ask` are already taken by other commands. The previous
+    // provider's name is deliberately NOT kept as an alias: this bot talks to
+    // one provider, and a command still answering to the old name implies two.
+    aliases: ['groqa', 'chat'],
     category: 'downloader',
-    description: '💎 Raw Gemini with the full iKON lore injected, nothing softened',
-    usage: '!gemini <prompt>',
-    hint: 'Raw Gemini with the full iKON lore injected and nothing softened. This one costs AI credit.',
+    description: '💎 Raw Groq with the full iKON lore injected, nothing softened',
+    usage: '!groq <prompt>',
+    hint: 'Raw Groq with the full iKON lore injected and nothing softened. This one costs AI credit.',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gemini', async () => {
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'groq', async () => {
       await react('💎');
       const q = args.join(' ').trim();
       if (!q) {
-        await reply('❌ Usage: `!gemini <prompt>`', event.messageID);
+        await reply('❌ Usage: `!groq <prompt>`', event.messageID);
         return;
       }
 
-      const paid = await charge(userDoc, FEES.gemini, 'downloader:gemini');
+      const paid = await charge(userDoc, FEES.groq, 'downloader:groq');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1160,11 +1163,11 @@ const commands = [];
 
       // Same helper as everything else, but with the persona turned up rather
       // than asking for a different model: the lore is in the prefix either way.
-      const answer = await askGemini(
+      const answer = await askGroq(
         q,
         `Full iKON persona, no hedging. You are ${OWNER}'s bot. Answer like you have opinions and they are correct.`,
       );
-      await reply(`💎 **GEMINI**\n━━━━━━━━━━━━━━━\n${answer}\n💸 ${kc(FEES.gemini)}`, event.messageID);
+      await reply(`💎 **GROQ**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.groq)}`, event.messageID);
     }),
   });
 
@@ -1192,7 +1195,7 @@ const commands = [];
         return;
       }
 
-      const out = await askGemini(
+      const out = await askGroq(
         `Translate this into ${lang}. Keep slang, tone and insult intact — do not clean it up. `
         + `Show only the translation, then one line explaining any phrase that had no direct equivalent. `
         + `Text: "${text}"`,
@@ -1203,7 +1206,7 @@ const commands = [];
         title: `${text.slice(0, 40)}`,
         subtitle: `→ ${lang.toUpperCase()}`,
         body: out,
-        footer: `${OWNER} · Gemini`,
+        footer: `${OWNER} · Groq`,
       });
       if (card) {
         await reply({ body: `🌐 **${lang.toUpperCase()}**\n\n${out}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -1218,7 +1221,7 @@ const commands = [];
 //
 // generate and imagine render a pollinations image. 4k, upscale, enhance and
 // bgremove all read the replied photo, so they share one pipeline: fetch the
-// bytes, Gemini describes what it sees and what it changed, canvas does the
+// bytes, Groq describes what it sees and what it changed, canvas does the
 // pixel work. They differ only in scale factor and filter.
 // ───────────────────────────────────────────────────────────
 
@@ -1226,7 +1229,7 @@ const commands = [];
     name: 'generate',
     aliases: ['gen', 'genimg'],
     category: 'downloader',
-    description: '🎨 Gemini upgrades your prompt, pollinations renders it. 4K ready',
+    description: '🎨 Groq upgrades your prompt, pollinations renders it. 4K ready',
     usage: '!generate <prompt>',
     cooldown: 20,
     permission: 'all',
@@ -1244,10 +1247,10 @@ const commands = [];
         return;
       }
 
-      // Gemini's job here is to turn "cool car" into something a renderer can
+      // Groq's job here is to turn "cool car" into something a renderer can
       // actually draw. That upgrade is the whole reason to charge 200.
       await reply('🎨 Upgrading the prompt...', event.messageID);
-      const enhanced = await askGemini(
+      const enhanced = await askGroq(
         `Rewrite this into a single detailed image-generation prompt. Add lighting, camera angle, `
         + `colour palette and mood. Output ONLY the prompt, no preamble, under 60 words. `
         + `Original: ${want}`,
@@ -1255,7 +1258,7 @@ const commands = [];
       );
 
       // Strip anything that would break the URL, and fall back to the raw ask
-      // if Gemini handed back an essay with a "here is your prompt" intro.
+      // if Groq handed back an essay with a "here is your prompt" intro.
       const clean = (enhanced.replace(/[*_#`]/g, '').match(/^[\s\S]{0,400}?(?:\n|$)/) || [want])[0]
         .replace(/\s+/g, ' ').trim() || want;
       const url = `${POLLINATIONS}${encodeURIComponent(clean)}&width=1024&height=1024&nologo=true`;
@@ -1285,7 +1288,7 @@ const commands = [];
     name: 'imagine',
     aliases: ['imagineultra', 'dream'],
     category: 'downloader',
-    description: '🖼️ Same generator, framed on an iKON card with the Gemini commentary',
+    description: '🖼️ Same generator, framed on an iKON card with the Groq commentary',
     usage: '!imagine <prompt>',
     cooldown: 20,
     permission: 'all',
@@ -1304,7 +1307,7 @@ const commands = [];
       }
 
       await reply('🖼️ Rendering...', event.messageID);
-      const enhanced = await askGemini(
+      const enhanced = await askGroq(
         `Turn this into one vivid image-generation prompt and then, on a new line after "---", `
         + `write one line on what this picture would feel like to stand in front of. `
         + `Idea: ${want}`,
@@ -1321,7 +1324,7 @@ const commands = [];
         title: 'iKON IMAGINE',
         subtitle: clean.slice(0, 60),
         body: thought,
-        footer: `${OWNER} · Gemini`,
+        footer: `${OWNER} · Groq`,
         accent: canvasKit.theme.accent2,
       });
 
@@ -1342,7 +1345,7 @@ const commands = [];
     name: '4k',
     aliases: ['4kup', 'hd'],
     category: 'downloader',
-    description: '🔍 Reply to a photo — 2x canvas upscale, Gemini explains what it sharpened',
+    description: '🔍 Reply to a photo — 2x canvas upscale, Groq explains what it sharpened',
     usage: '!4k (reply to an image)',
     cooldown: 20,
     permission: 'all',
@@ -1362,7 +1365,7 @@ const commands = [];
 
       await reply('🔍 Upscaling 2x...', event.messageID);
       const shot = await upscale(src.url, 2);
-      const read = await askGemini(
+      const read = await askGroq(
         `Describe what is in this photo and what an upscale pass improves on it. `
         + `Be specific about detail, edges and any text. If it is low quality, say so.`,
         'Style: a photo technician who is honest about the source.',
@@ -1411,7 +1414,7 @@ const commands = [];
 
       await reply('🔬 Upscaling 4x...', event.messageID);
       const shot = await upscale(src.url, 4);
-      const read = await askGemini(
+      const read = await askGroq(
         `Describe this photo and say honestly whether a 4x upscale will make it look better `
         + `or just bigger. Mention anything a viewer would notice.`,
         'Style: blunt technical opinion.',
@@ -1440,7 +1443,7 @@ const commands = [];
     name: 'enhance',
     aliases: ['enhanceultra', 'sharpen'],
     category: 'downloader',
-    description: '✨ Reply to a photo — Gemini picks the fix, canvas applies contrast and saturation',
+    description: '✨ Reply to a photo — Groq picks the fix, canvas applies contrast and saturation',
     usage: '!enhance (reply to an image)',
     cooldown: 20,
     permission: 'all',
@@ -1459,9 +1462,9 @@ const commands = [];
       }
 
       await reply('✨ Enhancing...', event.messageID);
-      // Gemini picks the treatment rather than us guessing: it can see that the
+      // Groq picks the treatment rather than us guessing: it can see that the
       // photo is flat and dark while our filters cannot.
-      const plan = await askGemini(
+      const plan = await askGroq(
         `This photo needs enhancing. Answer with exactly two lines and nothing else: `
         + `first "WHY: <one sentence>", second "FIX: <contrast|saturation|sharpen|brightness|grayscale> <number 0.5 to 2>". `
         + `Say what is wrong with the image and what would fix it.`,
@@ -1494,7 +1497,7 @@ const commands = [];
     name: 'bgremove',
     aliases: ['nobg', 'cutout'],
     category: 'downloader',
-    description: '✂️ Reply to a photo — canvas background knock-out, Gemini names the subject',
+    description: '✂️ Reply to a photo — canvas background knock-out, Groq names the subject',
     usage: '!bgremove (reply to an image)',
     cooldown: 20,
     permission: 'all',
@@ -1513,7 +1516,7 @@ const commands = [];
       }
 
       await reply('✂️ Cutting the subject out...', event.messageID);
-      const subject = await askGemini(
+      const subject = await askGroq(
         `What is the main subject of this photo, in one word, and what colour is the background `
         + `it sits on? Answer as "SUBJECT: x / BG: y" and nothing else.`,
         'Style: one line, no prose.',
@@ -1550,7 +1553,7 @@ const commands = [];
 //
 // Every free sports/weather endpoint here is unauthenticated and unreliable, so
 // none of these commands can depend on a fetch succeeding. The pattern is the
-// same in all eight: try the real API, hand whatever came back to Gemini for
+// same in all eight: try the real API, hand whatever came back to Groq for
 // interpretation, and if there is nothing to interpret say so plainly.
 // ───────────────────────────────────────────────────────────
 
@@ -1558,7 +1561,7 @@ const commands = [];
     name: 'football',
     aliases: ['scores', 'fixures'],
     category: 'downloader',
-    description: '⚽ Football scores right now — Gemini says who is winning and why',
+    description: '⚽ Football scores right now — Groq says who is winning and why',
     usage: '!football',
     cooldown: 15,
     permission: 'all',
@@ -1571,7 +1574,7 @@ const commands = [];
       }
 
       const fixtures = await fetchJson(`${OPENLIGADB}?matches`);
-      const read = await askGemini(
+      const read = await askGroq(
         `Here are football fixtures: ${JSON.stringify(fixtures || [])}. `
         + `Say who is winning, what the story is, and give one prediction for the day. `
         + `If the list is empty, say plainly that no fixtures were available.`,
@@ -1585,7 +1588,7 @@ const commands = [];
     name: 'livefootball',
     aliases: ['livefix', 'livescores'],
     category: 'downloader',
-    description: '🔴 Live football by league — Gemini breaks down what it is watching',
+    description: '🔴 Live football by league — Groq breaks down what it is watching',
     usage: '!livefootball <league>',
     cooldown: 15,
     permission: 'all',
@@ -1603,9 +1606,9 @@ const commands = [];
         return;
       }
 
-      // OpenLigaDB keys on a numeric league id; ask Gemini to map the word to
+      // OpenLigaDB keys on a numeric league id; ask Groq to map the word to
       // one rather than hard-coding a table that goes stale.
-      const id = await askGemini(
+      const id = await askGroq(
         `Which OpenLigaDB numeric league id is "${league}"? Answer with the number only, `
         + `or 0 if you are not sure. EPL is 1, La Liga is 2, Serie A is 3, Bundesliga is 4.`,
         'Style: numbers only.',
@@ -1615,7 +1618,7 @@ const commands = [];
         ? await fetchJson(`${OPENLIGADB}?matches&league=${encodeURIComponent(String(code))}`)
         : null;
 
-      const read = await askGemini(
+      const read = await askGroq(
         `Live ${league} matches: ${JSON.stringify(matches || [])}. `
         + `Give the scorelines, who is in control, and the one match worth watching. `
         + `If there is no data, say so.`,
@@ -1629,7 +1632,7 @@ const commands = [];
     name: 'score',
     aliases: ['teamscore', 'whowon'],
     category: 'downloader',
-    description: '📊 One team, one number — Gemini puts a probability on it',
+    description: '📊 One team, one number — Groq puts a probability on it',
     usage: '!score <team>',
     cooldown: 15,
     permission: 'all',
@@ -1648,7 +1651,7 @@ const commands = [];
       }
 
       const matches = await fetchJson(`${OPENLIGADB}?matches`);
-      const read = await askGemini(
+      const read = await askGroq(
         `Find any match involving "${team}" in this data: ${JSON.stringify(matches || [])}. `
         + `Report the score. If the team is not in it, say the data does not cover them and `
         + `give your honest win probability for their next fixture instead.`,
@@ -1662,7 +1665,7 @@ const commands = [];
     name: 'footballnews',
     aliases: ['footballheadlines', 'footballdrama'],
     category: 'downloader',
-    description: '📰 Football news — Gemini finds the story and roasts it',
+    description: '📰 Football news — Groq finds the story and roasts it',
     usage: '!footballnews',
     cooldown: 20,
     permission: 'all',
@@ -1675,9 +1678,9 @@ const commands = [];
       }
 
       // No free football news API that stays up, so the headlines come from
-      // Gemini. It is told to write them as summaries rather than fabricating
+      // Groq. It is told to write them as summaries rather than fabricating
       // specific transfer fees and quotes.
-      const news = await askGemini(
+      const news = await askGroq(
         `Give the 5 biggest football stories right now. For each: a one line headline and one `
         + `line on why it matters. If you are not certain something is real today, mark it `
         + `"(unverified)" rather than inventing a fee or a quote.`,
@@ -1691,7 +1694,7 @@ const commands = [];
     name: 'matchpredict',
     aliases: ['predict', 'predictmatch'],
     category: 'downloader',
-    description: '🔮 "Real vs Barca" — Gemini picks a winner and shows its reasoning',
+    description: '🔮 "Real vs Barca" — Groq picks a winner and shows its reasoning',
     usage: '!matchpredict <teamA> vs <teamB>',
     cooldown: 20,
     permission: 'all',
@@ -1709,7 +1712,7 @@ const commands = [];
         return;
       }
 
-      const read = await askGemini(
+      const read = await askGroq(
         `Predict: ${fixture}. Give win/draw/loss percentages that add to 100, then 3 short `
         + `reasons, then one "dark horse" line. Base it on form and squad strength, `
         + `and say it is a prediction, not a fact.`,
@@ -1719,7 +1722,7 @@ const commands = [];
         title: 'MATCH PREDICTION',
         subtitle: fixture.toUpperCase(),
         body: read,
-        footer: `${OWNER} · Gemini`,
+        footer: `${OWNER} · Groq`,
         accent: canvasKit.theme.gold,
       });
       if (card) {
@@ -1734,7 +1737,7 @@ const commands = [];
     name: 'cricketscore',
     aliases: ['cricket', 'cricketscores'],
     category: 'downloader',
-    description: '🏏 Cricket score and situation — Gemini reads the game',
+    description: '🏏 Cricket score and situation — Groq reads the game',
     usage: '!cricketscore',
     cooldown: 15,
     permission: 'all',
@@ -1746,9 +1749,9 @@ const commands = [];
         return;
       }
 
-      // No keyless cricket feed, so the situation comes from Gemini, which is
+      // No keyless cricket feed, so the situation comes from Groq, which is
       // told to be explicit that it is working from memory of the format.
-      const read = await askGemini(
+      const read = await askGroq(
         `Describe the current state of international cricket: who is playing, the format, `
         + `and what the interesting story is right now. If you do not know a live score, `
         + `say that clearly and talk about the series instead of guessing a number.`,
@@ -1762,7 +1765,7 @@ const commands = [];
     name: 'weatherai',
     aliases: ['weather', 'outfitai'],
     category: 'downloader',
-    description: '🌦️ Real weather for anywhere, plus Gemini outfit advice with an attitude',
+    description: '🌦️ Real weather for anywhere, plus Groq outfit advice with an attitude',
     usage: '!weatherai <place>',
     cooldown: 15,
     permission: 'all',
@@ -1796,7 +1799,7 @@ const commands = [];
       const max = (wx && wx.daily && wx.daily.temperature_2m_max && wx.daily.temperature_2m_max[0]) || '?';
       const min = (wx && wx.daily && wx.daily.temperature_2m_min && wx.daily.temperature_2m_min[0]) || '?';
 
-      const read = await askGemini(
+      const read = await askGroq(
         `Weather data for ${place}${spot ? ` (${spot.latitude}, ${spot.longitude})` : ''}: `
         + `now ${cur.temperature_2m ?? 'unknown'}C, wind ${cur.wind_speed_10 ?? 'unknown'} km/h, `
         + `day high ${max}C low ${min}C. Give the outfit call: what to wear, and one savage `
@@ -1819,7 +1822,7 @@ const commands = [];
     name: 'newsai',
     aliases: ['news', 'newsgc'],
     category: 'downloader',
-    description: '🌍 The world right now — Gemini summarises it in the iKON register',
+    description: '🌍 The world right now — Groq summarises it in the iKON register',
     usage: '!newsai',
     cooldown: 20,
     permission: 'all',
@@ -1831,7 +1834,7 @@ const commands = [];
         return;
       }
 
-      const read = await askGemini(
+      const read = await askGroq(
         `Give the 5 biggest world stories right now. One line each: what happened, and why `
         + `anyone should care. If you are not certain a story is current, mark it `
         + `"(unverified)". Never invent a named quote or a specific number.`,
@@ -1849,7 +1852,7 @@ const commands = [];
     name: 'wiki',
     aliases: ['wikipediaai', 'wikiai'],
     category: 'downloader',
-    description: '📚 Wikipedia in one paragraph, then Gemini explains it like you are five',
+    description: '📚 Wikipedia in one paragraph, then Groq explains it like you are five',
     usage: '!wiki <topic>',
     cooldown: 15,
     permission: 'all',
@@ -1873,7 +1876,7 @@ const commands = [];
       const extract = (data && data.extract) || '';
       await reply('📚 Looking it up...', event.messageID);
 
-      const eli5 = await askGemini(
+      const eli5 = await askGroq(
         `Explain "${topic}" like the reader is five years old and slightly bored. `
         + `One paragraph, then one fun fact.${extract ? `\nReference material: ${extract}` : ''}`
         + `${extract ? '' : '\nI could not fetch the article, so use your own knowledge and say if it is outside what you know.'}`,
@@ -1920,7 +1923,7 @@ const commands = [];
         || (meanings.find((m) => m.phonetic) || {}).phonetic || '';
 
       await reply('📖 Checking the dictionary...', event.messageID);
-      const usage = await askGemini(
+      const usage = await askGroq(
         `Give me: an example sentence using "${word}" the way a real person would say it, `
         + `the closest single word that means almost the same thing, and one line on the vibe `
         + `of using it.`
@@ -1942,7 +1945,7 @@ const commands = [];
     name: 'summarize',
     aliases: ['sum', 'tldr'],
     category: 'downloader',
-    description: '📋 Reply to a long message — Gemini tells you what actually happened',
+    description: '📋 Reply to a long message — Groq tells you what actually happened',
     usage: '!summarize (reply to a message)',
     cooldown: 15,
     permission: 'all',
@@ -1972,7 +1975,7 @@ const commands = [];
         return;
       }
 
-      const brief = await askGemini(
+      const brief = await askGroq(
         `Summarise this in 3 lines maximum, then one line naming the real story underneath it. `
         + `Text: ${text.slice(0, 3000)}`,
         'Style: the friend who tells you what actually happened.',
@@ -2013,7 +2016,7 @@ const commands = [];
         return;
       }
 
-      const out = await askGemini(
+      const out = await askGroq(
         `${styles[mode]} Output only the rewrite, nothing else. Original: "${text}"`,
         'Style: one rewrite. Do not add a preamble or offer alternatives.',
       );
@@ -2043,7 +2046,7 @@ const commands = [];
         return;
       }
 
-      const story = await askGemini(
+      const story = await askGroq(
         `Write a short story about "${topic}". Make ${userDoc.name} the main character by name. `
         + `Under 300 words. End on a line that lands.`,
         'Style: real prose, not a chat reply. No preamble of any kind.',
@@ -2053,7 +2056,7 @@ const commands = [];
         title: 'iKON STORY',
         subtitle: topic.toUpperCase(),
         body: `${userDoc.name} walked in. That was the first mistake.`,
-        footer: `${OWNER} · Gemini`,
+        footer: `${OWNER} · Groq`,
         accent: canvasKit.theme.accent2,
       });
       if (card) {
@@ -2067,7 +2070,7 @@ const commands = [];
     name: 'codeai',
     aliases: ['codereview', 'codium'],
     category: 'downloader',
-    description: '🧑‍💻️ Gemini reviews your code, roasts it, and shows the fix',
+    description: '🧑‍💻️ Groq reviews your code, roasts it, and shows the fix',
     usage: '!codeai <code>',
     cooldown: 20,
     permission: 'all',
@@ -2086,8 +2089,8 @@ const commands = [];
       }
 
       // Length is capped because a whole file pasted into a chat message costs
-      // Gemini tokens nobody wants to pay for and produces a weaker review.
-      const review = await askGemini(
+      // Groq tokens nobody wants to pay for and produces a weaker review.
+      const review = await askGroq(
         `Review this code in 4 short parts: BUGS (real problems only), ROAST (one line, funny), `
         + `FIX (a corrected version), SCORE out of 10. Do not invent bugs that are not there. `
         + `Code:\n\`\`\`\n${code.slice(0, 2500)}\n\`\`\``,
@@ -2105,7 +2108,7 @@ const commands = [];
     name: 'songai',
     aliases: ['song', 'writesong'],
     category: 'downloader',
-    description: '🎵 Gemini writes the whole song — verse, chorus, and how to sing it',
+    description: '🎵 Groq writes the whole song — verse, chorus, and how to sing it',
     usage: '!songai <topic> [mood]',
     cooldown: 20,
     permission: 'all',
@@ -2124,7 +2127,7 @@ const commands = [];
       }
 
       await reply('🎵 Writing...', event.messageID);
-      const song = await askGemini(
+      const song = await askGroq(
         `Write a complete short song about "${topic}" for ${userDoc.name}. `
         + `Structure: TITLE, 2 verses, a chorus, a bridge line, then a 3 line "SING IT LIKE" `
         + `guide with the vocal note that fits. No copyrighted melodies.`,
@@ -2135,7 +2138,7 @@ const commands = [];
         title: 'iKON SONG',
         subtitle: `FOR ${String(userDoc.name).toUpperCase()}`,
         body: `${topic}`,
-        footer: `${OWNER} · Gemini`,
+        footer: `${OWNER} · Groq`,
         accent: canvasKit.theme.gold,
       });
       if (card) {

@@ -8,7 +8,7 @@
  * Shape required for every command:
  * { name, aliases, category, description, usage, cooldown, permission, execute }
  *
- * execute receives: { api, event, args, config, registry, gemini, reply, react, userDoc }
+ * execute receives: { api, event, args, config, registry, ai, reply, react, userDoc }
  * `reply` and `react` are already bound to the current thread, so a command
  * never calls api.sendMessage directly.
  *
@@ -974,10 +974,10 @@ module.exports = [
         // is silently unreachable and the bot looks broken rather than locked.
         + (permissions.ownerIds().length ? '' : '⚠️ none configured — set ADMIN_IDS in the Render environment\n')
         + '🧠 ai\n'
-        + `Gemini: ${config.GEMINI_API_KEY ? 'configured' : 'not set'}\n`
-        // The live model, not just the configured one: the client falls back
-        // when the configured model is unavailable to the key's project.
-        + `Model: ${require('../bot/gemini').activeModel()}`,
+        + `Groq: ${config.GROQ_API_KEY ? 'configured' : 'not set'}\n`
+        // The live model, not just the configured one: the client walks its
+        // own ladder when the configured model is unavailable to the key.
+        + `Model: ${require('../bot/groq').activeModel()}`,
         event.messageID,
       );
     }),

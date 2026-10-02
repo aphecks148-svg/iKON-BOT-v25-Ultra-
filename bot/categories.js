@@ -98,9 +98,9 @@ const CATEGORIES = [
     label: 'Media & AI',
     emoji: '📥',
     symbol: '✦',
-    blurb: 'Download media from a link, and let Gemini caption and describe it.',
+    blurb: 'Download media from a link, and let Groq caption and describe it.',
     hint: 'Only this category costs AI credit — everything else here is free.',
-    lookfor: ['downloader', 'download', 'media', 'ai', 'gemini', 'media & ai'],
+    lookfor: ['downloader', 'download', 'media', 'ai', 'groq', 'media & ai'],
   },
   {
     key: 'fun',

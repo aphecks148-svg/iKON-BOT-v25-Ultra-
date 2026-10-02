@@ -7,7 +7,7 @@
  *
  * This file owns everything: Express server, MongoDB, ws3-fca APPSTATE login,
  * command registry + aliases, routing, permissions, cooldowns, replies,
- * reactions, group management, maintenance/toggles, the Gemini integration
+ * reactions, group management, maintenance/toggles, the AI integration
  * point, and the error boundary that keeps a broken command from killing the bot.
  */
 
@@ -23,7 +23,7 @@ const permissions = require('./bot/permissions');
 const toggles = require('./bot/toggles');
 const cache = require('./bot/cache');
 const canvas = require('./bot/canvas');
-const geminiClient = require('./bot/gemini');
+const groqClient = require('./bot/groq');
 const fcaDiag = require('./bot/fcaDiag');
 const helpers = require('./bot/helpers');
 const profile = require('./bot/profile');
@@ -168,20 +168,22 @@ function startServer() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// GEMINI — thin facade over bot/gemini.js
+// AI — thin facade over bot/groq.js
 //
 // The HTTP call, model selection and auth all live in that module so the engine
 // and the AI commands cannot drift apart. This object only keeps the shape the
-// command handlers expect.
+// command handlers expect. It is named `ai`, not `groq`, because what a command
+// needs is "ask the AI something" — the provider is bot/groq.js's business and
+// should not leak into 35 handlers.
 // ─────────────────────────────────────────────────────────────
-const gemini = {
-  available: geminiClient.available,
-  ask: (prompt, opts = {}) => geminiClient.ask(prompt, {
-    maxOutputTokens: opts.maxOutputTokens || 2048,
+const ai = {
+  available: groqClient.available,
+  ask: (prompt, opts = {}) => groqClient.ask(prompt, {
+    maxTokens: opts.maxTokens || opts.maxOutputTokens || 2048,
     system: opts.system,
   }),
-  activeModel: geminiClient.activeModel,
-  lastErrorMessage: geminiClient.lastErrorMessage,
+  activeModel: groqClient.activeModel,
+  lastErrorMessage: groqClient.lastErrorMessage,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -357,7 +359,7 @@ async function handleMessage(api, event) {
         args: parsed.args,
         config,
         registry,
-        gemini,
+        ai,
         reply: say,
         react: reactTo,
         userDoc,
@@ -994,6 +996,6 @@ module.exports = {
   get registry() { return registry; },
   get aliases() { return aliases; },
   get client() { return client; },
-  gemini,
+  ai,
   STATE,
 };

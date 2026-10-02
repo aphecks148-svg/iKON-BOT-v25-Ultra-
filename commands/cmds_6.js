@@ -13,7 +13,7 @@
  * Shape required for every command:
  * { name, aliases, category, description, usage, cooldown, permission, execute }
  *
- * execute receives: { api, event, args, config, registry, gemini, reply, react, userDoc }
+ * execute receives: { api, event, args, config, registry, ai, reply, react, userDoc }
  * `reply` and `react` are already bound to the current thread, so a command
  * never calls api.sendMessage directly. Canvas output goes through
  * `reply({ attachment })` for the same reason.

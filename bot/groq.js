@@ -1,0 +1,246 @@
+'use strict';
+
+/**
+ * Groq client — the one place that talks to api.groq.com.
+ *
+ * This replaces bot/gemini.js outright. Groq is the only AI provider this bot
+ * uses: there is one client, one key, one model ladder, and no transport that
+ * silently switches to a second vendor.
+ *
+ * GROQ'S CONTRACT, AND WHY EACH PIECE IS HERE
+ *
+ * - Endpoint. `POST https://api.groq.com/openai/v1/chat/completions`, OpenAI
+ *   wire-compatible. Verified against the Groq API reference, not assumed.
+ *
+ * - Auth. `Authorization: Bearer gsk_...`. Groq keys carry the `gsk_` prefix and
+ *   are rejected by Google's native `generativelanguage` route, which is the
+ *   point of the swap: a leftover Gemini key now fails loudly instead of
+ *   half-working. Nothing here validates the prefix — the API is the authority,
+ *   and a future key format must not be rejected by a regex.
+ *
+ * - Token cap. `max_tokens` is DEPRECATED in favour of `max_completion_tokens`,
+ *   so this sends the new name. The cap counts reasoning tokens on the
+ *   gpt-oss models, which is why the default is generous for a chat reply.
+ *
+ * - No thinking config. Gemini's `thinkingLevel`/`thinkingBudget` do not exist
+ *   here and are rejected with a 400. Reasoning models are reached by picking
+ *   the model id instead, which is the supported route.
+ *
+ * - Errors. Groq answers `{"error": {"message", "type", "code"}}`. A 400/401/
+ *   403/404 is about this key or this model and is worth trying another model
+ *   for; a 429 is a rate limit and a 5xx is Groq's problem, so neither walks
+ *   the fallback ladder — retrying four models just burns the quota faster.
+ *
+ * Every function resolves rather than throws: an AI command that cannot reach
+ * Groq must still send the user something.
+ */
+
+const axios = require('axios');
+const config = require('../config');
+
+const { log, error } = require('./helpers');
+
+const BASE = 'https://api.groq.com/openai/v1';
+
+/**
+ * Tried in order when GROQ_MODEL is not set, and after a 400/401/403/404 that
+ * means "this model is not available to your key". The first that answers wins
+ * and is cached for the rest of the process.
+ *
+ * All four are current production or preview models on GroqCloud. The 70B is
+ * the default because a chat bot lives or dies on answer quality; the 8B
+ * instant is the emergency fallback, since it is the fastest thing on the
+ * platform and will still answer when the big model is rate limited.
+ */
+const FALLBACK_MODELS = [
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant',
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+];
+
+const TIMEOUT_MS = 25000;
+
+let resolvedModel = null;
+let lastError = '';
+
+/** The configured model, or the first of the fallbacks. */
+function preferredModel() {
+  const configured = String(config.GROQ_MODEL || '').trim();
+  return configured || FALLBACK_MODELS[0];
+}
+
+/** Is a key configured? Checks presence only, never the prefix. */
+function available() {
+  return Boolean(String(config.GROQ_API_KEY || '').trim());
+}
+
+/**
+ * Pull the answer out of a chat completion.
+ *
+ * Reasoning models can put their scratchpad in a separate field. It must be
+ * dropped: a command that regexes the output (or drops it into an image prompt)
+ * would otherwise ship the model's deliberation to the chat.
+ *
+ * @param {object} data response body
+ * @returns {string} the answer, or '' when there is none
+ */
+function extractText(data) {
+  const choice = data && Array.isArray(data.choices) ? data.choices[0] : null;
+  const content = choice && choice.message && choice.message.content;
+
+  if (typeof content === 'string') return content.trim();
+
+  // Some OpenAI-compatible servers return content as a part array. Handle it
+  // rather than assuming the string form, so a shape change does not read as
+  // "the model refused to answer" across every AI command.
+  if (Array.isArray(content)) {
+    return content
+      .filter((p) => p && (p.type === 'text' || typeof p.text === 'string') && !p.reasoning)
+      .map((p) => p.text)
+      .join('')
+      .trim();
+  }
+
+  return '';
+}
+
+/** The API's error message, which is far more useful than axios's "status 404". */
+function apiErrorMessage(err) {
+  const data = err && err.response && err.response.data;
+  return String(
+    (data && (data.error && data.error.message || data.message)) || (err && err.message) || 'unknown error',
+  ).slice(0, 300);
+}
+
+/**
+ * One chat completion against one model.
+ *
+ * @param {string} model
+ * @param {string} prompt fully assembled prompt including persona
+ * @param {{maxTokens?:number, system?:string, temperature?:number}} opts
+ * @returns {Promise<string>} answer text, '' when empty
+ * @throws on transport or API error so the caller can decide to try another model
+ */
+async function callModel(model, prompt, opts = {}) {
+  // The key goes in an Authorization header, not a query string, so it stays
+  // out of proxy and access logs.
+  const res = await axios.post(
+    `${BASE}/chat/completions`,
+    {
+      model,
+      messages: [
+        ...(opts.system ? [{ role: 'system', content: opts.system }] : []),
+        { role: 'user', content: prompt },
+      ],
+      // max_completion_tokens, not the deprecated max_tokens.
+      max_completion_tokens: opts.maxTokens || 2048,
+      // A little under 1 by default: the persona is a bit, not a dice roll.
+      ...(opts.temperature === undefined ? {} : { temperature: opts.temperature }),
+    },
+    {
+      timeout: TIMEOUT_MS,
+      headers: {
+        Authorization: `Bearer ${String(config.GROQ_API_KEY)}`,
+        'Content-Type': 'application/json',
+      },
+    },
+  );
+
+  const text = extractText(res && res.data);
+  if (!text) {
+    // A model that hit the token cap can return no content at all. Say why,
+    // because "empty response" alone sends the reader hunting for a key fault.
+    const choice = res && res.data && Array.isArray(res.data.choices) ? res.data.choices[0] : null;
+    const reason = choice && (choice.finish_reason || choice.finishReason);
+    throw new Error(`empty response${reason ? ` (finish_reason: ${reason})` : ''}`);
+  }
+  return text;
+}
+
+/**
+ * Ask Groq a question. Never throws.
+ *
+ * @param {string} prompt user-facing question, already worded
+ * @param {{system?:string, style?:string, maxTokens?:number, maxOutputTokens?:number, temperature?:number}} [opts]
+ *   `style` is appended to `system`; both are optional.
+ * @returns {Promise<string>} the answer, or '' when Groq could not be reached.
+ *   Callers decide what to show; an empty string means "no real answer".
+ */
+async function ask(prompt, opts = {}) {
+  const text = String(prompt || '').trim();
+  if (!text || !available()) return '';
+
+  const system = [opts.system, opts.style].filter(Boolean).join('\n');
+
+  // maxTokens is the Groq name; maxOutputTokens is accepted so callers written
+  // against the old client's option keep working unchanged.
+  const call = {
+    system,
+    maxTokens: opts.maxTokens || opts.maxOutputTokens || 2048,
+    temperature: opts.temperature,
+  };
+
+  // Try the resolved model, then the fallbacks, so one unavailable model does
+  // not take out all 35 AI commands.
+  const tried = [];
+  const head = resolvedModel || preferredModel();
+  const models = [head, ...FALLBACK_MODELS.filter((m) => m !== head)];
+
+  for (const model of models) {
+    try {
+      const answer = await callModel(model, text, call);
+      if (model !== resolvedModel) {
+        resolvedModel = model;
+        log(`[GROQ] using ${model}`);
+      }
+      lastError = '';
+      return answer;
+    } catch (err) {
+      const status = err && err.response && err.response.status;
+      tried.push(`${model}: ${apiErrorMessage(err)}`);
+      lastError = apiErrorMessage(err);
+      // 400/401/403/404 are about this key or this model. Retrying the same
+      // model will not help, but another model may still be available.
+      if (![400, 401, 403, 404].includes(status)) {
+        error(`[GROQ] request failed: ${lastError}`);
+        return '';
+      }
+    }
+  }
+
+  error(`[GROQ] no model answered — ${tried.join(' | ')}`);
+  return '';
+}
+
+/** Which model the client settled on, for !botstatus. */
+function activeModel() {
+  return resolvedModel || preferredModel();
+}
+
+/**
+ * Why the last ask() failed, for the user-facing message. Empty when the last
+ * call worked, so a command never blames the key for an unrelated error.
+ *
+ * @returns {string}
+ */
+function lastErrorMessage() {
+  return lastError;
+}
+
+/** Test seam: forget the cached model and any recorded error. */
+function _reset() {
+  resolvedModel = null;
+  lastError = '';
+}
+
+module.exports = {
+  ask,
+  available,
+  activeModel,
+  lastErrorMessage,
+  extractText,
+  preferredModel,
+  FALLBACK_MODELS,
+  _reset,
+};

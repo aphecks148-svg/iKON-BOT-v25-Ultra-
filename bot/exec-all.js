@@ -100,7 +100,7 @@ const PERMS = { all: 'all', owner: 'owner', groupAdmin: 'groupAdmin' };
       args,
       config: require('../config'),
       registry: ik.registry,
-      gemini: ik.gemini,
+      ai: ik.ai,
       reply: async (text) => { api.sent.push(text); },
       react: async () => true,
       userDoc: null,

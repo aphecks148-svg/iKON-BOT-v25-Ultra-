@@ -1,7 +1,7 @@
 {
   "name": "ikon-bot",
   "version": "2.0.0",
-  "description": "iKON-BOT v2 — clean modular Facebook Messenger RPG/social bot (ws3-fca, MongoDB, Express, @napi-rs/canvas, Gemini)",
+  "description": "iKON-BOT v2 — clean modular Facebook Messenger RPG/social bot (ws3-fca, MongoDB, Express, @napi-rs/canvas, Groq)",
   "main": "index.js",
   "type": "commonjs",
   "engines": {
@@ -22,7 +22,8 @@
     "mongodb",
     "mongoose",
     "ws3-fca",
-    "gemini",
+    "groq",
+    "llama",
     "render"
   ],
   "author": "Aphecks iKon Klerk",

@@ -97,13 +97,15 @@ const config = {
   MONGO_URI: env('MONGO_URI', 'mongodb://127.0.0.1:27017/ikon-bot'),
 
   // ── ai ────────────────────────────────────────────────────
-  // Keys moved from AIza... to AQ... Auth keys. Both are accepted by the native
-  // generativelanguage endpoint; the client never switches to an
-  // OpenAI-compatible route, which rejects AQ keys as "invalid_api_key".
-  GEMINI_API_KEY: env('GEMINI_API_KEY', ''),
-  // gemini-1.5-flash is shut down. bot/gemini.js treats this stale value as
-  // unset and uses its own current default, so an old env var cannot 404.
-  GEMINI_MODEL: env('GEMINI_MODEL', 'gemini-3.8-flash'),
+  // Groq is the only AI provider. Keys are `gsk_...`; the client does not
+  // validate the prefix, so a future key format is the API's business rather
+  // than a regex's. A leftover Google key fails loudly here instead of
+  // half-working against the old endpoint.
+  GROQ_API_KEY: env('GROQ_API_KEY', ''),
+  // Empty means "use bot/groq.js's own ladder", which starts at
+  // llama-3.3-70b-versatile. Left blank on purpose so one model being retired
+  // does not require touching this file.
+  GROQ_MODEL: env('GROQ_MODEL', ''),
 
   // ── server ────────────────────────────────────────────────
   PORT: envInt('PORT', 3000),

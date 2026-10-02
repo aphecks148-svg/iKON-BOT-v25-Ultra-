@@ -11,7 +11,7 @@
  * Shape required for every command:
  * { name, aliases, category, description, usage, cooldown, permission, execute }
  *
- * execute receives: { api, event, args, config, registry, gemini, reply, react, userDoc }
+ * execute receives: { api, event, args, config, registry, ai, reply, react, userDoc }
  *
  * FOUR LOOPS, ONE ECONOMY
  * The loops are not decoration, they are the sinks and taps that close the

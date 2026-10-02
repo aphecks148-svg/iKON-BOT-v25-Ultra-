@@ -10,7 +10,7 @@
  * Shape required for every command:
  * { name, aliases, category, description, usage, cooldown, permission, execute }
  *
- * execute receives: { api, event, args, config, registry, gemini, reply, react, userDoc }
+ * execute receives: { api, event, args, config, registry, ai, reply, react, userDoc }
  *
  * THE ONE RULE IN THIS MODULE
  * Almost nothing here is real. A slap is a message, a kill is a message, a

@@ -14,7 +14,7 @@ A clean modular Facebook Messenger RPG/social bot.
 | Database | MongoDB + Mongoose |
 | Server | Express (health/status) |
 | Images | `@napi-rs/canvas` (prebuilt binaries, no node-gyp) |
-| AI | Google Gemini (integration point ready) |
+| AI | Groq (`bot/groq.js`, OpenAI-compatible) |
 | Deploy | Render (`render.yaml`) |
 
 ## Structure
@@ -56,7 +56,7 @@ module.exports = [
     usage: '!ping',
     cooldown: 3,            // seconds
     permission: 'all',      // all | owner | groupAdmin
-    execute: async ({ api, event, args, config, registry, gemini, reply, react, userDoc }) => {
+    execute: async ({ api, event, args, config, registry, ai, reply, react, userDoc }) => {
       await reply(`PONG — up ${Math.round(process.uptime())}s`);
     },
   },
@@ -100,7 +100,7 @@ checks in `bot/test.js`.
 ## Deploying on Render
 
 1. New → Web Service → connect the repo, Node 22.
-2. Add env vars: `APPSTATE`, `MONGO_URI`, `ADMIN_IDS`, `GEMINI_API_KEY` (optional).
+2. Add env vars: `APPSTATE`, `MONGO_URI`, `ADMIN_IDS`, `GROQ_API_KEY` (optional).
 3. Health check path: `/health`.
 
 ### Admin uids
@@ -124,21 +124,30 @@ first if an admin command never answers.
 - `protectedIds(api, threadID)` — who must never be moderated. Deliberately does
   **not** include the sender; use `protectedIdsFor` for a target-exemption list.
 
-### Gemini
+### AI — Groq only
 
-The 35 AI commands in module 8 share one client, `bot/gemini.js`, which calls
-the native `generativelanguage.googleapis.com` endpoint directly.
+The 35 AI commands in module 8 share one client, `bot/groq.js`, which POSTs to
+`https://api.groq.com/openai/v1/chat/completions`. There is no second provider
+and no transport that silently switches.
 
-- Keys may be the newer `AQ...` Auth keys or the older `AIza...` keys. Both work
-  on this endpoint. An `AQ...` key is rejected by OpenAI-compatible routes with
-  a misleading "invalid_api_key", so the client stays on the native route and
-  sends the key in the `x-goog-api-key` header.
-- Default model is `gemini-3.8-flash` (`GEMINI_MODEL` overrides). If that model
-  is unavailable to your project the client falls back automatically instead of
-  failing every AI command.
-- Thinking is on by default in Gemini 3.x, so `maxOutputTokens` counts thinking
-  tokens as well as the answer. The client also strips thought parts from the
-  response so the model's reasoning never reaches the chat.
+- The key is a `gsk_...` key from <https://console.groq.com/keys>, sent as
+  `Authorization: Bearer <key>` — never in the query string, where proxies log
+  it. The client does not check the key's prefix, so a future Groq key format is
+  not rejected by a regex before it is ever sent.
+- Default model is `llama-3.3-70b-versatile`. Set `GROQ_MODEL` to pin one, or
+  leave it blank to use the client's own ladder. If a model 400/401/403/404s —
+  meaning it is unavailable to your key — the client walks
+  `llama-3.1-8b-instant`, `openai/gpt-oss-120b` and `openai/gpt-oss-20b`
+  rather than leaving every AI command dead. A 429 or a 5xx is about the account
+  rather than the model, so it does not walk the ladder.
+- The token cap is sent as `max_completion_tokens`; Groq has deprecated
+  `max_tokens`. Reasoning models count their reasoning against that cap, which
+  is why the default is generous for a chat reply.
+- With no key set, `!groq` and the other 34 AI commands answer with an honest
+  placeholder naming the missing variable, rather than throwing.
+
+The engine exposes the client to handlers as `ai` in the execute context
+(`ws3-fca.js`), so no command file imports the provider directly.
 
 ### Real names and profile pictures
 

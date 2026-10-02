@@ -52,7 +52,7 @@ const list = (want.length ? want : [...registry.keys()]).sort();
         args: ARGS[cmd.name] || [],
         config: cfg,
         registry,
-        gemini: { available: () => false, ask: async () => null },
+        ai: { available: () => false, ask: async () => null },
         reply,
         react: async () => {},
         userDoc: {
