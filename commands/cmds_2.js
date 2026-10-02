@@ -519,9 +519,11 @@ module.exports = [
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pay', async () => {
       await react('🤝');
-      const [ref, rawAmount] = args;
-      const amount = amountArg([rawAmount], 0);
-      if (!ref || amount <= 0) {
+      // The name is the first argument and the amount is whatever follows it, so
+      // `!pay Dyro Urano 10` has to read the amount from `consumed`, not args[1].
+      const { target, consumed } = await userTarget.resolveArgs(args, event, api, { doc: true });
+      const amount = amountArg(args.slice(consumed), 0);
+      if (!target || amount <= 0) {
         await reply('❌ Usage: `!pay <user> <amount>`', event.messageID);
         return;
       }
@@ -530,8 +532,6 @@ module.exports = [
         return;
       }
 
-      const target = await targetOr(reply, event.messageID, ref, event, 'pay', api);
-      if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Sending money to yourself? The vault already does that for free.', event.messageID);
         return;
@@ -1614,13 +1614,14 @@ module.exports = [
     permission: 'owner',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'addmoney', async () => {
       await react('💸');
-      const amount = amountArg(args.slice(1), 0);
-      if (amount <= 0) {
+      // The name is the first argument and may contain spaces, so resolve it
+      // from the head of the list and read the amount from what it left.
+      const { target, consumed } = await userTarget.resolveArgs(args, event, api, { doc: true });
+      const amount = amountArg(args.slice(consumed), 0);
+      if (!target || amount <= 0) {
         await reply('❌ Usage: `!addmoney <user> <amount>`', event.messageID);
         return;
       }
-      const target = await targetOr(reply, event.messageID, args[0], event, 'addmoney', api);
-      if (!target) return;
 
       target.coins = clamp((target.coins || 0) + amount);
       if (!target.transient) {
@@ -1652,13 +1653,14 @@ module.exports = [
     permission: 'owner',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'removemoney', async () => {
       await react('💀');
-      const amount = amountArg(args.slice(1), 0);
-      if (amount <= 0) {
+      // The name is the first argument and may contain spaces, so resolve it
+      // from the head of the list and read the amount from what it left.
+      const { target, consumed } = await userTarget.resolveArgs(args, event, api, { doc: true });
+      const amount = amountArg(args.slice(consumed), 0);
+      if (!target || amount <= 0) {
         await reply('❌ Usage: `!removemoney <user> <amount>`', event.messageID);
         return;
       }
-      const target = await targetOr(reply, event.messageID, args[0], event, 'removemoney', api);
-      if (!target) return;
       if (amount > (target.coins || 0)) {
         await reply(`❌ ${target.name} only has ${kc(target.coins)}. Take what exists.`, event.messageID);
         return;

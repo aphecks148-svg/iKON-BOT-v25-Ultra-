@@ -469,7 +469,7 @@ function reloadCommands() {
  * @param {string} [author] event.author, used only when the payload has nobody
  * @returns {{uid:string,name:string}[]}
  */
-function changeParticipants(data, author) {
+function changeParticipants(data, author, selfId) {
   const raw = Array.isArray(data && data.addedParticipants)
     ? data.addedParticipants
     : [];
@@ -489,10 +489,33 @@ function changeParticipants(data, author) {
     return /^\d+$/.test(text) ? { uid: text, name: '' } : { uid: '', name: text };
   }).filter(Boolean);
 
-  if (people.length) return people;
+  if (people.length) return notMe(people, selfId);
 
   const one = String((data && data.leftParticipantFbId) || author || '').trim();
-  return one ? [{ uid: /^\d+$/.test(one) ? one : '', name: /^\d+$/.test(one) ? '' : one }] : [];
+  if (!one) return [];
+  return notMe(
+    [{ uid: /^\d+$/.test(one) ? one : '', name: /^\d+$/.test(one) ? '' : one }],
+    selfId,
+  );
+}
+
+/**
+ * Drop the bot itself from a join/leave list.
+ *
+ * Facebook reports the bot's own join and leave through the same
+ * log:subscribe / log:unsubscribe events as everybody else, so without this the
+ * chat is told "welcome, iKON BOT to the group" the moment it starts up and
+ * "goodbye, iKON BOT" the moment it is restarted or removed by an admin. It is
+ * the one member of the audience that the message is not for.
+ *
+ * @param {Array<{uid:string,name:string}>} people
+ * @param {string} selfId this bot's own uid
+ * @returns {Array<{uid:string,name:string}>}
+ */
+function notMe(people, selfId) {
+  const id = String(selfId || '');
+  if (!id) return people;
+  return people.filter((p) => String(p.uid) !== id);
 }
 
 /**
@@ -611,13 +634,16 @@ async function handleGroupChange(api, event) {
   const action = event.logMessageType;
   const data = event.logMessageData || {};
   const isGroup = event.isGroup;
+  // The bot's own uid, used to keep it out of its own welcome/goodbye cards.
+  const selfId = String((api && typeof api.getCurrentUserID === 'function' ? api.getCurrentUserID() : null)
+    || event.BotID || STATE.userID || '');
 
   try {
     // New member joined
     if (action === 'log:subscribe') {
       const group = await toggles.getGroup(threadID);
       if (group.settings?.welcome && group.settings.welcomeMsg) {
-        const people = changeParticipants(data, event.author);
+        const people = changeParticipants(data, event.author, selfId);
         if (people.length) {
           const threadName = await chatName(threadID, api);
           // Facebook can report several people at once — an admin import adds
@@ -656,7 +682,7 @@ async function handleGroupChange(api, event) {
       }
 
       if (group?.settings?.goodbye && group.settings.goodbyeMsg) {
-        const people = changeParticipants(data, event.author);
+        const people = changeParticipants(data, event.author, selfId);
         if (people.length) {
           const threadName = await chatName(threadID, api);
           await announce(api, threadID, 'goodbye', people[0], threadName, group.settings.goodbyeMsg, isGroup);

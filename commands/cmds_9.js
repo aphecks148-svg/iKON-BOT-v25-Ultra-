@@ -326,11 +326,6 @@ async function fee(userDoc, cost, action) {
 // TARGETING
 // ───────────────────────────────────────────────────────────
 
-/** Resolve @tag, a typed name, or a raw uid to a User document. */
-async function resolve(ref, event, api) {
-  return userTarget.userDoc(ref, event, api);
-}
-
 /**
  * The target of a social command, refusing empty tags and self-tags.
  *
@@ -340,21 +335,25 @@ async function resolve(ref, event, api) {
  *
  * @returns {Promise<{uid:string,name:string}|null>} null after already replying
  */
-async function pick(reply, messageID, userDoc, args, event, label) {
+async function pick(reply, messageID, userDoc, args, event, label, api) {
   if (!args[0]) {
     await reply(`❌ Usage: \`!${label} @user\` — tag somebody in this chat.`, messageID);
     return null;
   }
-  const found = await resolve(args[0], event, api);
-  if (!found) {
-    await reply(`❌ Nobody called \`${args[0]}\` lives here. Tag somebody real.`, messageID);
+  // A name typed by hand can contain spaces ("!slap Dyro Urano"), so the whole
+  // argument list is handed to the resolver and it reports how many tokens the
+  // name ate. Most of these commands take nothing after the target, which is
+  // what `max` asserts: "!slap Dyro Urano please" must not swallow "please".
+  const { target, consumed } = await userTarget.resolveArgs(args, event, api, { doc: true, max: 3 });
+  if (!target) {
+    await reply(`❌ Nobody called \`${args.join(' ')}\` lives here. Tag somebody real.`, messageID);
     return null;
   }
-  if (String(found.uid) === String(userDoc.uid)) {
-    await reply(`🙃 \`!${label} ${args[0]}\` — that is you. Pick someone else.`, messageID);
+  if (String(target.uid) === String(userDoc.uid)) {
+    await reply(`🙃 \`!${label} ${args.slice(0, consumed).join(' ')}\` — that is you. Pick someone else.`, messageID);
     return null;
   }
-  return found;
+  return target;
 }
 
 // ───────────────────────────────────────────────────────────
@@ -630,7 +629,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'hug', async () => {
       await react('🤗');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'hug');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'hug', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.hug, 'fun:hug');
@@ -694,7 +693,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'slap', async () => {
       await react('👋');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'slap');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'slap', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.slap, 'fun:slap');
@@ -751,7 +750,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kiss', async () => {
       await react('💋');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'kiss');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'kiss', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.kiss, 'fun:kiss');
@@ -816,8 +815,15 @@ const commands = [];
         await reply('❌ Usage: `!ship @a @b` — tag both of them.', event.messageID);
         return;
       }
-      const a = await resolve(args[0], event, api);
-      const b = await resolve(args[1], event, api);
+      // Two names, either of which may contain spaces. Resolve the first from
+      // the head of the argument list, then the second from what it left, so
+      // "!ship Dyro Urano Bob Smith" reads as two people rather than four tokens
+      // that match nobody.
+      const first = await userTarget.resolveArgs(args, event, api, { doc: true });
+      const a = first.target;
+      const rest = args.slice(first.consumed);
+      const second = rest.length ? await userTarget.resolveArgs(rest, event, api, { doc: true }) : { target: null };
+      const b = second.target;
       if (!a || !b) {
         await reply('❌ Both people have to be real. Check your tags.', event.messageID);
         return;
@@ -884,7 +890,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pat', async () => {
       await react('🫶');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'pat');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'pat', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.pat, 'fun:pat');
@@ -928,7 +934,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cuddle', async () => {
       await react('🧸');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'cuddle');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'cuddle', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.cuddle, 'fun:cuddle');
@@ -976,7 +982,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'punch', async () => {
       await react('👊');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'punch');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'punch', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.punch, 'fun:punch');
@@ -1024,7 +1030,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'bonk', async () => {
       await react('💫');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'bonk');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'bonk', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.bonk, 'fun:bonk');
@@ -1072,7 +1078,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'stab', async () => {
       await react('🔪');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'stab');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'stab', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.stab, 'fun:stab');
@@ -1122,7 +1128,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kill', async () => {
       await react('💀');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'kill');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'kill', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.kill, 'fun:kill');
@@ -1189,7 +1195,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kickout', async () => {
       await react('🚪');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'kickout');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'kickout', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.kickout, 'fun:kickout');
@@ -1240,7 +1246,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'yeet', async () => {
       await react('🚀');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'yeet');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'yeet', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.yeet, 'fun:yeet');
@@ -1285,7 +1291,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'roast', async () => {
       await react('🔥');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'roast');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'roast', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.roast, 'fun:roast');
@@ -1331,7 +1337,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'compliment', async () => {
       await react('🪞');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'compliment');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'compliment', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.compliment, 'fun:compliment');
@@ -1375,7 +1381,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'expose', async () => {
       await react('🕵️');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'expose');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'expose', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.expose, 'fun:expose');
@@ -1431,7 +1437,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'marry', async () => {
       await react('💍');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'marry');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'marry', api);
       if (!who) return;
 
       const t = f(userDoc);
@@ -1548,7 +1554,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'divorce', async () => {
       await react('💔');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'divorce');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'divorce', api);
       if (!who) return;
 
       if (!userDoc.spouse || String(userDoc.spouse) !== String(who.uid)) {
@@ -1735,7 +1741,7 @@ const commands = [];
         return;
       }
 
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'besties');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'besties', api);
       if (!who) return;
       const paid = await fee(userDoc, FEES.besties, 'fun:besties');
       if (!paid.ok) {
@@ -1809,7 +1815,7 @@ const commands = [];
         return;
       }
 
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'enemies');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'enemies', api);
       if (!who) return;
       const paid = await fee(userDoc, FEES.enemies, 'fun:enemies');
       if (!paid.ok) {
@@ -1850,7 +1856,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'toxicmeter', async () => {
       await react('☣️');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'toxicmeter') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'toxicmeter', api) : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -1892,7 +1898,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'simpmeter', async () => {
       await react('🥀');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'simpmeter') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'simpmeter', api) : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -1934,7 +1940,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'susmeter', async () => {
       await react('🕵️');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'susmeter') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'susmeter', api) : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -1973,7 +1979,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rizz', async () => {
       await react('😏');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'rizz') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'rizz', api) : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -2014,7 +2020,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cringe', async () => {
       await react('😬');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'cringe') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'cringe', api) : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -2053,7 +2059,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'auramax', async () => {
       await react('⚡');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'auramax') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'auramax', api) : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -2255,7 +2261,7 @@ const commands = [];
         return;
       }
 
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'dare');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'dare', api);
       if (!who) return;
 
       const paid = await fee(userDoc, FEES.dare, 'fun:dare');
@@ -2484,7 +2490,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'fact', async () => {
       await react('🧾');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'fact') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'fact', api) : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -2514,7 +2520,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pickupline', async () => {
       await react('💘');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'pickupline') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'pickupline', api) : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.

@@ -213,6 +213,59 @@ async function targetOr(reply, messageID, ref, event, label, api) {
 }
 
 /**
+ * Can this build actually remove a member or change an admin?
+ *
+ * Facebook took these endpoints away from unofficial clients, so the method
+ * simply is not on the object, depending on which build is installed. Probing
+ * for it up front lets the command say so immediately instead of resolving the
+ * target, checking permissions and only then admitting it was never going to
+ * work — which reads to an admin as though the bot tried and failed on them.
+ *
+ * @param {object} api
+ * @param {string[]} names candidate method names across builds
+ * @returns {string|null} the method that exists, or null when none do
+ */
+function capability(api, names) {
+  if (!api) return null;
+  return names.find((n) => typeof api[n] === 'function') || null;
+}
+
+const canRemove = (api) => capability(api, ['removeUserFromGroup', 'removeMember', 'groupRemoveUser']);
+const canAdmin = (api) => capability(api, ['setThreadAdmin', 'changeAdminStatus', 'groupAdminStatus']);
+
+/** What to say when a moderation action has no endpoint on this build. */
+const NO_REMOVAL = '❌ This bot build cannot remove members — Facebook took that endpoint away from unofficial clients.\n'
+  + '📖 Nothing happened. Remove them from the chat in Facebook itself, and the bot will see it on its next sync.';
+
+const NO_ADMIN = '❌ This bot build cannot promote or demote admins — Facebook took that endpoint away too.\n'
+  + '📖 Nothing happened. Change admin status for this chat in the Facebook app.';
+
+/**
+ * Same as `targetOr`, but the target is the first argument of a command that
+ * takes something after it.
+ *
+ * "Dyro Urano" is two tokens to the parser, so reading the reason from
+ * `args.slice(1)` handed back "Urano" and dropped the rest of the sentence. The
+ * resolver joins the leading tokens until one names a real member and reports
+ * how many that took, leaving the remainder for the command to read.
+ *
+ * @returns {Promise<{target:object|null, consumed:number}>} already replied on failure
+ */
+async function targetArgsOr(reply, messageID, args, event, label, api) {
+  const list = Array.isArray(args) ? args : [];
+  if (!list[0]) {
+    await reply(`❌ Usage: \`!${label} @user\` — tag somebody in this chat.`, messageID);
+    return { target: null, consumed: 0 };
+  }
+  const { target, consumed } = await userTarget.resolveArgs(list, event, api, { doc: true });
+  if (!target) {
+    await reply(`❌ No hunter found for \`${list.join(' ')}\`.`, messageID);
+    return { target: null, consumed: 0 };
+  }
+  return { target, consumed };
+}
+
+/**
  * The group document for this thread, or null when the database is down.
  * Commands that need to persist state bail out rather than pretend.
  */
@@ -664,7 +717,14 @@ const commands = [];
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'kick', async () => {
       await react('👢');
-      const target = await targetOr(reply, event.messageID, args[0], event, 'kick', api);
+      // Capability first: there is no point resolving a person and reading the
+      // admin list when this build has no way to act on the answer.
+      const remove = canRemove(api);
+      if (!remove) {
+        await reply(NO_REMOVAL, event.messageID);
+        return;
+      }
+      const { target, consumed } = await targetArgsOr(reply, event.messageID, args, event, 'kick', api);
       if (!target) return;
 
       // Bot admins from ADMIN_IDS/OWNER_ID count as admins here too, not just
@@ -675,19 +735,14 @@ const commands = [];
         await reply('❌ That person is an admin here. Demote them first.', event.messageID);
         return;
       }
-      if (!api.removeUserFromGroup) {
-        await reply('❌ This build cannot remove members. Nothing happened.', event.messageID);
-        return;
-      }
-
       try {
-        await api.removeUserFromGroup({ threadID: event.threadID, userID: target.uid });
+        await api[remove]({ threadID: event.threadID, userID: target.uid });
       } catch (err) {
         await reply(`❌ Could not remove them: ${err.message}`, event.messageID);
         return;
       }
 
-      const reason = args.slice(1).join(' ').trim() || 'no reason given';
+      const reason = args.slice(consumed).join(' ').trim() || 'no reason given';
       await reply(`👢 **${target.name}** has been removed.\n📖 ${reason}\n📖 ${story()}`, event.messageID);
     }),
   });
@@ -702,15 +757,21 @@ const commands = [];
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'promote', async () => {
       await react('⬆️');
-      const target = await targetOr(reply, event.messageID, args[0], event, 'promote', api);
-      if (!target) return;
-      if (!api.setThreadAdmin) {
-        await reply('❌ This build cannot change admins. Nothing happened.', event.messageID);
+      const admin = canAdmin(api);
+      if (!admin) {
+        await reply(NO_ADMIN, event.messageID);
+        return;
+      }
+      // Nothing follows the name in this command, so the whole argument list is
+      // the name and it may contain spaces.
+      const { target } = await userTarget.resolveArgs(args, event, api, { doc: true });
+      if (!target) {
+        await reply(`❌ No hunter found for \`${args.join(' ')}\`.`, event.messageID);
         return;
       }
 
       try {
-        await api.setThreadAdmin({ threadID: event.threadID, userID: target.uid, admin: true });
+        await api[admin]({ threadID: event.threadID, userID: target.uid, admin: true });
       } catch (err) {
         await reply(`❌ Could not promote them: ${err.message}`, event.messageID);
         return;
@@ -729,15 +790,19 @@ const commands = [];
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'demote', async () => {
       await react('⬇️');
-      const target = await targetOr(reply, event.messageID, args[0], event, 'demote', api);
-      if (!target) return;
-      if (!api.setThreadAdmin) {
-        await reply('❌ This build cannot change admins. Nothing happened.', event.messageID);
+      const admin = canAdmin(api);
+      if (!admin) {
+        await reply(NO_ADMIN, event.messageID);
+        return;
+      }
+      const { target } = await userTarget.resolveArgs(args, event, api, { doc: true });
+      if (!target) {
+        await reply(`❌ No hunter found for \`${args.join(' ')}\`.`, event.messageID);
         return;
       }
 
       try {
-        await api.setThreadAdmin({ threadID: event.threadID, userID: target.uid, admin: false });
+        await api[admin]({ threadID: event.threadID, userID: target.uid, admin: false });
       } catch (err) {
         await reply(`❌ Could not demote them: ${err.message}`, event.messageID);
         return;
@@ -852,14 +917,14 @@ const commands = [];
       }
       const cfg = gcfg(group);
 
-      const target = await targetOr(reply, event.messageID, args[0], event, 'ghostban', api);
+      const { target, consumed } = await targetArgsOr(reply, event.messageID, args, event, 'ghostban', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot ghostban yourself. The silence would be very relaxing.', event.messageID);
         return;
       }
 
-      const mins = clamp(Number.parseInt(args[1], 10)) || 60;
+      const mins = clamp(Number.parseInt(args[consumed], 10)) || 60;
       prune(cfg.ghostBans);
       const already = punished(cfg, 'ghostBans', target.uid);
       if (already) {
@@ -1065,14 +1130,14 @@ const commands = [];
       }
       const cfg = gcfg(group);
 
-      const target = await targetOr(reply, event.messageID, args[0], event, 'gcmute', api);
+      const { target, consumed } = await targetArgsOr(reply, event.messageID, args, event, 'gcmute', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot mute yourself. Try being quieter instead.', event.messageID);
         return;
       }
 
-      const mins = clamp(Number.parseInt(args[1], 10)) || 10;
+      const mins = clamp(Number.parseInt(args[consumed], 10)) || 10;
       prune(cfg.mutes);
       const existing = punished(cfg, 'mutes', target.uid);
       if (existing) {

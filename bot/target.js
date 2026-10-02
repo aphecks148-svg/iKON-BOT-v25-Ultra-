@@ -97,6 +97,35 @@ async function threadMember(uid, event, api) {
 }
 
 /**
+ * The half of `resolve` that costs nothing: bare uid, tag key, tag name.
+ *
+ * Split out so `resolveArgs` can try every word-count with no network or
+ * database access before it pays for a thread lookup.
+ *
+ * @param {string|number} ref
+ * @param {object} event
+ * @returns {{uid:string}|null}
+ */
+function resolveFast(ref, event) {
+  const clean = String(ref == null ? '' : ref).replace(/^@/, '').trim();
+  if (!clean) return null;
+
+  const mentions = (event && event.mentions) || {};
+
+  // 1. A bare uid. No network, no database.
+  if (/^\d+$/.test(clean)) return { uid: clean };
+
+  // 2. The uid behind a tag, when the user pasted the id as the argument.
+  if (mentions[clean]) return { uid: String(mentions[clean]) };
+
+  // 3. A tagged display name. THE KEY IS THE UID.
+  const hit = Object.entries(mentions).find(([, n]) => same(n, clean));
+  if (hit) return { uid: String(hit[0]) };
+
+  return null;
+}
+
+/**
  * Resolve what the user typed into a member of this chat.
  *
  * @param {string|number} ref a tag, a name, or a bare uid
@@ -108,18 +137,8 @@ async function resolve(ref, event, api) {
   const clean = String(ref == null ? '' : ref).replace(/^@/, '').trim();
   if (!clean) return null;
 
-  const mentions = (event && event.mentions) || {};
-
-  // 1. A bare uid. No network, no database.
-  if (/^\d+$/.test(clean)) return finish(clean, event, api);
-
-  // 2. The uid behind a tag, when the user pasted the id as the argument.
-  if (mentions[clean]) return finish(String(mentions[clean]), event, api);
-
-  // 3. A tagged display name. THE KEY IS THE UID — this is the copy that was
-  //    broken everywhere else in the codebase.
-  const hit = Object.entries(mentions).find(([, n]) => same(n, clean));
-  if (hit) return finish(String(hit[0]), event, api);
+  const cheap = resolveFast(clean, event);
+  if (cheap) return finish(cheap.uid, event, api);
 
   // 4. Ask the chat who is in it, and match on the name Facebook gives us.
   //    One request covers every member, unlike a getUserInfo per candidate.
@@ -146,6 +165,61 @@ async function resolve(ref, event, api) {
   }
 
   return null;
+}
+
+/**
+ * Resolve the FIRST argument of a command when that argument is a person whose
+ * name may contain spaces.
+ *
+ * The parser splits on whitespace, so `!pay @Dyro Urano 10` arrives as three
+ * tokens. Handing `args[0]` to `resolve` looks for somebody called "Dyro" and
+ * finds nobody, which is why a tagged name with a space in it was unreadable —
+ * the one input that is supposed to be certain. Facebook's real mention is a
+ * single numeric token, but a name typed by hand is not, and both must work.
+ *
+ * Tries the longest join first and reports how many tokens the name ate, so the
+ * caller can read the arguments after it:
+ *
+ *   const { target, consumed } = await resolveArgs(args, event, api);
+ *   const amount = amountArg(args.slice(consumed), 0);
+ *
+ * Cheapest wins: every word-count is tried against tags and bare ids first, so
+ * the common `@123456 10` costs no requests at all. Only if none of those land
+ * do we pay for thread lookups, longest join first, and those are cached.
+ *
+ * @param {string[]} args
+ * @param {object} event
+ * @param {object} api
+ * @param {{max?:number, doc?:boolean}} [opts] max caps how many tokens may join;
+ *   doc hands back a User document (the shape `userDoc` returns) instead of
+ *   the lightweight `{uid,name,picture}` record
+ * @returns {Promise<{target:object|null, consumed:number}>} consumed is 0 when nothing matched
+ */
+async function resolveArgs(args, event, api, opts = {}) {
+  const list = (Array.isArray(args) ? args : []).map((a) => String(a));
+  if (!list.length) return { target: null, consumed: 0 };
+
+  const cap = Math.max(1, Math.min(list.length, opts.max || list.length));
+
+  // Cheap pass: bare ids and tags, no requests. These resolve the common case
+  // (`!pay @123456 10`) and they resolve it without touching the network.
+  for (let n = cap; n >= 1; n--) {
+    const cheap = resolveFast(list.slice(0, n).join(' '), event);
+    if (!cheap) continue;
+    const target = opts.doc
+      ? await userDoc(cheap.uid, event, api)
+      : await finish(cheap.uid, event, api);
+    return { target, consumed: n };
+  }
+
+  // Expensive pass: the chat's own member list, then names met before.
+  for (let n = cap; n >= 1; n--) {
+    const found = await resolve(list.slice(0, n).join(' '), event, api);
+    if (!found) continue;
+    return { target: opts.doc ? (found.doc || await userDoc(found.uid, event, api)) : found, consumed: n };
+  }
+
+  return { target: null, consumed: 0 };
 }
 
 /**
@@ -223,4 +297,4 @@ async function byId(uid, event, api) {
   return finish(uid, event, api);
 }
 
-module.exports = { resolve, userDoc, byId, threadMember, threadInfo, clear };
+module.exports = { resolve, resolveArgs, resolveFast, userDoc, byId, threadMember, threadInfo, clear };

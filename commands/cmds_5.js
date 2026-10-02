@@ -248,6 +248,29 @@ async function targetOr(reply, messageID, ref, event, label, api) {
   return target;
 }
 
+/**
+ * Same as `targetOr`, for a command that takes a bet after the name.
+ *
+ * A typed name can contain spaces, so `betArg(args.slice(1))` was reading the
+ * second half of a two-word name as the stake. Resolving the name first and
+ * taking the stake from whatever it did not eat fixes both at once.
+ *
+ * @returns {Promise<{target:object|null, consumed:number}>} already replied on failure
+ */
+async function targetArgsOr(reply, messageID, args, event, label, api) {
+  const list = Array.isArray(args) ? args : [];
+  if (!list[0]) {
+    await reply(`❌ Usage: \`!${label} <user> [amount]\` — tag somebody in this chat.`, messageID);
+    return { target: null, consumed: 0 };
+  }
+  const { target, consumed } = await userTarget.resolveArgs(list, event, api, { doc: true });
+  if (!target) {
+    await reply(`❌ No hunter found for \`${list.join(' ')}\`.`, messageID);
+    return { target: null, consumed: 0 };
+  }
+  return { target, consumed };
+}
+
 /** Refuse the command when the hunter is banned from the arcade. */
 async function bannedCheck(reply, userDoc, event) {
   const left = cache.gameBanLeft(userDoc.uid);
@@ -441,9 +464,9 @@ const commands = [];
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('🧮');
 
-      const bet = betArg(args.slice(1), 1000);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'mathduel', api);
+      const { target, consumed } = await targetArgsOr(reply, event.messageID, args, event, 'mathduel', api);
       if (!target) return;
+      const bet = betArg(args.slice(consumed), 1000);
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Doing sums with yourself is not a duel.', event.messageID);
         return;
@@ -788,9 +811,9 @@ const commands = [];
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('⭕');
 
-      const bet = betArg(args.slice(1), 1000);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'tictactoe', api);
+      const { target, consumed } = await targetArgsOr(reply, event.messageID, args, event, 'tictactoe', api);
       if (!target) return;
+      const bet = betArg(args.slice(consumed), 1000);
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Tic-tac-toe needs two hunters.', event.messageID);
         return;
@@ -1029,9 +1052,9 @@ const commands = [];
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('♟️');
 
-      const bet = betArg(args.slice(1), 2000);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'chessmini', api);
+      const { target, consumed } = await targetArgsOr(reply, event.messageID, args, event, 'chessmini', api);
       if (!target) return;
+      const bet = betArg(args.slice(consumed), 2000);
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Chess requires an opponent.', event.messageID);
         return;
@@ -1265,9 +1288,9 @@ const commands = [];
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('🪙');
 
-      const bet = betArg(args.slice(1), 1000);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'coinflipduel', api);
+      const { target, consumed } = await targetArgsOr(reply, event.messageID, args, event, 'coinflipduel', api);
       if (!target) return;
+      const bet = betArg(args.slice(consumed), 1000);
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Flipping against yourself is not a duel.', event.messageID);
         return;
@@ -1371,9 +1394,9 @@ const commands = [];
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('🎲');
 
-      const bet = betArg(args.slice(1), 1000);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'dicewar', api);
+      const { target, consumed } = await targetArgsOr(reply, event.messageID, args, event, 'dicewar', api);
       if (!target) return;
+      const bet = betArg(args.slice(consumed), 1000);
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot war yourself.', event.messageID);
         return;
@@ -1473,9 +1496,9 @@ const commands = [];
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('✊');
 
-      const bet = betArg(args.slice(1), 500);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'rpsduel', api);
+      const { target, consumed } = await targetArgsOr(reply, event.messageID, args, event, 'rpsduel', api);
       if (!target) return;
+      const bet = betArg(args.slice(consumed), 500);
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot rock-paper-scissors yourself.', event.messageID);
         return;
@@ -1597,9 +1620,9 @@ const commands = [];
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('🃏');
 
-      const bet = betArg(args.slice(1), 2500);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'pokerduel', api);
+      const { target, consumed } = await targetArgsOr(reply, event.messageID, args, event, 'pokerduel', api);
       if (!target) return;
+      const bet = betArg(args.slice(consumed), 2500);
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot bluff yourself.', event.messageID);
         return;

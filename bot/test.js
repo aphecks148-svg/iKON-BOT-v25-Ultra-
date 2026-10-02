@@ -2062,6 +2062,257 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     return 'refuses rather than rendering an unusable card';
   });
 
+  // ── 21. no command replies with a ReferenceError ─────────
+  // Every command body is wrapped in `guard()`, which catches a thrown error
+  // and turns it into "⚠️ `name` failed: <message>". That is what makes the bot
+  // survive a bad payload — and it is exactly why twenty-five commands were
+  // shipping broken and nothing went red: a free identifier such as `api` or
+  // `config` throws, guard catches it, and the only symptom is an apologetic
+  // line in a chat nobody reads. A test that only checks "did it throw" can
+  // never see these, so this one runs every command and reads what it SAYS.
+  await step('no command reports a ReferenceError to the chat', async () => {
+    const root = path.resolve(__dirname, '..');
+    const ik = require('../ws3-fca');
+    const loaded = loader.loadCommands(path.join(root, 'commands'));
+    const registry = new Map(loaded.registry);
+
+    // A stand-in client. It answers thread and user lookups well enough that
+    // commands get past their target resolution and actually reach the code that
+    // was broken, rather than stopping early on an unrelated error.
+    const api = {
+      async sendMessage(p) { sent.push(p && p.body); return { messageID: 'm1' }; },
+      async react() { return true; },
+      async getUserInfo(uid) { return { name: `Tester ${String(uid).slice(-2)}`, thumbSrc: '' }; },
+      async getThreadInfo() {
+        return {
+          threadTitle: 'Test Chat',
+          // Objects, not bare ids — that is the shape this build really sends,
+          // and the reason !adminlist once printed [object Object].
+          adminIDs: [{ id: '999000111', isAdmin: true }, { id: '777000888', isAdmin: true }],
+          participantIDs: [],
+          userInfo: [{ id: '5551234', name: 'Dyro Urano', firstName: 'Dyro', thumbSrc: '' }],
+        };
+      },
+    };
+
+    const sent = [];
+    const withTimeout = (p, ms) => Promise.race([
+      p, new Promise((_, rej) => setTimeout(() => rej(new Error('TIMEOUT')), ms)),
+    ]);
+    const offenders = [];
+
+    // A handful of commands (restart, reboot, update) end the process on
+    // purpose. Left alone they would kill the test runner on the first one it
+    // reached, which is why these bugs could sit unnoticed behind a suite that
+    // never got as far as reporting them.
+    const realExit = process.exit;
+    process.exit = () => {};
+    try {
+      for (const cmd of registry.values()) {
+        sent.length = 0;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await withTimeout(cmd.execute({
+          api,
+          // "Dyro Urano" is two tokens to the parser, so this also exercises the
+          // multi-word target path rather than only the single-tag one.
+          args: ['Dyro', 'Urano', '10'],
+          event: {
+            threadID: 't_test',
+            messageID: 'm1',
+            senderID: '999000111',
+            isGroup: true,
+            mentions: { 5551234: 'Dyro Urano' },
+            body: cmd.name,
+          },
+          config,
+          registry: ik.registry,
+          ai: ik.ai,
+          reply: async (t) => { sent.push(t); },
+          react: async () => true,
+          userDoc: { uid: '999000111', name: 'Owner', coins: 1e9, bank: 0, level: 10, xp: 0, chat: {}, pet: null, pets: [], reputation: 0, isBanned: false },
+        }), 4000);
+        } catch (err) {
+          if (/is not defined/.test(err.message)) offenders.push(`${cmd.name} (threw): ${err.message}`);
+        }
+        // The swallowed case: guard() already replied instead of throwing.
+        for (const text of sent) {
+          if (typeof text === 'string' && /is not defined/.test(text)) {
+            offenders.push(`${cmd.name}: ${text.split('\n')[0]}`);
+          }
+        }
+      }
+    } finally {
+      process.exit = realExit;
+    }
+
+    assert.deepStrictEqual(
+      offenders, [],
+      `commands that reference something out of scope: ${offenders.join(' | ')}`,
+    );
+    return `${registry.size} commands ran without one`;
+  });
+
+  // ── 22. a name with a space in it is addressable ─────────
+  // The parser splits on whitespace, so "!pay Dyro Urano 10" arrives as three
+  // tokens and reading args[0] looked for somebody called "Dyro". Every
+  // command that takes a person followed by something else was broken for any
+  // name that is not one word long, which is most real names.
+  await step('a two-word name is found and the value after it survives', async () => {
+    const target = require('./target');
+    const api = {
+      async getThreadInfo() {
+        return {
+          threadTitle: 'Test Chat',
+          adminIDs: [],
+          participantIDs: [],
+          userInfo: [{ id: '5551234', name: 'Dyro Urano', firstName: 'Dyro', thumbSrc: '' }],
+        };
+      },
+      async getUserInfo() { return { name: 'Dyro Urano' }; },
+    };
+    const event = { threadID: 't1', isGroup: true, mentions: { 5551234: 'Dyro Urano' } };
+
+    // Longest join first: two tokens are the name, the third is the value.
+    const hit = await target.resolveArgs(['Dyro', 'Urano', '10'], event, api);
+    assert.strictEqual(hit.target.uid, '5551234');
+    assert.strictEqual(hit.consumed, 2, 'two tokens belong to the name');
+    assert.deepStrictEqual(['Dyro', 'Urano', '10'].slice(hit.consumed), ['10'], 'the amount is what is left');
+
+    // A tag with a leading @ is still one token, and costs no lookups.
+    const tagged = await target.resolveArgs(['@Dyro', 'Urano', '10'], event, api);
+    assert.strictEqual(tagged.consumed, 2);
+
+    // A bare uid is a single token no matter what follows it.
+    const byId = await target.resolveArgs(['5551234', '10'], event, api);
+    assert.strictEqual(byId.target.uid, '5551234');
+    assert.strictEqual(byId.consumed, 1);
+
+    // Nobody: consumed must be zero so the caller reports a usage error rather
+    // than silently reading an argument that was never a name.
+    const nobody = await target.resolveArgs(['Nobody', 'Here', '10'], event, api);
+    assert.strictEqual(nobody.target, null);
+    assert.strictEqual(nobody.consumed, 0);
+
+    return 'names with spaces resolve and leave the trailing value alone';
+  });
+
+  // ── 23. the admin list prints ids, not objects ───────────
+  // getThreadInfo returns adminIDs as { id, isAdmin } entries. Interpolating an
+  // entry rather than its id printed "• [object Object]" for every group admin,
+  // which is the one thing the command exists to show.
+  await step('the admin list never prints an object', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const adminlist = loaded.registry.get('adminlist');
+
+    const sent = [];
+    await adminlist.execute({
+      api: {
+        async getThreadInfo() {
+          return { adminIDs: [{ id: '999000111', isAdmin: true }, { id: '777000888', isAdmin: true }], participantIDs: [] };
+        },
+      },
+      event: { threadID: 't1', messageID: 'm1', senderID: '999000111', isGroup: true },
+      config,
+      reply: async (t) => { sent.push(t); },
+      react: async () => true,
+      userDoc: { uid: '999000111', name: 'Owner' },
+    });
+
+    const text = sent.join('\n');
+    assert.ok(!text.includes('[object Object]'), `adminlist printed an object: ${text}`);
+    assert.ok(text.includes('777000888'), 'the group admin id must actually appear');
+    return 'group admins render as ids';
+  });
+
+  // ── 24. the two halves of admins-only both answer ────────
+  // !onlyadminon accepted "adminonly" and !onlyadminoff did not accept the
+  // matching "adminonlyoff", so the spelling people actually type was the one
+  // that answered "Unknown command".
+  await step('admins-only can be switched off by either spelling', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const off = loaded.registry.get('onlyadminoff');
+    assert.ok(off, 'onlyadminoff is registered under its own name');
+    assert.ok(
+      off.aliases.includes('adminonlyoff'),
+      `onlyadminoff aliases must include adminonlyoff, got ${JSON.stringify(off.aliases)}`,
+    );
+    assert.ok(
+      loaded.registry.get('onlyadminon').aliases.includes('adminonly'),
+      'onlyadminon keeps adminonly',
+    );
+    return `aliases: ${off.aliases.join(', ')}`;
+  });
+
+  // ── 25. the bot never welcomes or says goodbye to itself ─
+  // Facebook reports the bot's own join and leave through the same events as
+  // everybody else, so the chat was told "welcome, iKON BOT" on every startup
+  // and "goodbye, iKON BOT" on every restart or removal.
+  await step('the bot is not in its own welcome or goodbye list', async () => {
+    const ik = require('../ws3-fca');
+
+    // The bot joins; only the human is announced.
+    const join = ik.changeParticipants(
+      { addedParticipants: [{ fbId: '999000111', fullName: 'The Bot' }, { fbId: '5551234', fullName: 'Dyro Urano' }] },
+      undefined,
+      '999000111',
+    );
+    assert.deepStrictEqual(join.map((p) => p.uid), ['5551234'], 'the bot must be filtered out of a join');
+
+    // The bot leaves on its own. Nothing is left to announce.
+    const selfLeave = ik.changeParticipants({ leftParticipantFbId: '999000111' }, undefined, '999000111');
+    assert.deepStrictEqual(selfLeave, [], 'the bot leaving alone announces nobody');
+
+    // A human leaving is still announced.
+    const leave = ik.changeParticipants({ leftParticipantFbId: '5551234' }, undefined, '999000111');
+    assert.deepStrictEqual(leave.map((p) => p.uid), ['5551234'], 'a human leaving is unaffected');
+
+    // With no id to compare against, nothing is filtered — a build that has not
+    // logged in yet must not swallow every announcement.
+    const unknown = ik.changeParticipants({ addedParticipants: [{ fbId: '5551234', fullName: 'Dyro' }] });
+    assert.strictEqual(unknown.length, 1, 'an unknown self id filters nobody');
+
+    return 'announcements skip the bot and keep everyone else';
+  });
+
+  // ── 26. every command path that takes an argument is reachable ──
+  // The ReferenceError sweep above passes one argument shape, which reaches
+  // the early-return branch of some commands and the body of others. Two
+  // commands were broken only on a path that sweep never entered: !petlist
+  // without arguments read `config.PREFIX` (never imported), and !petlist WITH
+  // a rarity called `rarity.byKey`, which content.js does not export — it
+  // exports the BY_KEY Map. Neither showed up as a failure of the other, so
+  // each shape a command accepts is exercised here.
+  await step('the pet list answers both with and without a rarity', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const petlist = loaded.registry.get('petlist');
+    const run = async (args) => {
+      const sent = [];
+      await petlist.execute({
+        api: {}, args, event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
+        config, reply: async (t) => { sent.push(t); }, react: async () => true,
+        userDoc: { uid: '9', name: 'Owner' },
+      });
+      return sent.join('\n');
+    };
+
+    const every = await run([]);
+    assert.ok(/BESTIARY/.test(every), 'the full list names itself');
+    assert.ok(!/is not defined/.test(every), 'the grouped list must not reference config without importing it');
+
+    // A real rarity shortlists it.
+    const one = await run(['divine']);
+    assert.ok(/Divine/.test(one), 'a known rarity resolves to its own section');
+    assert.ok(!/is not a function/.test(one), 'the rarity guard must call something content.js actually exports');
+
+    // An unknown one is refused, not treated as the bottom rung. `rarity.get`
+    // falls back to Common for anything unrecognised, so a guard written
+    // against it could never fire and a typo would silently print Common.
+    const bogus = await run(['super-legendary-plus']);
+    assert.ok(/No rarity called/.test(bogus), 'an unknown rarity is reported, not silently mapped');
+    return 'grouped, filtered and rejected rarities all answer';
+  });
+
   // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;

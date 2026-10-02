@@ -419,7 +419,13 @@ module.exports = [
         const sender = String(event.senderID);
         lines.push('', `👥 Group admins (${admins.length})`);
         if (!admins.length) lines.push('• could not read');
-        else admins.forEach((id) => lines.push(`• ${id}${String(id) === sender ? '  ← you' : ''}`));
+        // This build hands back { id, isAdmin } entries rather than bare ids,
+        // so interpolating the array element directly printed [object Object].
+        else admins.forEach((entry) => {
+          const id = entry && typeof entry === 'object' ? entry.id : entry;
+          if (id === undefined || id === null) return;
+          lines.push(`• ${id}${String(id) === sender ? '  ← you' : ''}`);
+        });
       }
       await reply(lines.join('\n'), event.messageID);
     }),
@@ -912,7 +918,10 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'onlyadminoff',
-    aliases: ['allusers'],
+    // `adminonlyoff` is the mirror of the `adminonly` alias on !onlyadminon.
+    // Without it the two spellings of "turn it off" had no relationship to each
+    // other, and the one people actually type is the one that failed.
+    aliases: ['allusers', 'adminonlyoff'],
     category: 'system',
     description: 'Let everyone run commands in this group again',
     usage: '!onlyadminoff',
@@ -1237,17 +1246,19 @@ module.exports = [
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'ban', async () => {
-      const ref = (args[0] || '').replace(/^@/, '').trim();
-      if (!ref) {
+      if (!args[0]) {
         await reply('❌ Usage: `!ban <user> [reason]` — tag someone or give a numeric ID.', event.messageID);
         return;
       }
 
       // The thread knows who is actually here and what they are really called,
-      // so this resolves a tag, a typed name, or a bare id in one place.
-      const found = await userTarget.resolve(ref, event, api);
+      // so this resolves a tag, a typed name, or a bare id in one place. The
+      // name is resolved from the head of the argument list because a typed
+      // name may contain spaces, and `consumed` says how many tokens it ate, so
+      // the reason is read from what is left rather than from args.slice(1).
+      const { target: found, consumed } = await userTarget.resolveArgs(args, event, api);
       if (!found) {
-        await reply(`❌ Could not resolve \`${ref}\` to a user. Tag them or use their numeric ID.`, event.messageID);
+        await reply(`❌ Could not resolve \`${args.join(' ')}\` to a user. Tag them or use their numeric ID.`, event.messageID);
         return;
       }
       const uid = found.uid;
@@ -1267,7 +1278,7 @@ module.exports = [
         return;
       }
 
-      const reason = args.slice(1).join(' ') || 'No reason given';
+      const reason = args.slice(consumed).join(' ').trim() || 'No reason given';
       target.isBanned = true;
       target.banReason = reason;
       target.bannedBy = String(event.senderID);

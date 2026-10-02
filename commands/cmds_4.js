@@ -26,6 +26,7 @@ const User = require('../models/User');
 const Economy = require('../models/Economy');
 const Inventory = require('../models/Inventory');
 const Group = require('../models/Group');
+const config = require('../config');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
@@ -1714,7 +1715,10 @@ module.exports = [
       if (want) {
         // A shortlist beats a wall of 50 lines, so asking for a rarity gives
         // the pets that are actually in it rather than everything else too.
-        if (!rarity.byKey(want)) {
+        // BY_KEY is the Map, not `get` — get() deliberately falls back to the
+        // bottom rung for anything it does not recognise, so it can never
+        // report an unknown rarity and the guard below would never fire.
+        if (!rarity.BY_KEY.has(want)) {
           await reply(`❓ No rarity called \`${want}\`. Try: ${rarity.LADDER.map((r) => `\`${r.key}\``).join(', ')}`, event.messageID);
           return;
         }
