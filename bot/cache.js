@@ -64,6 +64,11 @@ async function getUser(uid, api) {
       level: 1, xp: 0, coins: 1000, bank: 0, reputation: 0, prestige: 0,
       stats: { messages: 0, commandsUsed: 0 },
       transient: true,
+      // Callers adjust a resolved target and then save it without asking
+      // whether it is real. Without this the offline path throws
+      // "target.save is not a function" instead of quietly doing nothing, which
+      // is a worse failure than the one being worked around.
+      async save() {},
     };
     store.set(id, { doc: stub, expires: Date.now() + TTL });
     return stub;

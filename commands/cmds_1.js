@@ -24,6 +24,7 @@ const canvas = require('../bot/canvas');
 const loader = require('../bot/loader');
 const { fmt, describeSendError, lastSent } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
+const userTarget = require('../bot/target');
 
 const BOT_ICON = '🤖';
 const OWNER_ICON = '👑';
@@ -1182,21 +1183,15 @@ module.exports = [
         return;
       }
 
-      // Resolve a numeric ID, or look up a tagged user by name.
-      let uid = /^\d+$/.test(ref) ? ref : null;
-      let displayName = ref;
-      if (!uid) {
-        const match = event.mentions && Object.values(event.mentions).find((m) => String(m).toLowerCase() === ref.toLowerCase());
-        if (match) uid = String(match);
-      }
-      if (!uid) {
-        const guess = await User.findOne({ name: new RegExp(`^${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }).select('uid name').lean();
-        if (guess) { uid = guess.uid; displayName = guess.name; }
-      }
-      if (!uid) {
+      // The thread knows who is actually here and what they are really called,
+      // so this resolves a tag, a typed name, or a bare id in one place.
+      const found = await userTarget.resolve(ref, event, api);
+      if (!found) {
         await reply(`❌ Could not resolve \`${ref}\` to a user. Tag them or use their numeric ID.`, event.messageID);
         return;
       }
+      const uid = found.uid;
+      const displayName = found.name;
       if (uid === String(event.senderID)) {
         await reply('❌ You cannot ban yourself.', event.messageID);
         return;
@@ -1244,15 +1239,17 @@ module.exports = [
     usage: '!unban <user>',
     cooldown: 10,
     permission: 'groupAdmin',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'unban', async () => {
+    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'unban', async () => {
       const ref = (args[0] || '').replace(/^@/, '').trim();
       if (!ref) {
         await reply('❌ Usage: `!unban <user>`', event.messageID);
         return;
       }
-      const target = /^\d+$/.test(ref)
-        ? await User.findOne({ uid: ref })
-        : await User.findOne({ name: new RegExp(`^${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') });
+      // Same resolver as !ban, so unbanning works for exactly the people who
+      // can be banned. This one used to search the database by name only, so a
+      // tag could never be unbanned — the reply you got was "no profile found"
+      // for the person standing right there.
+      const target = await userTarget.userDoc(ref, event, api);
       if (!target) {
         await reply(`❌ No profile found for \`${ref}\`.`, event.messageID);
         return;

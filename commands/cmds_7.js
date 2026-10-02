@@ -31,6 +31,7 @@ const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
 const { fmt } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
+const userTarget = require('../bot/target');
 
 const CASH = 'K-Cash';
 const ULTRA = 'iKON-BOT v2 Ultra';
@@ -460,25 +461,22 @@ async function warScore(userDoc, event, amount) {
   } catch { /* the war is not worth failing a payout over */ }
 }
 
-/** Resolve @tag, raw uid, or exact name to a User document. */
-async function resolveTarget(ref, event) {
-  const clean = String(ref || '').replace(/^@/, '').trim();
-  if (!clean) return null;
-  if (/^\d+$/.test(clean)) return User.findOne({ uid: clean });
-
-  const tagged = event.mentions && Object.values(event.mentions).find((m) => String(m) === clean);
-  if (tagged) return User.findOne({ uid: String(tagged) });
-
-  const safe = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return User.findOne({ name: new RegExp(`^${safe}$`, 'i') });
+/** Resolve a tag, a typed name, or a bare id to a User document.
+ *
+ * The thread knows who is actually in this chat and what they are really
+ * called, which is why this lives in bot/target.js: it is the only place that
+ * can turn "@Alice" into a uid. See that file for the whole order of attempts.
+ */
+async function resolveTarget(ref, event, api) {
+  return userTarget.userDoc(ref, event, api);
 }
 
-async function targetOr(reply, messageID, ref, event, label) {
+async function targetOr(reply, messageID, ref, event, label, api) {
   if (!ref) {
     await reply(`❌ Usage: \`!${label} @user\` — tag somebody in this chat.`, messageID);
     return null;
   }
-  const target = await resolveTarget(ref, event);
+  const target = await resolveTarget(ref, event, api);
   if (!target) {
     await reply(`❌ No hunter found for \`${ref}\`.`, messageID);
     return null;
@@ -1414,7 +1412,7 @@ const commands = [];
     usage: '!gtashoot [@user]',
     cooldown: 45,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtashoot', async () => {
+    execute: async ({ api, args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtashoot', async () => {
       await react('💥');
       const t = g(userDoc);
       if (!t.started) {
@@ -2094,7 +2092,7 @@ const commands = [];
     usage: '!gtaduel @user',
     cooldown: 180,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaduel', async () => {
+    execute: async ({ api, args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaduel', async () => {
       await react('⚔️');
       const mine = g(userDoc);
       if (!mine.started) {
@@ -2102,7 +2100,7 @@ const commands = [];
         return;
       }
 
-      const foe = await targetOr(reply, event.messageID, args[0], event, 'gtaduel');
+      const foe = await targetOr(reply, event.messageID, args[0], event, 'gtaduel', api);
       if (!foe) return;
       if (String(foe.uid) === String(userDoc.uid)) {
         await reply('⚔️ You cannot duel yourself. The police tried that too.', event.messageID);
@@ -2187,7 +2185,7 @@ const commands = [];
     usage: '!gtapvp @user',
     cooldown: 180,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtapvp', async () => {
+    execute: async ({ api, args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtapvp', async () => {
       await react('🔫');
       const t = g(userDoc);
       if (!t.started) {
@@ -2199,7 +2197,7 @@ const commands = [];
         return;
       }
 
-      const foe = await targetOr(reply, event.messageID, args[0], event, 'gtapvp');
+      const foe = await targetOr(reply, event.messageID, args[0], event, 'gtapvp', api);
       if (!foe) return;
       if (String(foe.uid) === String(userDoc.uid)) {
         await reply('🔫 Shooting yourself is not PvP, and the armoury charges full price for it.', event.messageID);

@@ -33,6 +33,7 @@ const gemini = require('./gemini');
 const profile = require('./profile');
 const cards = require('./cards');
 const config = require('../config');
+const target = require('./target');
 
 const User = require('../models/User');
 const Group = require('../models/Group');
@@ -1166,6 +1167,193 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     assert.strictEqual(owner.length, 1, '`kick` must still be cmds_6\'s group command');
     assert.strictEqual(owner[0].module, 'cmds_6');
     return 'renamed cleanly, no collisions';
+  });
+
+  // ── 23. resolving a person, in every order ────────────────
+  await step('a tag resolves to the uid behind it, not to the name', () => {
+    // THE BUG. `event.mentions` is { uid: name }, so every module that read its
+    // values got the display name and then searched for uid "Alice" — which
+    // never matches — and reported that nobody called Alice was in the chat.
+    // The one case that is supposed to be certain was the one case that failed.
+    target.clear();
+    const api = { getThreadInfo: async () => { throw new Error('should not be reached'); } };
+    const event = { threadID: 't1', isGroup: true, mentions: { '1001': 'Alice Okonkwo' } };
+
+    return Promise.all([
+      target.resolve('Alice Okonkwo', event, api),
+      target.resolve('@Alice Okonkwo', event, api),
+      target.resolve('alice okonkwo', event, api),
+    ]).then(([a, b, c]) => {
+      for (const r of [a, b, c]) {
+        assert.ok(r, 'a tag must resolve');
+        assert.strictEqual(r.uid, '1001', 'the uid is the key, not the value');
+      }
+      return 'uid 1001, and the leading @ and casing do not matter';
+    });
+  });
+
+  await step('a typed name resolves through the thread member list', () => {
+    // The point of the thread lookup: Facebook returns every member's real name
+    // and picture in one getThreadInfo call, so a name typed from memory works
+    // without one getUserInfo per candidate.
+    target.clear();
+    let calls = 0;
+    const api = {
+      getThreadInfo: async () => {
+        calls += 1;
+        return {
+          participantIDs: ['1001', '1002'],
+          userInfo: [
+            { id: '1001', name: 'Alice Okonkwo', firstName: 'Alice', thumbSrc: 'https://cdn/alice.jpg' },
+            { id: '1002', name: 'Bob Mensah', firstName: 'Bob', thumbSrc: 'https://cdn/bob.jpg' },
+          ],
+          nicknames: {},
+        };
+      },
+      getUserInfo: async () => { throw new Error('no per-member lookup should be needed'); },
+    };
+    const event = { threadID: 't2', isGroup: true, mentions: {} };
+
+    return target.resolve('Bob Mensah', event, api).then((r) => {
+      assert.ok(r, 'a typed name must resolve');
+      assert.strictEqual(r.uid, '1002');
+      assert.strictEqual(r.name, 'Bob Mensah');
+      assert.strictEqual(r.picture, 'https://cdn/bob.jpg', 'the real Facebook picture comes along');
+      assert.strictEqual(calls, 1, 'one getThreadInfo covers every candidate');
+      return 'Bob Mensah -> 1002, with his real picture, in one request';
+    });
+  });
+
+  await step('a bare id resolves with no thread lookup at all', () => {
+    target.clear();
+    const api = { getThreadInfo: async () => { throw new Error('a bare id needs no lookup'); } };
+    const event = { threadID: 't3', isGroup: true, mentions: {} };
+    return target.resolve('1002', event, api).then((r) => {
+      assert.ok(r && r.uid === '1002');
+      return 'resolved straight from the id';
+    });
+  });
+
+  await step('a nickname set in this chat is how that member is addressed', () => {
+    // Nicknames are a per-chat customization and are not in userInfo, but it is
+    // what the user last chose to be called, so it has to match too.
+    target.clear();
+    const api = {
+      getThreadInfo: async () => ({
+        userInfo: [{ id: '1003', name: 'Zainab Yusuf', firstName: 'Zainab' }],
+        nicknames: { '1003': 'Zee' },
+      }),
+    };
+    const event = { threadID: 't4', isGroup: true, mentions: {} };
+    return target.resolve('Zee', event, api).then((r) => {
+      assert.ok(r && r.uid === '1003', 'the nickname must resolve to that member');
+      return 'Zee -> 1003';
+    });
+  });
+
+  await step('somebody who is not here resolves to nobody', () => {
+    target.clear();
+    const api = { getThreadInfo: async () => ({ userInfo: [{ id: '1001', name: 'Alice' }], nicknames: {} }) };
+    const event = { threadID: 't5', isGroup: true, mentions: {} };
+    return Promise.all([
+      target.resolve('Nobody At All', event, api),
+      target.resolve('', event, api),
+      target.resolve('   ', event, api),
+    ]).then(([a, b, c]) => {
+      assert.strictEqual(a, null, 'an absent name must not resolve to a guess');
+      assert.strictEqual(b, null, 'an empty argument must not resolve');
+      assert.strictEqual(c, null, 'whitespace must not resolve');
+      return 'unknown names and empty arguments both return null';
+    });
+  });
+
+  await step('a name with regex characters in it is matched literally', () => {
+    // "Bob (boss) [admin]" as a RegExp is a character class and an alternation,
+    // so an unescaped lookup matches some entirely different person — or worse,
+    // throws. This is how the name gets to be looked up safely.
+    target.clear();
+    const api = { getThreadInfo: async () => ({ userInfo: [], nicknames: {} }) };
+    const event = { threadID: 't6', isGroup: true, mentions: {} };
+    return Promise.all([
+      target.resolve('Bob (boss)', event, api),
+      target.resolve('a.*b', event, api),
+      target.resolve('[abc]', event, api),
+    ]).then((rs) => {
+      for (const r of rs) assert.strictEqual(r, null, 'must not match or throw');
+      return 'no crash, no false match';
+    });
+  });
+
+  await step('a tag still works with the database asleep', () => {
+    // The mention map and the thread are both already in memory, so a tag must
+    // not need Mongo at all. This is the case that used to hang: a Mongoose
+    // query on a disconnected connection buffers for ten seconds and then
+    // fails, which made !farmsteal and !huntduel stall instead of working.
+    target.clear();
+    const api = {
+      getThreadInfo: async () => ({
+        userInfo: [{ id: '1001', name: 'Alice Okonkwo', firstName: 'Alice' }],
+        nicknames: {},
+      }),
+    };
+    const event = { threadID: 't7', isGroup: true, mentions: { '1001': 'Alice Okonkwo' } };
+    return target.userDoc('Alice Okonkwo', event, api).then((doc) => {
+      assert.ok(doc, 'a tag must resolve without the database');
+      assert.strictEqual(doc.uid, '1001');
+      assert.strictEqual(doc.name, 'Alice Okonkwo');
+      assert.strictEqual(doc.transient, true, 'the stub must announce itself as unsaved');
+      // Commands adjust a resolved target and then save it without checking.
+      assert.strictEqual(typeof doc.save, 'function',
+        'an unsaved target must still be saveable, or every offline command throws');
+      return 'stubbed profile with a working save()';
+    });
+  });
+
+  await step('every username command now shares one resolver', () => {
+    // Eight modules each carried their own copy of the broken lookup. They must
+    // all be gone now, or the next copy someone writes reintroduces the bug.
+    const fs2 = require('fs');
+    const path2 = require('path');
+    const dir = path2.join(__dirname, '..', 'commands');
+    const offenders = [];
+    for (const f of fs2.readdirSync(dir)) {
+      if (!f.endsWith('.js')) continue;
+      const src = fs2.readFileSync(path2.join(dir, f), 'utf8');
+      // Reading the VALUES of mentions yields names, not uids.
+      if (/Object\.values\([^)]*mentions/.test(src)) offenders.push(`${f} reads mention values`);
+      if (/User\.findOne\(\{\s*uid:\s*(clean|tagged|ref)\b/.test(src)) offenders.push(`${f} looks up a uid from a name`);
+    }
+    assert.strictEqual(offenders.length, 0, offenders.join('; '));
+    assert.ok(target.userDoc && target.resolve, 'bot/target.js is the one resolver');
+    return 'no module resolves a uid from a display name any more';
+  });
+
+  await step('nothing resolves a target through an undefined api', () => {
+    // Every command wraps its body in guard(), which catches everything and
+    // replies "`kick` failed: api is not defined". A missing `api` in the
+    // destructured context therefore cannot fail the handler suite — 351/351
+    // commands still "pass" while every target command is broken in
+    // production. This checks the source instead of the behaviour.
+    const fs2 = require('fs');
+    const path2 = require('path');
+    const dir = path2.join(__dirname, '..', 'commands');
+    const call = /(targetOr\(reply,)|(await (?:resolve|resolveTarget)\()/;
+    const broken = [];
+    for (const f of fs2.readdirSync(dir)) {
+      if (!f.endsWith('.js')) continue;
+      const src = fs2.readFileSync(path2.join(dir, f), 'utf8').split('\n');
+      for (let i = 0; i < src.length; i += 1) {
+        if (!call.test(src[i]) || src[i].includes('async function')) continue;
+        for (let j = i; j > Math.max(0, i - 60); j -= 1) {
+          if (src[j].includes('execute: async ({')) {
+            if (!/\bapi\b/.test(src[j])) broken.push(`${f}:${j + 1} resolves a target without api`);
+            break;
+          }
+        }
+      }
+    }
+    assert.strictEqual(broken.length, 0, broken.join('; '));
+    return 'every target command has api in scope, so guard() cannot hide it';
   });
 
   // ── summary ───────────────────────────────────────────────

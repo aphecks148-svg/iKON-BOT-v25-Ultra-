@@ -25,6 +25,7 @@ const Inventory = require('../models/Inventory');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const cards = require('../bot/cards');
+const userTarget = require('../bot/target');
 
 const CASH = 'K-Cash';
 
@@ -174,18 +175,14 @@ function amountArg(args, fallback) {
   return fallback;
 }
 
-/** Resolve a mention, numeric id, or exact name into a User document. */
-async function resolveTarget(ref, event) {
-  const clean = String(ref || '').replace(/^@/, '').trim();
-  if (!clean) return null;
-
-  if (/^\d+$/.test(clean)) return User.findOne({ uid: clean });
-
-  const tagged = event.mentions && Object.values(event.mentions).find((m) => String(m) === clean);
-  if (tagged) return User.findOne({ uid: String(tagged) });
-
-  const safe = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return User.findOne({ name: new RegExp(`^${safe}$`, 'i') });
+/** Resolve a tag, a typed name, or a bare id to a User document.
+ *
+ * The thread knows who is actually in this chat and what they are really
+ * called, which is why this lives in bot/target.js: it is the only place that
+ * can turn "@Alice" into a uid. See that file for the whole order of attempts.
+ */
+async function resolveTarget(ref, event, api) {
+  return userTarget.userDoc(ref, event, api);
 }
 
 /** Load (or create in memory) an inventory document. */
@@ -230,12 +227,12 @@ function invValue(inv) {
 }
 
 /** Owner command: pull a target out of a tag / id / name. */
-async function targetOr(reply, messageID, ref, event, label) {
+async function targetOr(reply, messageID, ref, event, label, api) {
   if (!ref) {
     await reply(`❌ Usage: \`!${label} <user> [amount]\` — tag a hunter or use their ID.`, messageID);
     return null;
   }
-  const target = await resolveTarget(ref, event);
+  const target = await resolveTarget(ref, event, api);
   if (!target) {
     await reply(`❌ No hunter found for \`${ref}\`.`, messageID);
     return null;
@@ -473,7 +470,7 @@ module.exports = [
     usage: '!pay <user> <amount>',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pay', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pay', async () => {
       await react('🤝');
       const [ref, rawAmount] = args;
       const amount = amountArg([rawAmount], 0);
@@ -486,7 +483,7 @@ module.exports = [
         return;
       }
 
-      const target = await targetOr(reply, event.messageID, ref, event, 'pay');
+      const target = await targetOr(reply, event.messageID, ref, event, 'pay', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Sending money to yourself? The vault already does that for free.', event.messageID);
@@ -1380,7 +1377,7 @@ module.exports = [
     usage: '!transfer <user> <amount>',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'transfer', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'transfer', async () => {
       await react('🏦');
       const [ref, rawAmount] = args;
       const amount = amountArg([rawAmount], 0);
@@ -1393,7 +1390,7 @@ module.exports = [
         return;
       }
 
-      const target = await targetOr(reply, event.messageID, ref, event, 'transfer');
+      const target = await targetOr(reply, event.messageID, ref, event, 'transfer', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Wiring money to yourself is just a slower withdrawal.', event.messageID);
@@ -1472,9 +1469,9 @@ module.exports = [
     usage: '!reseteco <user>',
     cooldown: 10,
     permission: 'owner',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'reseteco', async () => {
+    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'reseteco', async () => {
       await react('🔄');
-      const target = await targetOr(reply, event.messageID, args[0], event, 'reseteco');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'reseteco', api);
       if (!target) return;
 
       const before = (target.coins || 0) + (target.bank || 0);
@@ -1515,14 +1512,14 @@ module.exports = [
     usage: '!addmoney <user> <amount>',
     cooldown: 10,
     permission: 'owner',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'addmoney', async () => {
+    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'addmoney', async () => {
       await react('💸');
       const amount = amountArg(args.slice(1), 0);
       if (amount <= 0) {
         await reply('❌ Usage: `!addmoney <user> <amount>`', event.messageID);
         return;
       }
-      const target = await targetOr(reply, event.messageID, args[0], event, 'addmoney');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'addmoney', api);
       if (!target) return;
 
       target.coins = clamp((target.coins || 0) + amount);
@@ -1553,14 +1550,14 @@ module.exports = [
     usage: '!removemoney <user> <amount>',
     cooldown: 10,
     permission: 'owner',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'removemoney', async () => {
+    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'removemoney', async () => {
       await react('💀');
       const amount = amountArg(args.slice(1), 0);
       if (amount <= 0) {
         await reply('❌ Usage: `!removemoney <user> <amount>`', event.messageID);
         return;
       }
-      const target = await targetOr(reply, event.messageID, args[0], event, 'removemoney');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'removemoney', api);
       if (!target) return;
       if (amount > (target.coins || 0)) {
         await reply(`❌ ${target.name} only has ${kc(target.coins)}. Take what exists.`, event.messageID);

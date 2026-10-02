@@ -28,6 +28,7 @@ const Group = require('../models/Group');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
+const userTarget = require('../bot/target');
 
 const CASH = 'K-Cash';
 const ULTRA = 'iKON-BOT v2 Ultra';
@@ -223,26 +224,23 @@ function betArg(args, fallback) {
   return raw;
 }
 
-/** Resolve @tag, raw uid, or exact name to a User document. */
-async function resolveTarget(ref, event) {
-  const clean = String(ref || '').replace(/^@/, '').trim();
-  if (!clean) return null;
-  if (/^\d+$/.test(clean)) return User.findOne({ uid: clean });
-
-  const tagged = event.mentions && Object.values(event.mentions).find((m) => String(m) === clean);
-  if (tagged) return User.findOne({ uid: String(tagged) });
-
-  const safe = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return User.findOne({ name: new RegExp(`^${safe}$`, 'i') });
+/** Resolve a tag, a typed name, or a bare id to a User document.
+ *
+ * The thread knows who is actually in this chat and what they are really
+ * called, which is why this lives in bot/target.js: it is the only place that
+ * can turn "@Alice" into a uid. See that file for the whole order of attempts.
+ */
+async function resolveTarget(ref, event, api) {
+  return userTarget.userDoc(ref, event, api);
 }
 
 /** resolveTarget with the two failure replies already sent. */
-async function targetOr(reply, messageID, ref, event, label) {
+async function targetOr(reply, messageID, ref, event, label, api) {
   if (!ref) {
     await reply(`❌ Usage: \`!${label} <user> [amount]\` — tag a hunter or use their ID.`, messageID);
     return null;
   }
-  const target = await resolveTarget(ref, event);
+  const target = await resolveTarget(ref, event, api);
   if (!target) {
     await reply(`❌ No hunter found for \`${ref}\`.`, messageID);
     return null;
@@ -439,12 +437,12 @@ const commands = [];
     usage: '!mathduel <user> <amount>',
     cooldown: 120,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'mathduel', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'mathduel', async () => {
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('🧮');
 
       const bet = betArg(args.slice(1), 1000);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'mathduel');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'mathduel', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Doing sums with yourself is not a duel.', event.messageID);
@@ -724,7 +722,7 @@ const commands = [];
     usage: '!passbomb @user',
     cooldown: 30,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'passbomb', async () => {
+    execute: async ({ api, args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'passbomb', async () => {
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('💣');
 
@@ -747,7 +745,7 @@ const commands = [];
         return;
       }
 
-      const target = await targetOr(reply, event.messageID, args[0], event, 'passbomb');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'passbomb', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot pass the bomb to yourself.', event.messageID);
@@ -786,12 +784,12 @@ const commands = [];
     usage: '!tictactoe <user> <amount>',
     cooldown: 60,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'tictactoe', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'tictactoe', async () => {
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('⭕');
 
       const bet = betArg(args.slice(1), 1000);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'tictactoe');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'tictactoe', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Tic-tac-toe needs two hunters.', event.messageID);
@@ -1027,12 +1025,12 @@ const commands = [];
     usage: '!chessmini <user> <amount>',
     cooldown: 300,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'chessmini', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'chessmini', async () => {
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('♟️');
 
       const bet = betArg(args.slice(1), 2000);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'chessmini');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'chessmini', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Chess requires an opponent.', event.messageID);
@@ -1263,12 +1261,12 @@ const commands = [];
     usage: '!coinflipduel <user> <amount>',
     cooldown: 60,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'coinflipduel', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'coinflipduel', async () => {
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('🪙');
 
       const bet = betArg(args.slice(1), 1000);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'coinflipduel');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'coinflipduel', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Flipping against yourself is not a duel.', event.messageID);
@@ -1369,12 +1367,12 @@ const commands = [];
     usage: '!dicewar <user> <amount>',
     cooldown: 60,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'dicewar', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'dicewar', async () => {
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('🎲');
 
       const bet = betArg(args.slice(1), 1000);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'dicewar');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'dicewar', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot war yourself.', event.messageID);
@@ -1471,12 +1469,12 @@ const commands = [];
     usage: '!rpsduel <user> <amount>',
     cooldown: 60,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rpsduel', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rpsduel', async () => {
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('✊');
 
       const bet = betArg(args.slice(1), 500);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'rpsduel');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'rpsduel', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot rock-paper-scissors yourself.', event.messageID);
@@ -1595,12 +1593,12 @@ const commands = [];
     usage: '!pokerduel <user> <amount>',
     cooldown: 120,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pokerduel', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pokerduel', async () => {
       if (await bannedCheck(reply, userDoc, event)) return;
       await react('🃏');
 
       const bet = betArg(args.slice(1), 2500);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'pokerduel');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'pokerduel', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot bluff yourself.', event.messageID);

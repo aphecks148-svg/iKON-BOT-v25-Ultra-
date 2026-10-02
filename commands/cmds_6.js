@@ -32,6 +32,7 @@ const canvasKit = require('../bot/canvas');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
+const userTarget = require('../bot/target');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -157,25 +158,17 @@ function ug(userDoc) {
  * Resolve @tag, raw uid, or exact name to a User document.
  * Group moderation usually operates on a tag, which is the reliable case.
  */
-async function resolveTarget(ref, event) {
-  const clean = String(ref || '').replace(/^@/, '').trim();
-  if (!clean) return null;
-  if (/^\d+$/.test(clean)) return User.findOne({ uid: clean });
-
-  const tagged = event.mentions && Object.values(event.mentions).find((m) => String(m) === clean);
-  if (tagged) return User.findOne({ uid: String(tagged) });
-
-  const safe = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return User.findOne({ name: new RegExp(`^${safe}$`, 'i') });
+async function resolveTarget(ref, event, api) {
+  return userTarget.userDoc(ref, event, api);
 }
 
 /** resolveTarget with the two failure replies already sent. */
-async function targetOr(reply, messageID, ref, event, label) {
+async function targetOr(reply, messageID, ref, event, label, api) {
   if (!ref) {
     await reply(`❌ Usage: \`!${label} @user\` — tag somebody in this chat.`, messageID);
     return null;
   }
-  const target = await resolveTarget(ref, event);
+  const target = await resolveTarget(ref, event, api);
   if (!target) {
     await reply(`❌ No hunter found for \`${ref}\`.`, messageID);
     return null;
@@ -614,7 +607,7 @@ const commands = [];
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'kick', async () => {
       await react('👢');
-      const target = await targetOr(reply, event.messageID, args[0], event, 'kick');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'kick', api);
       if (!target) return;
 
       // Bot admins from ADMIN_IDS/OWNER_ID count as admins here too, not just
@@ -652,7 +645,7 @@ const commands = [];
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'promote', async () => {
       await react('⬆️');
-      const target = await targetOr(reply, event.messageID, args[0], event, 'promote');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'promote', api);
       if (!target) return;
       if (!api.setThreadAdmin) {
         await reply('❌ This build cannot change admins. Nothing happened.', event.messageID);
@@ -679,7 +672,7 @@ const commands = [];
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'demote', async () => {
       await react('⬇️');
-      const target = await targetOr(reply, event.messageID, args[0], event, 'demote');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'demote', api);
       if (!target) return;
       if (!api.setThreadAdmin) {
         await reply('❌ This build cannot change admins. Nothing happened.', event.messageID);
@@ -792,7 +785,7 @@ const commands = [];
     usage: '!ghostban @user [minutes]',
     cooldown: 30,
     permission: 'groupAdmin',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'ghostban', async () => {
+    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'ghostban', async () => {
       await react('👻');
       const group = await liveGroup(event);
       if (!group) {
@@ -801,7 +794,7 @@ const commands = [];
       }
       const cfg = gcfg(group);
 
-      const target = await targetOr(reply, event.messageID, args[0], event, 'ghostban');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'ghostban', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot ghostban yourself. The silence would be very relaxing.', event.messageID);
@@ -1003,7 +996,7 @@ const commands = [];
     usage: '!gcmute @user [minutes]',
     cooldown: 15,
     permission: 'groupAdmin',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gcmute', async () => {
+    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'gcmute', async () => {
       await react('🔇');
       const group = await liveGroup(event);
       if (!group) {
@@ -1012,7 +1005,7 @@ const commands = [];
       }
       const cfg = gcfg(group);
 
-      const target = await targetOr(reply, event.messageID, args[0], event, 'gcmute');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'gcmute', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot mute yourself. Try being quieter instead.', event.messageID);
@@ -1101,7 +1094,7 @@ const commands = [];
     usage: '!gcunmute @user',
     cooldown: 15,
     permission: 'groupAdmin',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gcunmute', async () => {
+    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'gcunmute', async () => {
       await react('🔈');
       const group = await liveGroup(event);
       if (!group) {
@@ -1110,7 +1103,7 @@ const commands = [];
       }
       const cfg = gcfg(group);
 
-      const target = await targetOr(reply, event.messageID, args[0], event, 'gcunmute');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'gcunmute', api);
       if (!target) return;
 
       const before = cfg.mutes.length + cfg.bans.length + cfg.ghostBans.length;

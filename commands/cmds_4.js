@@ -29,6 +29,7 @@ const Group = require('../models/Group');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
+const userTarget = require('../bot/target');
 
 const CASH = 'K-Cash';
 const ULTRA = 'iKON-BOT v2 Ultra';
@@ -245,27 +246,23 @@ async function reapGraves(uid) {
   return reaped;
 }
 
-/** Resolve a mention, numeric id, or exact name into a User document. */
-async function resolveTarget(ref, event) {
-  const clean = String(ref || '').replace(/^@/, '').trim();
-  if (!clean) return null;
-
-  if (/^\d+$/.test(clean)) return User.findOne({ uid: clean });
-
-  const tagged = event.mentions && Object.values(event.mentions).find((m) => String(m) === clean);
-  if (tagged) return User.findOne({ uid: String(tagged) });
-
-  const safe = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return User.findOne({ name: new RegExp(`^${safe}$`, 'i') });
+/** Resolve a tag, a typed name, or a bare id to a User document.
+ *
+ * The thread knows who is actually in this chat and what they are really
+ * called, which is why this lives in bot/target.js: it is the only place that
+ * can turn "@Alice" into a uid. See that file for the whole order of attempts.
+ */
+async function resolveTarget(ref, event, api) {
+  return userTarget.userDoc(ref, event, api);
 }
 
 /** Resolve a target or explain how to tag someone. */
-async function targetOr(reply, messageID, ref, event, label) {
+async function targetOr(reply, messageID, ref, event, label, api) {
   if (!ref) {
     await reply(`❌ Usage: \`!${label} <user>\` — tag a hunter or use their ID.`, messageID);
     return null;
   }
-  const target = await resolveTarget(ref, event);
+  const target = await resolveTarget(ref, event, api);
   if (!target) {
     await reply(`❌ No hunter found for \`${ref}\`.`, messageID);
     return null;
@@ -1053,7 +1050,7 @@ module.exports = [
     usage: '!petbattle <user>',
     cooldown: 300,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petbattle', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petbattle', async () => {
       await react('⚔️');
       if (!mongo.isReady()) {
         await reply('💾 The pet arena is closed — database offline.', event.messageID);
@@ -1066,7 +1063,7 @@ module.exports = [
         return;
       }
 
-      const target = await targetOr(reply, event.messageID, args[0], event, 'petbattle');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'petbattle', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ You cannot duel yourself. The arena has standards.', event.messageID);
@@ -1813,7 +1810,7 @@ module.exports = [
     usage: '!petheist <user1> <user2>',
     cooldown: 3600,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petheist', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petheist', async () => {
       await react('🕵️');
       const [refA, refB] = args;
       if (!refA || !refB) {
@@ -1827,8 +1824,8 @@ module.exports = [
         return;
       }
 
-      const a = await resolveTarget(refA, event);
-      const b = await resolveTarget(refB, event);
+      const a = await resolveTarget(refA, event, api);
+      const b = await resolveTarget(refB, event, api);
       if (!a || !b) {
         await reply('❌ Both crew members must be taggable hunters. Try again.', event.messageID);
         return;
@@ -1908,9 +1905,9 @@ module.exports = [
     usage: '!petgift <user>',
     cooldown: 300,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petgift', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petgift', async () => {
       await react('🎁');
-      const target = await targetOr(reply, event.messageID, args[0], event, 'petgift');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'petgift', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Gifting yourself is just feeding your own pet. Use `!petfeed`.', event.messageID);
@@ -2147,9 +2144,9 @@ module.exports = [
     usage: '!petcurse <user>',
     cooldown: 1800,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petcurse', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petcurse', async () => {
       await react('🧿');
-      const target = await targetOr(reply, event.messageID, args[0], event, 'petcurse');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'petcurse', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Cursing yourself is a cry for help.', event.messageID);
@@ -2504,7 +2501,7 @@ module.exports = [
     usage: '!petduel <user>',
     cooldown: 300,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petduel', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petduel', async () => {
       await react('🤺');
       if (!mongo.isReady()) {
         await reply('💾 The arena is closed — database offline.', event.messageID);
@@ -2517,7 +2514,7 @@ module.exports = [
         return;
       }
 
-      const target = await targetOr(reply, event.messageID, args[0], event, 'petduel');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'petduel', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Dueling yourself is not a hobby.', event.messageID);

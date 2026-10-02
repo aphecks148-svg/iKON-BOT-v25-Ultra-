@@ -48,6 +48,7 @@ const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
 const cards = require('../bot/cards');
 const profile = require('../bot/profile');
+const userTarget = require('../bot/target');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -325,22 +326,9 @@ async function fee(userDoc, cost, action) {
 // TARGETING
 // ───────────────────────────────────────────────────────────
 
-/** Resolve @tag, raw uid, or an exact name to a User document. */
-async function resolve(ref, event) {
-  const clean = String(ref || '').replace(/^@/, '').trim();
-  if (!clean) return null;
-  if (/^\d+$/.test(clean)) return User.findOne({ uid: clean });
-
-  // `event.mentions` is { uid: name }, so the uid is the KEY. Reading the
-  // values hands back the display name, and looking a user up by name as if it
-  // were a uid never matches — which made every tagged target fail with
-  // "Nobody called X lives here" even though X was standing right there.
-  const hit = event.mentions
-    && Object.entries(event.mentions).find(([, n]) => String(n).toLowerCase() === clean.toLowerCase());
-  if (hit) return User.findOne({ uid: String(hit[0]) });
-
-  const safe = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return User.findOne({ name: new RegExp(`^${safe}$`, 'i') });
+/** Resolve @tag, a typed name, or a raw uid to a User document. */
+async function resolve(ref, event, api) {
+  return userTarget.userDoc(ref, event, api);
 }
 
 /**
@@ -357,7 +345,7 @@ async function pick(reply, messageID, userDoc, args, event, label) {
     await reply(`❌ Usage: \`!${label} @user\` — tag somebody in this chat.`, messageID);
     return null;
   }
-  const found = await resolve(args[0], event);
+  const found = await resolve(args[0], event, api);
   if (!found) {
     await reply(`❌ Nobody called \`${args[0]}\` lives here. Tag somebody real.`, messageID);
     return null;
@@ -828,8 +816,8 @@ const commands = [];
         await reply('❌ Usage: `!ship @a @b` — tag both of them.', event.messageID);
         return;
       }
-      const a = await resolve(args[0], event);
-      const b = await resolve(args[1], event);
+      const a = await resolve(args[0], event, api);
+      const b = await resolve(args[1], event, api);
       if (!a || !b) {
         await reply('❌ Both people have to be real. Check your tags.', event.messageID);
         return;

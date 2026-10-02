@@ -51,6 +51,7 @@ const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
 const { isGroupThread } = require('../bot/helpers');
+const userTarget = require('../bot/target');
 
 const CASH = 'K-Cash';
 
@@ -672,30 +673,16 @@ async function payoutFor(uid) {
   return User.findOne({ uid: String(uid) }).catch(() => null);
 }
 
-/** Resolve a @tag, raw uid, or exact name to a User document. */
-async function resolve(ref, event) {
-  const clean = String(ref || '').replace(/^@/, '').trim();
-  if (!clean) return null;
-
-  const tagged = event && event.mentions && Object.values(event.mentions).find((m) => String(m) === clean);
-  const uid = String(tagged || (/^\d+$/.test(clean) ? clean : ''));
-  const name = tagged || clean;
-
-  // With no database there is nothing to look up, and a Mongoose query on a
-  // disconnected connection buffers for ten seconds before it gives up — which
-  // would hang !farmsteal and !huntduel for ten seconds each. The mention map
-  // is already on the event, so an offline target is read straight off it.
-  if (!mongo.isReady()) {
-    if (!uid) return null;
-    return { uid, name, coins: 0, transient: true, async save() {} };
-  }
-
-  if (uid) {
-    const byUid = await User.findOne({ uid }).catch(() => null);
-    if (byUid) return byUid;
-  }
-  const safe = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return User.findOne({ name: new RegExp(`^${safe}$`, 'i') }).catch(() => null);
+/**
+ * Resolve a @tag, a typed name, or a raw uid to a User document.
+ *
+ * bot/target.js handles the resolution, including the offline case: the mention
+ * map and the thread member list are both already on the event, so a tag still
+ * works with the database asleep instead of hanging !farmsteal and !huntduel
+ * for ten seconds each on a buffered Mongoose query.
+ */
+async function resolve(ref, event, api) {
+  return userTarget.userDoc(ref, event, api);
 }
 
 /**

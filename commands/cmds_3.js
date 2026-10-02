@@ -25,6 +25,7 @@ const Inventory = require('../models/Inventory');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const cards = require('../bot/cards');
+const userTarget = require('../bot/target');
 
 const CASH = 'K-Cash';
 
@@ -276,27 +277,23 @@ async function removeItem(inv, itemId, qty) {
   return taken;
 }
 
-/** Resolve a mention, numeric id, or exact name into a User document. */
-async function resolveTarget(ref, event) {
-  const clean = String(ref || '').replace(/^@/, '').trim();
-  if (!clean) return null;
-
-  if (/^\d+$/.test(clean)) return User.findOne({ uid: clean });
-
-  const tagged = event.mentions && Object.values(event.mentions).find((m) => String(m) === clean);
-  if (tagged) return User.findOne({ uid: String(tagged) });
-
-  const safe = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return User.findOne({ name: new RegExp(`^${safe}$`, 'i') });
+/** Resolve a tag, a typed name, or a bare id to a User document.
+ *
+ * The thread knows who is actually in this chat and what they are really
+ * called, which is why this lives in bot/target.js: it is the only place that
+ * can turn "@Alice" into a uid. See that file for the whole order of attempts.
+ */
+async function resolveTarget(ref, event, api) {
+  return userTarget.userDoc(ref, event, api);
 }
 
 /** Resolve a target or explain how to tag someone. */
-async function targetOr(reply, messageID, ref, event, label) {
+async function targetOr(reply, messageID, ref, event, label, api) {
   if (!ref) {
     await reply(`❌ Usage: \`!${label} <user>\` — tag a hunter or use their ID.`, messageID);
     return null;
   }
-  const target = await resolveTarget(ref, event);
+  const target = await resolveTarget(ref, event, api);
   if (!target) {
     await reply(`❌ No hunter found for \`${ref}\`.`, messageID);
     return null;
@@ -1458,10 +1455,10 @@ module.exports = [
     usage: '!duel <user>',
     cooldown: 300,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'duel', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'duel', async () => {
       await react('🤺');
       const data = rpg(userDoc);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'duel');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'duel', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ Dueling yourself is a strong sign. Seek help at the academy clinic.', event.messageID);
@@ -1532,10 +1529,10 @@ module.exports = [
     usage: '!pvp <user>',
     cooldown: 300,
     permission: 'all',
-    execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pvp', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pvp', async () => {
       await react('⚔️');
       const data = rpg(userDoc);
-      const target = await targetOr(reply, event.messageID, args[0], event, 'pvp');
+      const target = await targetOr(reply, event.messageID, args[0], event, 'pvp', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
         await reply('❌ The arena does not accept fights against yourself.', event.messageID);
