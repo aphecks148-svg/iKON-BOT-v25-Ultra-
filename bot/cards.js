@@ -149,6 +149,141 @@ async function realName(row, api) {
 }
 
 /**
+ * A two-person card for the social commands: real Facebook photos of both
+ * people, their real Facebook names, and the thread the whole thing happened in.
+ *
+ * The thread id is on the card on purpose. These commands are all per-chat state
+ * (a hug count, a marriage, a beef) that lives on the Group document, and a
+ * screenshot of a board is otherwise unattributable — you cannot tell which chat
+ * a scoreboard came from. It also makes a wrong-thread bug obvious at a glance.
+ *
+ * Pass `right: null` for a command that acts on one person only (a dare, a
+ * pickup line); the layout then centres the single photo.
+ *
+ * @param {object} opts
+ * @param {string} opts.title
+ * @param {string} [opts.emoji]
+ * @param {string} [opts.subtitle]
+ * @param {string|number} [opts.threadID] shown in the footer
+ * @param {{uid?:string,name?:string}} opts.left the person who acted
+ * @param {{uid?:string,name?:string}|null} [opts.right] the person acted upon
+ * @param {string} [opts.body] one or two lines of context
+ * @param {string} [opts.footer] the disclaimer line
+ * @param {object} opts.api ws3-fca client
+ * @returns {Promise<string|null>} PNG data URL, or null without the canvas binary
+ */
+async function duoCard({ title, emoji = '', subtitle = '', threadID, left, right = null, body = '', footer = '', api }) {
+  if (!canvasKit.available()) return null;
+  if (!left) return null;
+
+  const W2 = 900;
+  const H = 510;
+  const solo = !right;
+
+  try {
+    const cv = canvasKit.create(W2, H);
+    const ctx = cv.ctx;
+
+    paintBackground(ctx, H);
+    paintHeader(ctx, emoji, title, subtitle);
+
+    // One round trip for both people: name and photo together, in parallel.
+    const person = async (p) => {
+      if (!p) return null;
+      const uid = p.uid != null ? String(p.uid) : '';
+      const live = uid ? await profile.fetchRealName(uid, api) : null;
+      const name = live
+        || (p.name && !profile.isPlaceholderName(p.name) ? p.name : '')
+        || (uid ? `Hunter ${uid.slice(-4)}` : 'Someone');
+      const pic = uid ? await profile.picture(uid, api) : null;
+      return { name, pic, uid };
+    };
+
+    const [a, b] = await Promise.all([person(left), person(right)]);
+
+    // Geometry, all fixed so nothing overlaps:
+    //   header band ends y=132, photo top y=224
+    //   avatars 128px at x 355 / 545 — 62px of clear space between them for
+    //   the arrow, rather than a gap narrower than the circles themselves
+    //   names baseline y=390, body y=430, footer y=472
+    const cy = 288;
+    const d = 128;
+    const xs = solo ? [W2 / 2] : [W2 / 2 - 95, W2 / 2 + 95];
+
+    await drawAvatar(ctx, a.pic, xs[0], cy, d);
+    if (b) await drawAvatar(ctx, b.pic, xs[1], cy, d);
+
+    // Names, under the photos but pushed outwards so two long names cannot
+    // collide in the middle of the card.
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 30px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    const nameY = 390;
+    if (solo) {
+      ctx.fillText(fit(ctx, a.name, 460), W2 / 2, nameY);
+    } else {
+      ctx.fillText(fit(ctx, a.name, 300), xs[0] - 60, nameY);
+      ctx.fillText(fit(ctx, b.name, 300), xs[1] + 60, nameY);
+    }
+
+    // The arrow sits in the clear space between the two, so the direction of
+    // the action is unambiguous.
+    if (!solo) {
+      ctx.font = 'bold 34px sans-serif';
+      ctx.fillStyle = 'rgba(0,212,255,0.85)';
+      ctx.textAlign = 'center';
+      ctx.fillText('→', W2 / 2, cy);
+    }
+
+    // The body often arrives with hard newlines (a coin total, a rank, a pet
+    // line). fillText does not honour \n, so it is wrapped by hand into at most
+    // two lines — the alternative is a single ellipsised line that throws away
+    // the most interesting part of the card.
+    if (body) {
+      ctx.font = '22px sans-serif';
+      ctx.fillStyle = '#9aa0b5';
+      ctx.textAlign = 'center';
+      const maxW = W2 - 120;
+      const words = String(body).split(/\s+/).filter(Boolean);
+      const out = [];
+      let line = '';
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (line && ctx.measureText(test).width > maxW) {
+          out.push(line);
+          line = word;
+          if (out.length === 2) break;
+        } else {
+          line = test;
+        }
+      }
+      if (line && out.length < 2) out.push(line);
+      out.slice(0, 2).forEach((l, i) => {
+        ctx.fillText(fit(ctx, l, maxW), W2 / 2, 424 + i * 26);
+      });
+    }
+
+    // Footer: the disclaimer, and the thread this all belongs to.
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 19px sans-serif';
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillText(fit(ctx, footer || 'NONE OF THIS IS REAL', 560), 48, H - 20);
+    if (threadID) {
+      ctx.textAlign = 'right';
+      ctx.font = '17px sans-serif';
+      ctx.fillStyle = 'rgba(154,160,181,0.9)';
+      ctx.fillText(`chat ${threadID}`, W2 - 48, H - 20);
+    }
+
+    return cv.canvas.toDataURL('image/png');
+  } catch (err) {
+    error(`[CARD] duoCard failed: ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * A single-user card: the ID card for !profile and !xp.
  *
  * @param {object} opts
@@ -370,6 +505,7 @@ async function pairCard({ title, emoji, subtitle, pairs, api, value, limit = 8 }
 }
 
 module.exports = {
+  duoCard,
   userCard,
   boardCard,
   pairCard,

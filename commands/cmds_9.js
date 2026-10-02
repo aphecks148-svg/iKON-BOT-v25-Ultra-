@@ -3,7 +3,7 @@
 /**
  * MODULE 9 — FUN / SOCIAL (35 commands)
  *
- * iKON-BOT v2 Ultra. The reason anyone adds the bot to a group chat.
+ * iKON-BOT v2 — Fun and social. The reason anyone adds the bot to a group chat.
  *
  * Exports a plain array. No factories, no legacy loader.
  *
@@ -135,7 +135,7 @@ const DARES = [
   'type your most controversial take and defend it in the next message',
 ];
 
-/** Truth questions for !truthultra. */
+/** Truth questions for !truth. */
 const TRUTHS = [
   'What is the last thing you searched on your phone?',
   'Who in this chat did you pretend to like, and why?',
@@ -331,8 +331,13 @@ async function resolve(ref, event) {
   if (!clean) return null;
   if (/^\d+$/.test(clean)) return User.findOne({ uid: clean });
 
-  const tagged = event.mentions && Object.values(event.mentions).find((m) => String(m) === clean);
-  if (tagged) return User.findOne({ uid: String(tagged) });
+  // `event.mentions` is { uid: name }, so the uid is the KEY. Reading the
+  // values hands back the display name, and looking a user up by name as if it
+  // were a uid never matches — which made every tagged target fail with
+  // "Nobody called X lives here" even though X was standing right there.
+  const hit = event.mentions
+    && Object.entries(event.mentions).find(([, n]) => String(n).toLowerCase() === clean.toLowerCase());
+  if (hit) return User.findOne({ uid: String(hit[0]) });
 
   const safe = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return User.findOne({ name: new RegExp(`^${safe}$`, 'i') });
@@ -342,7 +347,7 @@ async function resolve(ref, event) {
  * The target of a social command, refusing empty tags and self-tags.
  *
  * Nobody gets to hug, slap or marry themselves: every one of those jokes dies
- * the moment it is allowed, and !shipultra self-shipping would let one person
+ * the moment it is allowed, and !ship self-shipping would let one person
  * fill the ships board alone.
  *
  * @returns {Promise<{uid:string,name:string}|null>} null after already replying
@@ -388,7 +393,7 @@ async function groupOf(event) {
  * Add score to a pair on a board.
  *
  * The two uids are sorted so that a+b and b+a are one row. That is the entire
- * reason shipultra and coupleultra can ever agree with each other.
+ * reason ship and couple can ever agree with each other.
  *
  * @returns {Promise<{score:number, row:object}|null>}
  */
@@ -464,8 +469,32 @@ function petPower(pet) {
  *
  * The caveat is printed on the card itself. A hug card that does not say it is
  * a hug is just a picture of two people.
+ *
+ * When `api` and `left` are supplied it renders as a people card instead: the
+ * real Facebook photo of each person, their real Facebook name, and the chat it
+ * all happened in. Those three together are what make the card worth looking at
+ * — a generated avatar and a stored nickname are not a person. Without them it
+ * falls back to the plain text card below, so no call site can break.
+ *
+ * @param {object} opts
+ * @param {object} [opts.api] ws3-fca client; enables the people card
+ * @param {{uid?:string,name?:string}} [opts.left] who acted
+ * @param {{uid?:string,name?:string}} [opts.right] who they acted on
+ * @param {string|number} [opts.threadID] printed in the footer
  */
-async function card({ title, subtitle = '', body = '', footer = '', accent = canvasKit.theme.accent }) {
+async function card({
+  title, subtitle = '', body = '', footer = '',
+  accent = canvasKit.theme.accent, api, left, right = null, threadID,
+}) {
+  // People card: real photos, real names, and the thread id.
+  if (api && left) {
+    const art2 = await cards.duoCard({
+      title, subtitle, body, footer, threadID, left, right, api,
+    });
+    if (art2) return art2;
+    // duoCard only returns null when canvas is missing or a draw threw; fall
+    // through to the plain card rather than sending nothing.
+  }
   const made = canvasKit.create(800, 460);
   if (!made) return null;
   const { ctx } = made;
@@ -497,6 +526,23 @@ async function card({ title, subtitle = '', body = '', footer = '', accent = can
 
   const buffer = await canvasKit.toBuffer(made.canvas);
   return buffer ? `data:image/png;base64,${buffer.toString('base64')}` : null;
+}
+
+/**
+ * Render a people card and send it, ignoring failure.
+ *
+ * Every social command calls this after its text reply, so the picture is a
+ * bonus: if canvas is missing, the card throws, or a photo cannot be fetched,
+ * the text the user already got is still the answer. It must never be the only
+ * thing a command sends.
+ */
+async function art(reply, messageID, opts) {
+  try {
+    const png = await card(opts);
+    if (png) await reply({ attachment: { type: 'image', data: { url: png } } }, messageID);
+  } catch {
+    /* a picture is never worth failing a command over */
+  }
 }
 
 /** Draw wrapped text and return the y past the last line. */
@@ -554,28 +600,28 @@ const pick1 = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 /** Fees. Only the commands that move real money are listed. */
 const FEES = {
-  hugultra: 50,
-  slapultra: 50,
-  kissultra: 50,
-  shipultra: 50,
-  killultra: 100,
-  stabultra: 100,
-  patultra: 50,
-  cuddleultra: 50,
-  kickultra: 100,
-  punchultra: 100,
-  bonkultra: 100,
-  yeetultra: 100,
-  roastultra: 50,
-  complimentultra: 50,
-  marryultra: 50,
-  divorceultra: 50,
-  dareultra: 100,
-  exposeultra: 100,
-  flexultra: 100,
-  auraultramax: 50,
-  bestiesultra: 50,
-  enemiesultra: 50,
+  hug: 50,
+  slap: 50,
+  kiss: 50,
+  ship: 50,
+  kill: 100,
+  stab: 100,
+  pat: 50,
+  cuddle: 50,
+  kickout: 100,
+  punch: 100,
+  bonk: 100,
+  yeet: 100,
+  roast: 50,
+  compliment: 50,
+  marry: 50,
+  divorce: 50,
+  dare: 100,
+  expose: 100,
+  flex: 100,
+  auramax: 50,
+  besties: 50,
+  enemies: 50,
 };
 
 /** Every command in this module, in registration order. */
@@ -587,19 +633,19 @@ const commands = [];
 // ───────────────────────────────────────────────────────────
 
   commands.push({
-    name: 'hugultra',
+    name: 'hug',
     aliases: ['hug2', 'hugx'],
     category: 'fun',
     description: '🤗 Hug somebody and pay them 50. Bringing your pet adds 25',
-    usage: '!hugultra @user',
+    usage: '!hug @user',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'hugultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'hug', async () => {
       await react('🤗');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'hugultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'hug');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.hugultra, 'fun:hugultra');
+      const paid = await fee(userDoc, FEES.hug, 'fun:hug');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -636,7 +682,10 @@ const commands = [];
 
       const art = await card({
         title: '🤗 HUG',
-        subtitle: `${userDoc.name} ➜ ${who.name}`,
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
+        right: { uid: who.uid, name: who.name },
         body: pet
           ? `${pet.emoji || '🐾'} ${pet.name} came along and enjoyed it more than either of you.`
           : 'No pet. It was still acceptable.',
@@ -648,19 +697,19 @@ const commands = [];
   });
 
   commands.push({
-    name: 'slapultra',
+    name: 'slap',
     aliases: ['slap2'],
     category: 'fun',
     description: '👋 Slap somebody — they lose 100, you keep 50, the other 50 evaporates',
-    usage: '!slapultra @user',
+    usage: '!slap @user',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'slapultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'slap', async () => {
       await react('👋');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'slapultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'slap');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.slapultra, 'fun:slapultra');
+      const paid = await fee(userDoc, FEES.slap, 'fun:slap');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -692,23 +741,32 @@ const commands = [];
         + `📖 _A message and a transfer. Everybody is fine._`,
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '👋 SLAP',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'A MESSAGE AND A TRANSFER. EVERYBODY IS FINE.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'kissultra',
+    name: 'kiss',
     aliases: ['kiss2'],
     category: 'fun',
     description: '💋 Kiss somebody — a love meter, and pets get a breeding chance out of it',
-    usage: '!kissultra @user',
+    usage: '!kiss @user',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kissultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kiss', async () => {
       await react('💋');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'kissultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'kiss');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.kissultra, 'fun:kissultra');
+      const paid = await fee(userDoc, FEES.kiss, 'fun:kiss');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -744,21 +802,30 @@ const commands = [];
         + `📖 _Nothing about this changes your status._`,
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '💋 KISS',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'NOTHING ABOUT THIS CHANGES YOUR STATUS.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'shipultra',
+    name: 'ship',
     aliases: ['ship2'],
     category: 'fun',
     description: '💘 Ship two people — permanent score on this chat. No take-backs',
-    usage: '!shipultra @a @b',
+    usage: '!ship @a @b',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'shipultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'ship', async () => {
       await react('💘');
       if (args.length < 2) {
-        await reply('❌ Usage: `!shipultra @a @b` — tag both of them.', event.messageID);
+        await reply('❌ Usage: `!ship @a @b` — tag both of them.', event.messageID);
         return;
       }
       const a = await resolve(args[0], event);
@@ -776,7 +843,7 @@ const commands = [];
         return;
       }
 
-      const paid = await fee(userDoc, FEES.shipultra, 'fun:shipultra');
+      const paid = await fee(userDoc, FEES.ship, 'fun:ship');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -807,7 +874,10 @@ const commands = [];
 
       const art = await card({
         title: '💘 SHIPPED',
-        subtitle: `${a.name} x ${b.name}`,
+        api,
+        threadID: event.threadID,
+        left: { uid: a.uid, name: a.name },
+        right: { uid: b.uid, name: b.name },
         body: `${pct}% of this chat agrees. The other ${100 - pct}% are not invited to the wedding.`,
         footer: `${OWNER} · SHIPS NEVER UNSHIP`,
         accent: canvasKit.theme.accent2,
@@ -817,19 +887,19 @@ const commands = [];
   });
 
   commands.push({
-    name: 'patultra',
+    name: 'pat',
     aliases: ['pat2', 'headpat'],
     category: 'fun',
     description: '🫶 Pat somebody on the head. Costs 50, lifts them by 5',
-    usage: '!patultra @user',
+    usage: '!pat @user',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'patultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pat', async () => {
       await react('🫶');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'patultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'pat');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.patultra, 'fun:patultra');
+      const paid = await fee(userDoc, FEES.pat, 'fun:pat');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -848,23 +918,32 @@ const commands = [];
         + `📖 _A gentle message. Genuinely harmless._`,
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '🫶 PAT',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'A GENTLE MESSAGE. GENUINELY HARMLESS.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'cuddleultra',
+    name: 'cuddle',
     aliases: ['cuddle2'],
     category: 'fun',
     description: '🧸 Cuddle somebody up. Costs 50, and pets get involved somehow',
-    usage: '!cuddleultra @user',
+    usage: '!cuddle @user',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cuddleultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cuddle', async () => {
       await react('🧸');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'cuddleultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'cuddle');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.cuddleultra, 'fun:cuddleultra');
+      const paid = await fee(userDoc, FEES.cuddle, 'fun:cuddle');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -887,23 +966,32 @@ const commands = [];
         + '📖 _A message. Mostly._',
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '🫂 CUDDLE',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'A MESSAGE. MOSTLY.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'punchultra',
+    name: 'punch',
     aliases: ['punch2'],
     category: 'fun',
     description: '👊 Punch somebody — they lose 150 and you walk away with nothing',
-    usage: '!punchultra @user',
+    usage: '!punch @user',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'punchultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'punch', async () => {
       await react('👊');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'punchultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'punch');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.punchultra, 'fun:punchultra');
+      const paid = await fee(userDoc, FEES.punch, 'fun:punch');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -926,23 +1014,32 @@ const commands = [];
         + `📖 _Punching is a bad deal. Slapping is better. That is the lesson._`,
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '👊 PUNCH',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'PUNCHING IS A BAD DEAL. SLAPPING IS BETTER.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'bonkultra',
+    name: 'bonk',
     aliases: ['bonk2'],
     category: 'fun',
     description: '💫 Bonk somebody into horny jail. Costs 100, no way out for 3 minutes',
-    usage: '!bonkultra @user',
+    usage: '!bonk @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'bonkultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'bonk', async () => {
       await react('💫');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'bonkultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'bonk');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.bonkultra, 'fun:bonkultra');
+      const paid = await fee(userDoc, FEES.bonk, 'fun:bonk');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -965,23 +1062,32 @@ const commands = [];
         + '📖 _Horny jail stops the fun commands for three minutes. Nothing else._',
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '🔨 BONK',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'A MESSAGE WITH A HARD-LOOKING EMOJI.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'stabultra',
+    name: 'stab',
     aliases: ['stab2'],
     category: 'fun',
     description: '🔪 Stab somebody — 100 coins of damage, described in detail but harmlessly',
-    usage: '!stabultra @user',
+    usage: '!stab @user',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'stabultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'stab', async () => {
       await react('🔪');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'stabultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'stab');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.stabultra, 'fun:stabultra');
+      const paid = await fee(userDoc, FEES.stab, 'fun:stab');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1002,6 +1108,15 @@ const commands = [];
         + `📖 _Nobody was stabbed. This is a message about a knife._`,
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '🔪 STAB',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'NOBODY WAS STABBED. THIS IS A MESSAGE ABOUT A KNIFE.',
+    });
+
     }),
   });
 
@@ -1010,19 +1125,19 @@ const commands = [];
 // ───────────────────────────────────────────────────────────
 
   commands.push({
-    name: 'killultra',
+    name: 'kill',
     aliases: ['kill2'],
     category: 'fun',
     description: '💀 Fake kill somebody — and their unsafe pet dies with them, also fake',
-    usage: '!killultra @user',
+    usage: '!kill @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'killultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kill', async () => {
       await react('💀');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'killultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'kill');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.killultra, 'fun:killultra');
+      const paid = await fee(userDoc, FEES.kill, 'fun:kill');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1064,23 +1179,32 @@ const commands = [];
         + '📖 _Nobody was killed. This is a message with a sad emoji._',
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '💀 KILL',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'NOBODY WAS KILLED. THIS IS A MESSAGE WITH A SAD EMOJI.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'kickultra',
+    name: 'kickout',
     aliases: ['kick2'],
     category: 'fun',
     description: '🚪 Fake kick somebody out of the chat — costs them 120, not an admin action',
-    usage: '!kickultra @user',
+    usage: '!kickout @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kickultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kickout', async () => {
       await react('🚪');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'kickultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'kickout');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.kickultra, 'fun:kickultra');
+      const paid = await fee(userDoc, FEES.kickout, 'fun:kickout');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1106,23 +1230,32 @@ const commands = [];
         + '📖 _Nobody was kicked. They can still read this. It is not an admin command._',
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '🦵 KICK',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'NOBODY WAS KICKED. THEY CAN STILL READ THIS.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'yeetultra',
+    name: 'yeet',
     aliases: ['yeet2'],
     category: 'fun',
     description: '🚀 Yeet somebody out of the group entirely — the loudest way to lose 100',
-    usage: '!yeetultra @user',
+    usage: '!yeet @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'yeetultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'yeet', async () => {
       await react('🚀');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'yeetultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'yeet');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.yeetultra, 'fun:yeetultra');
+      const paid = await fee(userDoc, FEES.yeet, 'fun:yeet');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1142,23 +1275,32 @@ const commands = [];
         + '📖 _They are still here. They were never anywhere else._',
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '🫳 YEET',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'THEY ARE STILL HERE. THEY WERE NEVER ANYWHERE ELSE.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'roastultra',
+    name: 'roast',
     aliases: ['roast2'],
     category: 'fun',
     description: '🔥 Roast somebody using 20 hand-written roasts. No AI, on purpose',
-    usage: '!roastultra @user',
+    usage: '!roast @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'roastultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'roast', async () => {
       await react('🔥');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'roastultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'roast');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.roastultra, 'fun:roastultra');
+      const paid = await fee(userDoc, FEES.roast, 'fun:roast');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1179,23 +1321,32 @@ const commands = [];
         + '📖 _Pre-written. No AI was involved in this one._',
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '🔥 ROAST',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'PRE-WRITTEN. NO AI WAS INVOLVED IN THIS ONE.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'complimentultra',
+    name: 'compliment',
     aliases: ['compliment2'],
     category: 'fun',
     description: '🪞 Compliment somebody. The compliment is real, the backhand is too',
-    usage: '!complimentultra @user',
+    usage: '!compliment @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'complimentultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'compliment', async () => {
       await react('🪞');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'complimentultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'compliment');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.complimentultra, 'fun:complimentultra');
+      const paid = await fee(userDoc, FEES.compliment, 'fun:compliment');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1214,23 +1365,32 @@ const commands = [];
         + '📖 _Mean it however you want._',
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '💐 COMPLIMENT',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'MEAN IT HOWEVER YOU WANT.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'exposeultra',
+    name: 'expose',
     aliases: ['expose2'],
     category: 'fun',
     description: '🕵️ Expose somebody — every number on their record, none of it flattering',
-    usage: '!exposeultra @user',
+    usage: '!expose @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'exposeultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'expose', async () => {
       await react('🕵️');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'exposeultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'expose');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.exposeultra, 'fun:exposeultra');
+      const paid = await fee(userDoc, FEES.expose, 'fun:expose');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1257,6 +1417,15 @@ const commands = [];
         + '📖 _All of this is from their own command history. Nothing here is invented._',
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '🔍 EXPOSE',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'BUILT FROM THEIR OWN COMMAND HISTORY. NOTHING IS INVENTED.',
+    });
+
     }),
   });
 
@@ -1265,16 +1434,16 @@ const commands = [];
 // ───────────────────────────────────────────────────────────
 
   commands.push({
-    name: 'marryultra',
+    name: 'marry',
     aliases: ['marry2'],
     category: 'fun',
     description: '💍 Marry somebody. 5,000 up front, and they have to already be yours',
-    usage: '!marryultra @user',
+    usage: '!marry @user',
     cooldown: 20,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'marryultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'marry', async () => {
       await react('💍');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'marryultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'marry');
       if (!who) return;
 
       const t = f(userDoc);
@@ -1360,7 +1529,10 @@ const commands = [];
       await react('🎊');
       const art = await card({
         title: '💍 MARRIED',
-        subtitle: `${userDoc.name} + ${who.name}`,
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
+        right: { uid: who.uid, name: who.name },
         body: 'This is binding under group chat law. The divorce costs double.',
         footer: `${OWNER} · 5,000 SPENT`,
         accent: canvasKit.theme.accent2,
@@ -1379,16 +1551,16 @@ const commands = [];
   });
 
   commands.push({
-    name: 'divorceultra',
+    name: 'divorce',
     aliases: ['divorce2'],
     category: 'fun',
     description: '💔 Divorce somebody. 10,000, and you do not get to say why',
-    usage: '!divorceultra @user',
+    usage: '!divorce @user',
     cooldown: 20,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'divorceultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'divorce', async () => {
       await react('💔');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'divorceultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'divorce');
       if (!who) return;
 
       if (!userDoc.spouse || String(userDoc.spouse) !== String(who.uid)) {
@@ -1427,18 +1599,27 @@ const commands = [];
         + `📖 _The bot does not record who was at fault. It is not that kind of bot._`,
         event.messageID,
       );
+    await art(reply, event.messageID, {
+      title: '💔 DIVORCE',
+      api,
+      threadID: event.threadID,
+      left: { uid: userDoc.uid, name: userDoc.name },
+      right: { uid: who.uid, name: who.name },
+      footer: 'THE BOT DOES NOT RECORD WHO WAS AT FAULT.',
+    });
+
     }),
   });
 
   commands.push({
-    name: 'coupleultra',
+    name: 'couple',
     aliases: ['couple2', 'couples'],
     category: 'fun',
     description: '💑 Every married couple in this chat, read off the spouse field',
-    usage: '!coupleultra',
+    usage: '!couple',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'coupleultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'couple', async () => {
       await react('💑');
       if (!mongo.isReady()) {
         await reply('💑 The marriage registry is asleep. No records. Ever.', event.messageID);
@@ -1515,14 +1696,14 @@ const commands = [];
   });
 
   commands.push({
-    name: 'bestiesultra',
+    name: 'besties',
     aliases: ['besties2', 'bff'],
     category: 'fun',
     description: '🫂 Build or read a best-friends board. Score never goes down',
-    usage: '!bestiesultra @user',
+    usage: '!besties @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'bestiesultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'besties', async () => {
       await react('🫂');
       const group = await groupOf(event);
       if (!group) {
@@ -1546,7 +1727,7 @@ const commands = [];
         });
         if (card) {
           await reply({
-            body: `🫂 **BEST FRIENDS**\nAdd with \`!bestiesultra @user\``,
+            body: `🫂 **BEST FRIENDS**\nAdd with \`!besties @user\``,
             attachment: { type: 'image', data: { url: card } },
           }, event.messageID);
           return;
@@ -1560,15 +1741,15 @@ const commands = [];
         await reply(
           `🫂 **BEST FRIENDS**\n━━━━━━━━━━━━━━━\n`
           + `${rows.length ? rows.join('\n') : 'Nobody is on the board. Tag somebody.'}\n\n`
-          + `Add with \`!bestiesultra @user\``,
+          + `Add with \`!besties @user\``,
           event.messageID,
         );
         return;
       }
 
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'bestiesultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'besties');
       if (!who) return;
-      const paid = await fee(userDoc, FEES.bestiesultra, 'fun:bestiesultra');
+      const paid = await fee(userDoc, FEES.besties, 'fun:besties');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1590,14 +1771,14 @@ const commands = [];
   });
 
   commands.push({
-    name: 'enemiesultra',
+    name: 'enemies',
     aliases: ['enemies2', 'nemesis'],
     category: 'fun',
     description: '⚔️ Build or read an enemies board. Score never goes down either',
-    usage: '!enemiesultra @user',
+    usage: '!enemies @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'enemiesultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'enemies', async () => {
       await react('⚔️');
       const group = await groupOf(event);
       if (!group) {
@@ -1620,7 +1801,7 @@ const commands = [];
         });
         if (card) {
           await reply({
-            body: `⚔️ **ENEMIES**\nAdd with \`!enemiesultra @user\``,
+            body: `⚔️ **ENEMIES**\nAdd with \`!enemies @user\``,
             attachment: { type: 'image', data: { url: card } },
           }, event.messageID);
           return;
@@ -1634,15 +1815,15 @@ const commands = [];
         await reply(
           `⚔️ **ENEMIES**\n━━━━━━━━━━━━━━━\n`
           + `${rows.length ? rows.join('\n') : 'No enemies yet. Everyone is getting along, which is suspicious.'}\n\n`
-          + `Add with \`!enemiesultra @user\``,
+          + `Add with \`!enemies @user\``,
           event.messageID,
         );
         return;
       }
 
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'enemiesultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'enemies');
       if (!who) return;
-      const paid = await fee(userDoc, FEES.enemiesultra, 'fun:enemiesultra');
+      const paid = await fee(userDoc, FEES.enemies, 'fun:enemies');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1796,16 +1977,15 @@ const commands = [];
   });
 
   commands.push({
-    name: 'rizzultra',
-    aliases: ['rizz'],
+    name: 'rizz',
     category: 'fun',
     description: '😏 Rizz score — presence, gifts and whether you actually have a pet',
-    usage: '!rizzultra @user',
+    usage: '!rizz @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rizzultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rizz', async () => {
       await react('😏');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'rizzultra') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'rizz') : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -1838,16 +2018,15 @@ const commands = [];
   });
 
   commands.push({
-    name: 'cringeultra',
-    aliases: ['cringe'],
+    name: 'cringe',
     category: 'fun',
     description: '😬 Cringe meter — net worth against how much you have spent on being funny',
-    usage: '!cringeultra @user',
+    usage: '!cringe @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cringeultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cringe', async () => {
       await react('😬');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'cringeultra') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'cringe') : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -1877,16 +2056,16 @@ const commands = [];
   });
 
   commands.push({
-    name: 'auraultramax',
+    name: 'auramax',
     aliases: ['aura', 'auraa'],
     category: 'fun',
     description: '⚡ Aura, from -1000 to +1000. Coins and pet power pull in both directions',
-    usage: '!auraultramax @user',
+    usage: '!auramax @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'auraultramax', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'auramax', async () => {
       await react('⚡');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'auraultramax') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'auramax') : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -1910,7 +2089,9 @@ const commands = [];
 
       const art = await card({
         title: '⚡ AURA',
-        subtitle: `${who.name}`,
+        api,
+        threadID: event.threadID,
+        left: { uid: who.uid, name: who.name },
         body: meter(Math.round((aura + 1000) / 20), `${aura > 0 ? '+' : ''}${num(aura)} · ${title}`),
         footer: aura >= 0 ? 'COINS. PETS. BEING LIKED.' : 'TOO MUCH SLAPPING. TOO LITTLE RESPECT.',
         accent: aura >= 0 ? canvasKit.theme.accent : canvasKit.theme.accent2,
@@ -1931,16 +2112,16 @@ const commands = [];
   });
 
   commands.push({
-    name: 'flexultra',
+    name: 'flex',
     aliases: ['flex2'],
     category: 'fun',
     description: '💪 Flex your wallet and your pet. Costs 100, because showing off should',
-    usage: '!flexultra',
+    usage: '!flex',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'flexultra', async () => {
+    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'flex', async () => {
       await react('💪');
-      const paid = await fee(userDoc, FEES.flexultra, 'fun:flexultra');
+      const paid = await fee(userDoc, FEES.flex, 'fun:flex');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -1974,9 +2155,11 @@ const commands = [];
       await react('📢');
       const art = await card({
         title: '💪 FLEX',
-        subtitle: userDoc.name,
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
         body: `${kc(userDoc.coins)}\n${pet ? `${pet.emoji || '🐾'} ${pet.name} — ${num(petPower(pet))} pwr` : 'No pet'}\n${rank ? `Rank #${num(rank)}` : 'Rank unavailable'}`,
-        footer: `-${kc(FEES.flexultra)} TO POST THIS`,
+        footer: `-${kc(FEES.flex)} TO POST THIS`,
         accent: canvasKit.theme.gold,
       });
       if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
@@ -1985,7 +2168,7 @@ const commands = [];
         + '━━━━━━━━━━━━━━━\n'
         + `👛 ${kc(userDoc.coins)}${rank ? ` · rank #${num(rank)}` : ''}\n`
         + `🐾 ${pet ? `${pet.emoji || '🐾'} ${pet.name} — ${num(petPower(pet))} pwr` : 'no pet'}\n`
-        + `💸 -${kc(FEES.flexultra)} to post this\n\n`
+        + `💸 -${kc(FEES.flex)} to post this\n\n`
         + `${brags.map((b) => `• ${b}`).join('\n')}\n\n`
         + '📖 _Your real balance and your real pet. The flex is the only fiction._',
         event.messageID,
@@ -2003,14 +2186,14 @@ const commands = [];
 // ───────────────────────────────────────────────────────────
 
   commands.push({
-    name: 'dareultra',
+    name: 'dare',
     aliases: ['dare2'],
     category: 'fun',
     description: '🎯 Dare somebody. They reply `!darego` to do it, `!gostop` to weasel and pay 500',
-    usage: '!dareultra @user',
+    usage: '!dare @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'dareultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'dare', async () => {
       await react('🎯');
 
       // One command, three jobs. The spec allows exactly one dare command, so
@@ -2026,7 +2209,7 @@ const commands = [];
       if ((word === 'done' || word === 'no') && !open) {
         await reply(
           `🎯 You have no dare open, so there is nothing to ${word === 'done' ? 'do' : 'fail'}.\n`
-          + '😈 `!dareultra @you` to start one.',
+          + '😈 `!dare @you` to start one.',
           event.messageID,
         );
         return;
@@ -2039,8 +2222,8 @@ const commands = [];
           + `😈 **${open.dare}**\n`
           + `🎯 ${open.by} dared you.\n`
           + `⏱️ ${Math.max(1, Math.ceil((open.expires - Date.now()) / 1000))}s left.\n\n`
-          + `✅ \`!dareultra done\` when you have done it\n`
-          + '💸 \`!dareultra no\` to chicken out for 500',
+          + `✅ \`!dare done\` when you have done it\n`
+          + '💸 \`!dare no\` to chicken out for 500',
           event.messageID,
         );
         return;
@@ -2084,10 +2267,10 @@ const commands = [];
         return;
       }
 
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'dareultra');
+      const who = await pick(reply, event.messageID, userDoc, args, event, 'dare');
       if (!who) return;
 
-      const paid = await fee(userDoc, FEES.dareultra, 'fun:dareultra');
+      const paid = await fee(userDoc, FEES.dare, 'fun:dare');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -2115,7 +2298,7 @@ const commands = [];
         + '━━━━━━━━━━━━━━━\n'
         + `😈 **${open_dare_line(dare)}**\n\n`
         + `⏱️ 2 minutes.\n`
-        + `▶️ \`!dareultra done\` to do it, \`!dareultra no\` to weasel out for 500.\n`
+        + `▶️ \`!dare done\` to do it, \`!dare no\` to weasel out for 500.\n`
         + '📖 _Nobody is ever forced to do anything. Weaseling costs coins and nothing else._',
         event.messageID,
       );
@@ -2123,14 +2306,14 @@ const commands = [];
   });
 
   commands.push({
-    name: 'truthultra',
+    name: 'truth',
     aliases: ['truth2'],
     category: 'fun',
     description: '🫢 One truth question for the chat. Replying costs nothing and hides nothing',
-    usage: '!truthultra',
+    usage: '!truth',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'truthultra', async () => {
+    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'truth', async () => {
       await react('🫢');
       const q = pick1(TRUTHS);
 
@@ -2159,7 +2342,7 @@ const commands = [];
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'wouldyourather', async () => {
       await react('🤔');
 
-      // Same self-resolving trick as dareultra: with only one command allowed,
+      // Same self-resolving trick as dare: with only one command allowed,
       // the first call opens the vote and the second closes it. Otherwise a
       // would-you-rather could never report a result.
       const open = cache.getPendingGame('wyr', event.threadID, '');
@@ -2304,16 +2487,16 @@ const commands = [];
   });
 
   commands.push({
-    name: 'factultra',
+    name: 'fact',
     aliases: ['fact2', 'toxicfact'],
     category: 'fun',
     description: '🧾 One true, unkind fact about somebody — assembled from their own counters',
-    usage: '!factultra @user',
+    usage: '!fact @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'factultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'fact', async () => {
       await react('🧾');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'factultra') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'fact') : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -2334,16 +2517,16 @@ const commands = [];
   });
 
   commands.push({
-    name: 'pickuplineultra',
+    name: 'pickupline',
     aliases: ['pickupl', 'rizzline'],
     category: 'fun',
     description: '💘 A pickup line aimed at somebody. Costs 50, because embarrassment is a service',
-    usage: '!pickuplineultra @user',
+    usage: '!pickupline @user',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pickuplineultra', async () => {
+    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pickupline', async () => {
       await react('💘');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'pickuplineultra') : userDoc;
+      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'pickupline') : userDoc;
       if (!who) {
         // No target resolved. A command that answers nothing reads as broken,
         // so say why instead of returning in silence.
@@ -2351,7 +2534,7 @@ const commands = [];
         return;
       }
 
-      const paid = await fee(userDoc, FEES.pickuplineultra || 50, 'fun:pickuplineultra');
+      const paid = await fee(userDoc, FEES.pickupline || 50, 'fun:pickupline');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
@@ -2411,7 +2594,9 @@ const commands = [];
       await react('📸');
       const art = await card({
         title: '👨‍👩‍👧‍👦 iKON FAMILY',
-        subtitle: `HEAD: ${OWNER}`,
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
         body: `${num(married / 2)} marriage(s) on file\n${num(pets)} member(s) in the database\n\nYou: ${seat}`,
         footer: pet ? `${pet.emoji || '🐾'} ${pet.name} IS ALSO HERE` : 'NO PET. THAT IS YOUR LEGACY.',
         accent: canvasKit.theme.accent2,

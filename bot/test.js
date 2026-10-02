@@ -557,6 +557,58 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
       return 'uid + tid unique';
     });
 
+    await step('a tagged @mention resolves to that person, not to their name', async () => {
+      // cmds_9's resolve() reads event.mentions, which is { uid: name }. Taking
+      // the values handed back the display name and looked a user up by uid
+      // "Banned User" — which never matches, so tagging somebody was the one
+      // thing that could not work.
+      const actor = await User.create({ uid: '999000111', name: 'Hugger', coins: 5000 });
+      const target = await User.create({ uid: '999000222', name: 'Banned User', coins: 1000 });
+      try {
+        const c9 = loader.loadCommands(path.resolve(__dirname, '../commands')).registry;
+        const hug = c9.get('hug');
+        assert.ok(hug, 'hug command missing');
+
+        const sent = [];
+        const event = {
+          isGroup: true,
+          threadID: 't_mentions_test',
+          messageID: 'mentions_mid',
+          senderID: actor.uid,
+          body: '!hug Banned User',
+          // The real shape: uid is the KEY, the name is the value.
+          mentions: { '999000222': 'Banned User' },
+        };
+        await hug.execute({
+          api: mockApi(),
+          event,
+          args: ['Banned User'],
+          config,
+          registry: c9,
+          gemini: null,
+          userDoc: actor,
+          reply: async (m) => { sent.push(typeof m === 'string' ? m : '(attachment)'); return {}; },
+          react: async () => true,
+        });
+
+        const all = sent.join('\n');
+        assert.ok(
+          !/Nobody called/.test(all),
+          `tagged target failed to resolve: ${all.slice(0, 200)}`,
+        );
+        assert.ok(
+          /Banned User/.test(all),
+          `the hug should name the target: ${all.slice(0, 200)}`,
+        );
+        // The money actually moved to the tagged uid, not to a phantom.
+        assert.strictEqual((await User.findOne({ uid: '999000222' })).coins, 1050,
+          'the tagged user should have received the gift');
+        return 'mention resolved by uid';
+      } finally {
+        await User.deleteMany({ uid: { $in: ['999000111', '999000222'] } });
+      }
+    });
+
     await step('cleanup test documents', async () => {
       await Promise.all([
         User.deleteMany({ uid }),
@@ -792,6 +844,25 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
 
       // A board with no rows is a caller bug, not a card.
       assert.strictEqual(await cards.boardCard({ title: 'x', rows: [], api, value: () => '' }), null);
+
+      // duoCard is the people card: two real photos, two real names, and the
+      // thread id in the footer.
+      const duo = await cards.duoCard({
+        emoji: 'H', title: 'HUG', subtitle: 's', api, threadID: 't_9876543210',
+        left: { uid: 'a', name: 'Left' }, right: { uid: 'b', name: 'Right' },
+        body: 'line one\nline two', footer: 'A MESSAGE',
+      });
+      assert.ok(isPng(duo), 'duoCard must return a real PNG data URL');
+      // A multi-line body must not be dropped: fillText ignores \n, so the
+      // card wraps it by hand. A card that renders the blank is still a PNG,
+      // so compare sizes rather than trusting the extension.
+      const solo = await cards.duoCard({
+        emoji: 'D', title: 'DARE', subtitle: 's', api, threadID: 't_1',
+        left: { uid: 'a', name: 'Left' }, body: 'x', footer: 'FICTIONAL',
+      });
+      assert.ok(isPng(solo), 'duoCard must work with a single person');
+      // No person is a caller bug, and must not draw an empty card.
+      assert.strictEqual(await cards.duoCard({ title: 'x', left: null, api }), null);
     } finally {
       axios.get = realGet;
       profile.clear();
@@ -1067,6 +1138,34 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
       'the engine still addressed a group as a DM — this is the production bug',
     );
     return 'group reply addressed correctly';
+  });
+
+  // ── 22. cmds_9 naming and tagging ─────────────────────────
+  await step('cmds_9 carries no "ultra" in any command name', () => {
+    const loaded = loader.loadCommands(path.resolve(__dirname, '../commands'));
+    const c9 = [...loaded.registry.values()].filter((c) => c.module === 'cmds_9');
+    assert.strictEqual(c9.length, 35, 'cmds_9 should still hold 35 commands');
+
+    const dirty = c9.filter((c) => /ultra/i.test(c.name) || (c.aliases || []).some((a) => /ultra/i.test(a)));
+    assert.deepStrictEqual(dirty.map((c) => c.name), [], 'these still say ultra');
+
+    // The ones that were never "ultra" stay put.
+    for (const keep of ['toxicmeter', 'simpmeter', 'susmeter', 'wouldyourather',
+      'neverhaveiever', '2truth1lie', 'ikonfamily']) {
+      assert.ok(loaded.registry.has(keep), `${keep} should be untouched`);
+    }
+    // And the renamed ones are reachable by their short names.
+    for (const now of ['hug', 'slap', 'kiss', 'ship', 'kickout', 'marry', 'besties', 'auramax']) {
+      assert.ok(loaded.registry.has(now), `${now} is missing after the rename`);
+    }
+
+    // The rename must not have collided with anything, which is why kickultra
+    // became kickout: cmds_6 already owns `kick` for group administration.
+    assert.ok(loaded.registry.has('kickout'));
+    const owner = [...loaded.registry.values()].filter((c) => c.name === 'kick');
+    assert.strictEqual(owner.length, 1, '`kick` must still be cmds_6\'s group command');
+    assert.strictEqual(owner[0].module, 'cmds_6');
+    return 'renamed cleanly, no collisions';
   });
 
   // ── summary ───────────────────────────────────────────────
