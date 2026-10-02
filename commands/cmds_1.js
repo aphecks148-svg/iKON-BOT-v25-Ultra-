@@ -22,7 +22,7 @@ const toggles = require('../bot/toggles');
 const mongo = require('../bot/mongo');
 const canvas = require('../bot/canvas');
 const loader = require('../bot/loader');
-const { fmt, describeSendError, lastSent } = require('../bot/helpers');
+const { fmt, describeSendError, lastSent, error, reply: helpersReply } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
 const userTarget = require('../bot/target');
 const decks = require('../bot/categories');
@@ -852,23 +852,39 @@ module.exports = [
         return;
       }
 
-      // Facebook only lets a bot unsend its OWN messages, so the target must be
-      // one the bot sent. event.messageID is the user's command and is never a
-      // valid target. Preference order:
-      //   1. the bot message the user replied to (event.replyToMessage)
-      //   2. the last message the bot sent in this thread
-      const target = String(event.replyToMessage || lastSent(event.threadID) || '');
+      // WHAT TO DELETE
+      //
+      // The target is the message the user REPLIED TO. The old code read
+      // `event.replyToMessage`, which ws3-fca does not set — a reply carries
+      // the parent under `event.messageReply.messageID`, so that expression was
+      // always undefined and every "delete the one I replied to" silently fell
+      // through to deleting the bot's last message instead. Replying to
+      // something and unsending it deleted a different message, every time.
+      //
+      // With no reply at all there is no target to point at, so it falls back to
+      // the bot's most recent message in this thread.
+      const repliedTo = event.messageReply && event.messageReply.messageID;
+      const target = String(repliedTo || lastSent(event.threadID) || '');
       if (!target) {
-        await reply('❌ Nothing to unsend — the bot has not posted in this chat yet.', event.messageID);
+        await reply('❌ Nothing to unsend. Reply to a message with `!unsend`, or wait for the bot to post something first.', event.messageID);
         return;
       }
 
       try {
         await api.unsendMessage(target);
       } catch (err) {
-        // Same "[object Object]" trap as sendMessage: ws3-fca throws the raw
-        // Facebook object, so report it through the shared describer.
-        await reply(`⚠️ Could not unsend: ${describeSendError(err)}`, event.messageID);
+        // Facebook only lets an account unsend messages it sent itself. Unsend is
+        // not admin moderation: it is "take this back". There is no delete-for-
+        // everyone endpoint in ws3-fca, so deleting somebody else's message is
+        // not something this bot can do at all, and saying so plainly is more
+        // use than a raw Facebook error object.
+        await reply(
+          `⚠️ Could not unsend that message.\n`
+          + '📖 Facebook only lets the sender unsend their own message, and ws3-fca has no '
+          + '"delete for everyone" endpoint — a group admin deletes other people\'s messages in the app.',
+          event.messageID,
+        );
+        error(`[UNSEND] ${target} in ${event.threadID} failed: ${describeSendError(err)}`);
         return;
       }
 
@@ -1396,6 +1412,76 @@ module.exports = [
       await reply(`🔊 ${text}`, event.messageID);
     }),
   },
+// ─────────────────────────────────────────────────────────
+  // BROADCAST — one message, every group
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'broadcast',
+    aliases: ['bc', 'announceall', 'sendall'],
+    category: 'system',
+    description: '📡 Send one message to every chat the bot is in',
+    usage: '!broadcast <message>',
+    hint: 'Owner only. `!broadcast preview <message>` shows it here first without sending.',
+    cooldown: 300,
+    permission: 'owner',
+    execute: async ({ api, args, event, config, reply, react }) => guard(reply, event.messageID, 'broadcast', async () => {
+      await react('📡');
+
+      // `preview` is here because a broadcast cannot be recalled. There is no
+      // way to un-send from two hundred chats, so the way to check the wording
+      // is to see it before it goes.
+      const preview = String(args[0] || '').toLowerCase() === 'preview';
+      const msg = (preview ? args.slice(1) : args).join(' ').trim();
+      if (!msg) {
+        await reply('❌ Usage: `!broadcast <message>` or `!broadcast preview <message>`', event.messageID);
+        return;
+      }
+
+      if (!mongo.isReady()) {
+        await reply('💾 The roster is sealed — database offline, so no chat list. Nothing was sent.', event.messageID);
+        return;
+      }
+
+      const body = `📡 **BROADCAST**\n· · · · · · ·\n${msg}\n· · · · · · ·\n📖 Sent by ${config.BOT_NAME}.`;
+
+      if (preview) {
+        await reply(`👀 **PREVIEW — nothing was sent.**\n· · · · · · ·\n${body}`, event.messageID);
+        return;
+      }
+
+      const groups = await Group.find({}).select('tid').lean().catch(() => []);
+      if (!groups.length) {
+        await reply('❌ The bot is in no chats yet, so there was nowhere to send this.', event.messageID);
+        return;
+      }
+
+      // Sequential with a pause, for the same reason as !gccleanup: every send
+      // is an HTTP request to Facebook, and a burst of two hundred of them is
+      // how an account gets rate-limited mid-broadcast — leaving some chats
+      // with the message and some without, with no way to tell which is which.
+      const PAUSE_MS = 1200;
+      let sent = 0;
+      const failed = [];
+      for (const g of groups) {
+        const tid = String(g.tid);
+        // eslint-disable-next-line no-await-in-loop
+        const res = await helpersReply(api, tid, body, null, true).catch(() => null);
+        if (res) sent += 1;
+        else failed.push(tid);
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => setTimeout(r, PAUSE_MS));
+      }
+
+      await reply(
+        `📡 **BROADCAST SENT**\n`
+        + '· · · · · · ·\n'
+        + `✅ Delivered to ${sent} of ${groups.length} chats\n`
+        + (failed.length ? `⚠️ Failed: ${failed.length}\n` : '')
+        + `⏱️ About ${Math.ceil((groups.length * PAUSE_MS) / 1000)}s of pacing.`,
+        event.messageID,
+      );
+    }),
+  },
 ];
 
 // ───────────────────────────────────────────────────────────
@@ -1445,3 +1531,4 @@ async function cache_getUser(uid, api) {
   // eslint-disable-next-line global-require
   return require('../bot/cache').getUser(uid, api);
 }
+

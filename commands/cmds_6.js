@@ -215,11 +215,18 @@ async function targetOr(reply, messageID, ref, event, label, api) {
 /**
  * Can this build actually remove a member or change an admin?
  *
- * Facebook took these endpoints away from unofficial clients, so the method
- * simply is not on the object, depending on which build is installed. Probing
- * for it up front lets the command say so immediately instead of resolving the
- * target, checking permissions and only then admitting it was never going to
- * work — which reads to an admin as though the bot tried and failed on them.
+ * CORRECTION. An earlier version of this file said the build could not remove
+ * members and refused `!kick` and `!promote` up front. That was wrong: the
+ * capability is `api.gcmember('remove', userID, threadID)`, an MQTT publish to
+ * remove_participant_v2, not `removeUserFromGroup`. The earlier probe only
+ * looked for the old HTTP-style names, found none, and concluded — reasonably
+ * but incorrectly — that the endpoint was gone. It was there under a name the
+ * probe did not consider, and the commands refused to run for the whole time it
+ * was available.
+ *
+ * Promotion genuinely does not exist on this build: there is no method for it
+ * anywhere in ws3-fca. So promote and demote keep the honest refusal, and only
+ * removal is restored.
  *
  * @param {object} api
  * @param {string[]} names candidate method names across builds
@@ -230,15 +237,39 @@ function capability(api, names) {
   return names.find((n) => typeof api[n] === 'function') || null;
 }
 
-const canRemove = (api) => capability(api, ['removeUserFromGroup', 'removeMember', 'groupRemoveUser']);
+const canRemove = (api) => capability(api, ['gcmember', 'removeUserFromGroup', 'removeMember']);
 const canAdmin = (api) => capability(api, ['setThreadAdmin', 'changeAdminStatus', 'groupAdminStatus']);
 
 /** What to say when a moderation action has no endpoint on this build. */
-const NO_REMOVAL = '❌ This bot build cannot remove members — Facebook took that endpoint away from unofficial clients.\n'
-  + '📖 Nothing happened. Remove them from the chat in Facebook itself, and the bot will see it on its next sync.';
+const NO_REMOVAL = '❌ This bot build has no way to remove members.\n'
+  + '📖 Nothing happened. Remove them from the chat in Facebook itself.';
 
-const NO_ADMIN = '❌ This bot build cannot promote or demote admins — Facebook took that endpoint away too.\n'
+const NO_ADMIN = '❌ This bot build cannot promote or demote admins — ws3-fca has no endpoint for it.\n'
   + '📖 Nothing happened. Change admin status for this chat in the Facebook app.';
+
+/**
+ * Remove one member from this chat, whichever API the build provides.
+ *
+ * gcmember resolves as soon as the request is queued, not once Facebook has
+ * confirmed the person is gone — it returns `{ type: 'gc_member_update' }`. It
+ * also reports its own errors as a resolved value rather than throwing:
+ * `{ type: 'error_gc', error: '...' }`. Treating that as success is how a
+ * removal that never happened reports itself as done, so it is checked.
+ *
+ * @param {object} api
+ * @param {string} uid
+ * @param {string} threadID
+ * @returns {Promise<{ok:boolean, reason?:string}>}
+ */
+async function removeMember(api, uid, threadID) {
+  if (typeof api.gcmember === 'function') {
+    const res = await api.gcmember('remove', String(uid), String(threadID));
+    if (res && res.type === 'error_gc') return { ok: false, reason: res.error || 'the group refused' };
+    return { ok: true };
+  }
+  await api[canRemove(api)]({ threadID, userID: uid });
+  return { ok: true };
+}
 
 /**
  * Same as `targetOr`, but the target is the first argument of a command that
@@ -341,7 +372,10 @@ function bar(level) {
 async function threadAdmins(api, event) {
   try {
     const info = await api.getThreadInfo(event.threadID);
-    return ((info && info.adminIDs) || []).map(String);
+    // adminUids, not .map(String): Messenger sends { id, isAdmin } entries, and
+    // String({id}) is "[object Object]". Every consumer of this list compares
+    // against real uids, so the raw shape silently matched nothing.
+    return permissions.adminUids(info && info.adminIDs);
   } catch {
     return [];
   }
@@ -719,8 +753,7 @@ const commands = [];
       await react('👢');
       // Capability first: there is no point resolving a person and reading the
       // admin list when this build has no way to act on the answer.
-      const remove = canRemove(api);
-      if (!remove) {
+      if (!canRemove(api)) {
         await reply(NO_REMOVAL, event.messageID);
         return;
       }
@@ -736,9 +769,13 @@ const commands = [];
         return;
       }
       try {
-        await api[remove]({ threadID: event.threadID, userID: target.uid });
+        const res = await removeMember(api, target.uid, event.threadID);
+        if (!res.ok) {
+          await reply(`❌ Could not remove them: ${res.reason}`, event.messageID);
+          return;
+        }
       } catch (err) {
-        await reply(`❌ Could not remove them: ${err.message}`, event.messageID);
+        await reply(`❌ Could not remove them: ${describeSendError(err)}`, event.messageID);
         return;
       }
 
@@ -2079,6 +2116,210 @@ const commands = [];
         + `🆔 ${group.tid}\n`
         + `⏸️ The bot is paused here.\n📖 ${reason}\n`
         + `📖 ${OWNER} revoked it. That is the whole appeal process.`,
+        event.messageID,
+      );
+    }),
+  });
+
+// ─────────────────────────────────────────────────────────
+  // CALL THE ADMINS
+  // ─────────────────────────────────────────────────────────
+  commands.push({
+    name: 'calladmin',
+    aliases: ['calladmins', 'pingadmin', 'modhelp'],
+    category: 'group',
+    description: '📣 Tag this chat\'s admins — with an optional note for them',
+    usage: '!calladmin [message]',
+    hint: 'Tags every admin Messenger reports for this chat, so the message actually lands in their inbox.',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, args, userDoc, reply, react }) => guard(reply, event.messageID, 'calladmin', async () => {
+      if (!event.isGroup) {
+        await reply('❌ There are no group admins to call in a private chat.', event.messageID);
+        return;
+      }
+      await react('📣');
+
+      const admins = await threadAdmins(api, event);
+      if (!admins.length) {
+        await reply(
+          '📣 Messenger reported no admins for this chat, so there is nobody to tag.\n'
+          + '📖 Check the admin list in the app — if they are listed there, the bot cannot see them.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // Neither the caller nor the bot is tagged.
+      //
+      // Self: somebody who is both a member and an admin would otherwise tag
+      // themselves on every call and fill their own chat.
+      //
+      // The bot: it is an admin of most chats (it has to be, to moderate), and
+      // the first version tagged it. A mention of the bot is not a call to
+      // anybody — the bot is not on its phone — and it lands in the thread as a
+      // dead mention that reads like the admins were summoned when they were
+      // not.
+      const mine = String(event.senderID);
+      const botId = String((api && typeof api.getCurrentUserID === 'function' ? api.getCurrentUserID() : '') || '');
+      const toCall = admins.filter((uid) => String(uid) !== mine && String(uid) !== botId);
+
+      // Real names, so an admin is greeted as themselves and not as a uid.
+      const docs = await User.find({ uid: { $in: toCall } }).lean().catch(() => []);
+      const nameOf = (uid) => {
+        const d = (docs || []).find((x) => String(x.uid) === String(uid));
+        return (d && d.name) || uid;
+      };
+      // A mention is { id, tag }. Without them the message is just text in the
+      // chat and never reaches the admin's inbox, which is the whole point.
+      const mentions = toCall.map((uid) => ({ id: String(uid), tag: '@' + nameOf(uid) }));
+      const tags = mentions.map((m) => m.tag).join(' ');
+
+      const note = args.join(' ').trim();
+      const who = (userDoc && userDoc.name) || 'someone';
+      const header = note
+        ? `📣 **Admins, ${who} needs you**\n· · · · · · ·\n${note}`
+        : `📣 **Admins, ${who} is calling you**\n· · · · · · ·\nSomething needs an admin in this chat.`;
+
+      if (!tags) {
+        // The only admin here is whoever asked. Say so rather than posting an
+        // empty mention list that silently looks like a call to nobody.
+        await reply(
+          botId && !toCall.length && admins.includes(botId)
+            ? '📣 The only admin this bot can see here is the bot itself, which cannot answer a mention.\n'
+              + '📖 Add a human admin in the app and this will tag them.'
+            : '📣 You are the only admin this bot can see in this chat, and you are already here.\n'
+              + '📖 Nothing to tag.',
+          event.messageID,
+        );
+        return;
+      }
+
+      await reply({ body: `${tags}\n${header}`, mentions }, event.messageID);
+    }),
+  });
+
+  // ─────────────────────────────────────────────────────────
+  // PRUNE INACTIVE MEMBERS
+  // ─────────────────────────────────────────────────────────
+  commands.push({
+    name: 'gccleanup',
+    aliases: ['pruneinactive', 'gccull'],
+    category: 'group',
+    description: '🧹 Remove members who have not been seen in weeks (bot must be admin)',
+    usage: '!gccleanup [days] [dry]',
+    hint: 'Add `dry` to see who would go without removing anyone. Members the bot has never seen are never touched.',
+    cooldown: 300,
+    permission: 'groupAdmin',
+    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'gccleanup', async () => {
+      await react('🧹');
+      if (!event.isGroup) {
+        await reply('❌ This only applies to group chats.', event.messageID);
+        return;
+      }
+      if (!canRemove(api)) {
+        await reply(NO_REMOVAL, event.messageID);
+        return;
+      }
+      if (!mongo.isReady()) {
+        await reply('💾 Profiles are sealed — database offline. Try again shortly.', event.messageID);
+        return;
+      }
+
+      // Default 30 days, clamped. "Inactive" with no bound means "everyone who
+      // has not messaged since this bot was installed", which is everyone.
+      const daysArg = args.map(String).find((a) => /^\d+$/.test(a));
+      const days = daysArg ? Math.max(1, Math.min(365, Number(daysArg))) : 30;
+      const dry = args.map(String).some((a) => a.toLowerCase() === 'dry');
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const info = await api.getThreadInfo(event.threadID).catch(() => null);
+      if (!info) {
+        await reply('❌ Could not read this group.', event.messageID);
+        return;
+      }
+
+      const botId = String((api && typeof api.getCurrentUserID === 'function' ? api.getCurrentUserID() : '') || '');
+      const adminIds = new Set(permissions.adminUids(info.adminIDs));
+      const members = (Array.isArray(info.participantIDs) ? info.participantIDs : []).map(String);
+
+      if (botId && !adminIds.has(botId)) {
+        await reply(
+          '🧹 The bot is not an admin of this chat, so it cannot remove anybody.\n'
+          + '📖 Make the bot an admin in the app and this will work. Nothing was changed.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // Never a candidate: this chat's admins, the bot's own owners, and the bot.
+      // Removing an admin is not what this command is for, and a cleanup that
+      // could do it would eventually do it by accident.
+      const protectedIds = await exemptIds(api, event);
+      const candidates = members.filter((uid) => !adminIds.has(uid) && !protectedIds.has(uid) && uid !== botId);
+      if (!candidates.length) {
+        await reply('🧹 Nothing to prune — everyone here is an admin, or there is nobody else in this chat.', event.messageID);
+        return;
+      }
+
+      // Only members the bot holds a profile for can be judged. A member it has
+      // never seen is not "inactive", they are "unknown" — treating the two the
+      // same empties a chat of newcomers on its first run.
+      const docs = await User.find({ uid: { $in: candidates } }).lean().catch(() => []);
+      const known = new Map((docs || []).map((d) => [String(d.uid), d]));
+      const stale = candidates.filter((uid) => {
+        const d = known.get(uid);
+        if (!d || !d.lastSeen) return false;
+        return new Date(d.lastSeen).getTime() < cutoff.getTime();
+      });
+
+      if (!stale.length) {
+        await reply(
+          `🧹 Nobody is inactive past ${days} day${days === 1 ? '' : 's'}.\n`
+          + `📖 ${candidates.length - stale.length} of ${candidates.length} possible member${candidates.length === 1 ? '' : 's'} are still active.\n`
+          + '📖 Anyone the bot has never seen is left alone on purpose.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const lines = stale.map((uid) => {
+        const d = known.get(uid);
+        const last = d && d.lastSeen ? Math.floor((Date.now() - new Date(d.lastSeen).getTime()) / 86400000) : null;
+        return `• ${(d && d.name) || uid}${last === null ? '' : ` — ${last}d quiet`}`;
+      });
+
+      if (dry) {
+        await reply(
+          '🧹 **DRY RUN — nobody was removed.**\n'
+          + '· · · · · · ·\n'
+          + `Inactive past ${days}d:\n${lines.join('\n')}\n`
+          + '· · · · · · ·\n'
+          + '📖 Drop the `dry` to actually remove them.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // Sequential, not Promise.all: each call publishes an MQTT request that
+      // rewrites group membership, and firing them together is how a chat ends
+      // up rate-limited halfway through with a partial list removed.
+      const removed = [];
+      const failed = [];
+      for (const uid of stale) {
+        // eslint-disable-next-line no-await-in-loop
+        const res = await removeMember(api, uid, event.threadID).catch((err) => ({ ok: false, reason: err.message }));
+        if (res.ok) removed.push(uid);
+        else failed.push(uid);
+      }
+
+      await reply(
+        '🧹 **CLEANUP DONE**\n'
+        + '· · · · · · ·\n'
+        + `📤 Removed ${removed.length} of ${stale.length}\n`
+        + (failed.length ? `⚠️ Could not remove ${failed.length}: ${failed.slice(0, 4).join(', ')}${failed.length > 4 ? '…' : ''}\n` : '')
+        + `👥 This chat had ${members.length} members.\n`
+        + '📖 No admin, and nobody without a profile, was touched.',
         event.messageID,
       );
     }),

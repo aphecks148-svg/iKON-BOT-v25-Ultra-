@@ -12,6 +12,40 @@
 const config = require('../config');
 
 /**
+ * Pull plain uids out of whatever shape Messenger used for a list of admins.
+ *
+ * `getThreadInfo` copies `thread_admins` straight off the Facebook response,
+ * and that field is an array of OBJECTS — { id, isAdmin } — not an array of ids.
+ * Every caller here used `.map(String)` on it, which turns each entry into the
+ * string "[object Object]" and then compares that against a sender's uid. The
+ * comparison can never match, so `groupAdmin` was refused for every real group
+ * admin in the bot's life; it only ever appeared to work because bot owners
+ * short-circuit above this check.
+ *
+ * Both shapes are accepted because the field has been both across builds and a
+ * future one may go back: bare ids are still handled.
+ *
+ * @param {*} entries adminIDs as returned, or anything else
+ * @returns {string[]} unique, non-empty uid strings
+ */
+function adminUids(entries) {
+  if (!Array.isArray(entries)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const raw = (entry && typeof entry === 'object')
+      ? (entry.id !== undefined ? entry.id : entry.userID !== undefined ? entry.userID : entry.actorFbId)
+      : entry;
+    if (raw === undefined || raw === null || raw === '') continue;
+    const id = String(raw);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/**
  * Facebook ids that are always owner-level.
  *
  * Read from the environment only (ADMIN_IDS, and the optional singular
@@ -69,8 +103,7 @@ async function check(event, api, level = 'all') {
     if (isPrivate(event)) return false;
     try {
       const info = await api.getThreadInfo(event.threadID);
-      const admins = (info && info.adminIDs) || [];
-      if (admins.map(String).includes(senderID)) return 'groupAdmin';
+      if (adminUids(info && info.adminIDs).includes(senderID)) return 'groupAdmin';
     } catch (err) {
       // Fall through to denied — never grant on a failed lookup.
       return false;
@@ -106,7 +139,7 @@ async function protectedIds(api, threadID) {
   // so this degrades to protecting owners rather than to protecting nobody.
   try {
     const info = await api.getThreadInfo(threadID);
-    for (const id of (info && info.adminIDs) || []) set.add(String(id));
+    for (const id of adminUids(info && info.adminIDs)) set.add(id);
   } catch { /* keep the env-provided admins */ }
   return set;
 }
@@ -142,7 +175,7 @@ async function canModerate(api, event) {
   if (isPrivate(event)) return false;
   try {
     const info = await api.getThreadInfo(event.threadID);
-    return ((info && info.adminIDs) || []).map(String).includes(String(event.senderID));
+    return adminUids(info && info.adminIDs).includes(String(event.senderID));
   } catch {
     // Never grant on a failed lookup.
     return false;
@@ -150,5 +183,5 @@ async function canModerate(api, event) {
 }
 
 module.exports = {
-  check, can, isOwner, isPrivate, ownerIds, protectedIds, protectedIdsFor, canModerate,
+  check, can, isOwner, isPrivate, ownerIds, protectedIds, protectedIdsFor, canModerate, adminUids,
 };

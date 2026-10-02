@@ -2522,6 +2522,263 @@ const PIKACHU = dex.find('pikachu');
     return `aliases: ${rank.aliases.join(', ')}`;
   });
 
+  // ── 31. admin ids survive their real shape ─────────────────
+  // getThreadInfo copies thread_admins straight off Facebook, which is an array
+  // of { id, isAdmin } OBJECTS. Every consumer used .map(String) on it, which
+  // yields the string "[object Object]" — and comparing that against a sender's
+  // uid can never match. So `groupAdmin` was denied to every genuine group admin
+  // in the bot's life, and nobody noticed because bot owners short-circuit the
+  // check entirely and the owner was the one testing it.
+  await step('a group admin is recognised from the shape Messenger actually sends', async () => {
+    const permissions = require('./permissions');
+    const OBJECTS = [{ id: '111', isAdmin: true }, { id: '222', isAdmin: true }];
+    const BARE = ['111', '222'];
+
+    // Both shapes normalise to the same plain ids.
+    assert.deepStrictEqual(permissions.adminUids(OBJECTS), ['111', '222'], 'objects become ids');
+    assert.deepStrictEqual(permissions.adminUids(BARE), ['111', '222'], 'bare ids pass through');
+    assert.deepStrictEqual(permissions.adminUids([{ id: '111' }, '222']), ['111', '222'], 'mixed shapes');
+    assert.deepStrictEqual(permissions.adminUids(undefined), [], 'no list is no admins');
+    assert.deepStrictEqual(permissions.adminUids([null, undefined, '', { id: null }]), [], 'junk is dropped');
+    assert.deepStrictEqual(permissions.adminUids([{ id: '1' }, { id: '1' }, '1']), ['1'], 'duplicates collapse');
+
+    // The permission itself, against a real-shaped response.
+    const api = { getThreadInfo: async () => ({ adminIDs: OBJECTS }) };
+    const event = (senderID) => ({ senderID, threadID: 't1', isGroup: true });
+    assert.strictEqual(await permissions.check(event('111'), api, 'groupAdmin'), 'groupAdmin', 'a listed admin passes');
+    assert.strictEqual(await permissions.check(event('999'), api, 'groupAdmin'), false, 'everybody else does not');
+
+    // And the protected set used by the moderation commands.
+    const protectedIds = await permissions.protectedIds(api, 't1');
+    assert.ok(protectedIds.has('111'), 'admins are protected from moderation');
+    assert.ok(!protectedIds.has('999'), 'non-admins are not');
+    return 'both shapes, and the gate that was failing';
+  });
+
+  // ── 32. !unsend deletes what you replied to ───────────────
+  // The command read `event.replyToMessage`, which ws3-fca never sets — a reply
+  // carries its parent under event.messageReply.messageID. So the expression was
+  // always undefined and every "delete the message I replied to" quietly fell
+  // through to deleting the bot's last message instead: a different message,
+  // every single time.
+  await step('unsend targets the message that was replied to', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const unsend = loaded.registry.get('unsend');
+    assert.ok(unsend, 'unsend is registered');
+
+    const asked = [];
+    const api = {
+      async unsendMessage(id) { asked.push(String(id)); if (id === 'FOREIGN') throw new Error('not your message'); return { ok: true }; },
+    };
+    const run = async (over) => {
+      const said = [];
+      await unsend.execute({
+        api,
+        event: { threadID: 't1', messageID: 'CMD', senderID: '111', isGroup: true, ...over },
+        reply: async (t) => { said.push(typeof t === 'string' ? t : t.body); },
+        react: async () => true,
+        userDoc: { uid: '111', name: 'Zee' },
+      });
+      return said.join('\n');
+    };
+
+    // The reply is what decides the target.
+    asked.length = 0;
+    const ok = await run({ messageReply: { messageID: 'THE_MESSAGE_I_REPLIED_TO' } });
+    assert.deepStrictEqual(asked, ['THE_MESSAGE_I_REPLIED_TO'], 'the parent message is the target');
+    assert.ok(/Deleted/.test(ok), 'it reports the deletion');
+
+    // The old fallback must not fire when there IS a reply.
+    assert.ok(!/Nothing to unsend/.test(ok), 'it did not fall back');
+
+    // Somebody else's message: attempted, and refused honestly. Facebook only
+    // lets the sender unsend their own message and ws3-fca has no
+    // delete-for-everyone, so this can never succeed for another person's text.
+    asked.length = 0;
+    const refused = await run({ messageReply: { messageID: 'FOREIGN' } });
+    assert.deepStrictEqual(asked, ['FOREIGN'], 'it still tries the message it was pointed at');
+    assert.ok(/only lets the sender unsend/.test(refused), 'it says why, instead of a raw Facebook object');
+    return 'reply wins, and a refusal is explained';
+  });
+
+  // ── 33. pruning is bounded and reversible ──────────────────
+  // Removing people from a chat is the one command here with consequences that
+  // do not come back. Three properties make it safe enough to ship: it does
+  // nothing without an explicit go, it refuses when the bot is not an admin,
+  // and it never touches an admin or a member the bot has never seen.
+  await step('gccleanup is dry by default and spares admins and strangers', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const cleanup = loaded.registry.get('gccleanup');
+    assert.ok(cleanup, 'gccleanup is registered');
+    assert.strictEqual(cleanup.permission, 'groupAdmin', 'only group admins may run it');
+
+    const User = require('../models/User');
+    const mongo = require('./mongo');
+    const realReady = mongo.isReady;
+    const realFind = User.find;
+    const daysAgo = (n) => new Date(Date.now() - n * 86400000);
+    const profiles = [
+      { uid: '300', name: 'Quiet One', lastSeen: daysAgo(90) },   // stale
+      { uid: '301', name: 'Quiet Two', lastSeen: daysAgo(45) },   // stale
+      { uid: '302', name: 'Still Here', lastSeen: daysAgo(1) },   // active
+      // 303 has no profile at all -> unknown, must be spared
+    ];
+    User.find = () => ({ lean: () => Promise.resolve(profiles) });
+    mongo.isReady = () => true;
+
+    const removed = [];
+    const mkApi = (botIsAdmin) => ({
+      getCurrentUserID() { return 'BOT'; }, // ws3-fca's is synchronous
+      async getThreadInfo() {
+        return {
+          threadTitle: 'G',
+          // 111 is a human admin, BOT is the bot itself when it is one
+          adminIDs: botIsAdmin ? [{ id: '111', isAdmin: true }, { id: 'BOT', isAdmin: true }] : [],
+          participantIDs: ['111', '300', '301', '302', '303', 'BOT'],
+        };
+      },
+      async gcmember(action, uid) {
+        if (uid === '301') return { type: 'error_gc', error: 'not in this group' };
+        removed.push(String(uid));
+        return { type: 'gc_member_update' };
+      },
+    });
+
+    const run = async (api, args) => {
+      const said = [];
+      await cleanup.execute({
+        api,
+        args,
+        event: { threadID: 't1', messageID: 'm', senderID: '111', isGroup: true },
+        reply: async (t) => { said.push(typeof t === 'string' ? t : t.body); },
+        react: async () => true,
+        userDoc: { uid: '111', name: 'Zee' },
+      });
+      return said.join('\n');
+    };
+
+    try {
+      // Not an admin: refuses, and changes nothing.
+      removed.length = 0;
+      const noAuth = await run(mkApi(false), []);
+      assert.ok(/not an admin/.test(noAuth), 'it refuses when the bot cannot remove anybody');
+      assert.deepStrictEqual(removed, [], 'and removes nobody');
+
+      // Dry run: lists, removes nothing.
+      removed.length = 0;
+      const dry = await run(mkApi(true), ['dry']);
+      assert.ok(/DRY RUN/.test(dry), 'a dry run says so');
+      assert.ok(/Quiet One/.test(dry), 'and names who would go');
+      assert.deepStrictEqual(removed, [], 'a dry run removes nobody');
+
+      // For real: the stale pair only.
+      removed.length = 0;
+      const real = await run(mkApi(true), []);
+      // 300 goes, 301 is rejected by Facebook. That has to read as a partial
+      // result, not a clean sweep — a report that counted 301 as removed would
+      // leave an admin believing the chat is clear when it is not.
+      assert.ok(/Removed 1 of 2/.test(real), 'the count is honest about the failure');
+      assert.ok(/Could not remove 1/.test(real) && /301/.test(real), 'and it names who stayed');
+      assert.ok(!/Still Here/.test(real), 'the active member is not in the removal list');
+      assert.deepStrictEqual(removed, ['300'], 'only 300 was actually removed');
+
+      // The unknown member (303) is never a candidate at all.
+      assert.ok(!removed.includes('303'), 'a member with no profile is never removed');
+    } finally {
+      User.find = realFind;
+      mongo.isReady = realReady;
+    }
+    return 'refuses, previews, and spares everyone it cannot judge';
+  });
+
+  // ── 34. calling the admins reaches them ────────────────────
+  await step('calladmin tags real admins and neither the caller nor the bot', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const call = loaded.registry.get('calladmin');
+    assert.ok(call, 'calladmin is registered');
+    assert.strictEqual(call.permission, 'all', 'anybody may raise an alarm');
+
+    const User = require('../models/User');
+    const realFind = User.find;
+    User.find = () => ({ lean: () => Promise.resolve([{ uid: '111', name: 'Zee Admin' }, { uid: '222', name: 'Bo Admin' }]) });
+
+    const sent = [];
+    try {
+      await call.execute({
+        api: {
+          getCurrentUserID() { return 'BOT'; },
+          async getThreadInfo() {
+            return { adminIDs: [{ id: '111' }, { id: '222' }, { id: 'BOT' }], participantIDs: [] };
+          },
+        },
+        args: ['the', 'chat', 'is', 'spamming'],
+        event: { threadID: 't1', messageID: 'm', senderID: '333', isGroup: true },
+        reply: async (t) => { sent.push(t); },
+        react: async () => true,
+        userDoc: { uid: '333', name: 'Ada' },
+      });
+    } finally {
+      User.find = realFind;
+    }
+
+    const payload = sent.find((s) => typeof s === 'object');
+    assert.ok(payload, 'it sends a payload with real mentions');
+    assert.deepStrictEqual(payload.mentions.map((m) => m.id).sort(), ['111', '222'], 'the two human admins are tagged');
+    assert.ok(!payload.mentions.some((m) => m.id === 'BOT'), 'the bot is not tagged — it cannot answer a mention');
+    assert.ok(/spamming/.test(payload.body), 'the note is carried through');
+    return 'two admins tagged, bot and caller excluded';
+  });
+
+  // ── 35. a broadcast cannot fire by accident ───────────────
+  // It cannot be recalled, and it reaches every chat. So it is owner-only, it
+  // paces itself, and there is a preview that sends nothing at all.
+  await step('broadcast is owner-only, previews, and paces itself', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const bc = loaded.registry.get('broadcast');
+    assert.ok(bc, 'broadcast is registered');
+    assert.strictEqual(bc.permission, 'owner', 'owner-only: it cannot be recalled once sent');
+    assert.ok(bc.aliases.includes('bc'), 'it has a short alias');
+
+    const Group = require('../models/Group');
+    const mongo = require('./mongo');
+    const realFind = Group.find;
+    const realReady = mongo.isReady;
+    Group.find = () => ({ select: () => ({ lean: () => Promise.resolve([{ tid: 'a1' }, { tid: 'a2' }]) }) });
+    mongo.isReady = () => true;
+
+    const went = [];
+    const api = { async sendMessage(p, tid) { went.push(String(tid)); return { messageID: 'x' }; } };
+    const run = async (args) => {
+      const said = [];
+      await bc.execute({
+        api,
+        args,
+        event: { threadID: 't1', messageID: 'm', senderID: '9', isGroup: true },
+        config,
+        reply: async (t) => { said.push(typeof t === 'string' ? t : t.body); },
+        react: async () => true,
+        userDoc: { uid: '9', name: 'Owner' },
+      });
+      return said.join('\n');
+    };
+
+    try {
+      went.length = 0;
+      const preview = await run(['preview', 'maintenance', 'at', '9pm']);
+      assert.ok(/PREVIEW/.test(preview), 'a preview says so');
+      assert.deepStrictEqual(went, [], 'a preview sends to nobody');
+
+      went.length = 0;
+      const real = await run(['maintenance', 'at', '9pm']);
+      assert.ok(/BROADCAST SENT/.test(real), 'a real broadcast reports itself');
+      assert.deepStrictEqual(went.sort(), ['a1', 'a2'], 'it reaches every group');
+    } finally {
+      Group.find = realFind;
+      mongo.isReady = realReady;
+    }
+    return 'preview sends nothing, a real send reaches everyone';
+  });
+
   // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;
