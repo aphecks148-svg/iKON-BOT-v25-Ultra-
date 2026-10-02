@@ -26,6 +26,8 @@ const canvas = require('./bot/canvas');
 const geminiClient = require('./bot/gemini');
 const fcaDiag = require('./bot/fcaDiag');
 const helpers = require('./bot/helpers');
+const profile = require('./bot/profile');
+const cards = require('./bot/cards');
 
 const { log, error, reply, react, safe } = helpers;
 
@@ -448,24 +450,184 @@ function reloadCommands() {
 
 // ── GROUP MANAGEMENT
 // ─────────────────────────────────────────────────────────────
+/**
+ * The people named in a group-change event, as `{uid, name}` pairs.
+ *
+ * Two shapes reach us for a join, and getting this wrong is why every welcome
+ * used to read "[object Object]":
+ *
+ *   - `addedParticipants: [{ fbId: '123', fullName: 'Ada' }]` — the documented
+ *     ws3-fca shape, and the one Facebook actually sends.
+ *   - a bare string or number, when the payload is thin.
+ *
+ * The old code did `String(added[0])`, which stringifies the object form to
+ * "[object Object]" and the bare form to a raw numeric uid. Neither is a name.
+ *
+ * @param {*} data logMessageData
+ * @param {string} [author] event.author, used only when the payload has nobody
+ * @returns {{uid:string,name:string}[]}
+ */
+function changeParticipants(data, author) {
+  const raw = Array.isArray(data && data.addedParticipants)
+    ? data.addedParticipants
+    : [];
+
+  const people = raw.map((p) => {
+    if (p == null) return null;
+    if (typeof p === 'object') {
+      // fbId is the field ws3-fca forwards; id/userId appear in some payloads.
+      const uid = p.fbId || p.id || p.userId || p.uid || p.actorFbId;
+      return uid ? { uid: String(uid), name: p.fullName || p.name || '' } : null;
+    }
+    const text = String(p).trim();
+    if (!text) return null;
+    // A bare entry is sometimes a bare uid and sometimes "Name (uid)".
+    const pair = text.match(/^(.*?)\s*\((\d+)\)$/);
+    if (pair) return { uid: pair[2], name: pair[1].trim() };
+    return /^\d+$/.test(text) ? { uid: text, name: '' } : { uid: '', name: text };
+  }).filter(Boolean);
+
+  if (people.length) return people;
+
+  const one = String((data && data.leftParticipantFbId) || author || '').trim();
+  return one ? [{ uid: /^\d+$/.test(one) ? one : '', name: /^\d+$/.test(one) ? '' : one }] : [];
+}
+
+/**
+ * The display name of a chat, for `{group}`.
+ *
+ * A join/leave event carries only a thread id, and the id used to be what
+ * `{group}` was replaced with — so "Welcome {user} to {group}" announced a
+ * fifteen-digit number. getThreadInfo is cached per thread because a busy chat
+ * fires a join event every few seconds.
+ *
+ * @param {string} threadID
+ * @param {object} api
+ * @returns {Promise<string>}
+ */
+async function chatName(threadID, api) {
+  const fallback = String(threadID || '');
+  if (!threadID || !api || typeof api.getThreadInfo !== 'function') return fallback;
+  try {
+    const info = await api.getThreadInfo(String(threadID));
+    const name = info && (info.threadTitle || info.name || info.title);
+    return name ? String(name) : fallback;
+  } catch (err) {
+    error(`[GROUP] getThreadInfo(${threadID}) failed: ${err.message}`);
+    return fallback;
+  }
+}
+
+/**
+ * Fill the placeholders a welcome or goodbye line can use.
+ *
+ * `{user}` is the real Facebook name — resolved live, because a join payload
+ * often carries an empty one and an announcement reading "Hunter 4821" is not a
+ * welcome. `{mention}` is the same name as a Facebook tag, which is what makes
+ * the new arrival ping in the notification tray.
+ *
+ * @param {string} template
+ * @param {object} who `{uid, name}`
+ * @param {object} ctx `{threadName, threadID}`
+ * @param {string} [mention] prebuilt @tag, passed in so the lookup happens once
+ * @returns {string}
+ */
+function fillPlaceholders(template, who, ctx, mention) {
+  return String(template)
+    .replace(/{user}/g, who.name)
+    .replace(/{name}/g, who.name)
+    .replace(/{mention}/g, mention || who.name)
+    .replace(/{uid}/g, who.uid || '')
+    .replace(/{group}/g, ctx.threadName)
+    .replace(/{chat}/g, ctx.threadName)
+    .replace(/{thread}/g, String(ctx.threadID == null ? '' : ctx.threadID));
+}
+
+/**
+ * Announce one arrival or departure: canvas card first, then the text line.
+ *
+ * The card is best-effort. Without the native canvas binary `arrivalCard`
+ * returns null and only the text goes out — a platform that cannot render must
+ * still say the name.
+ *
+ * @param {object} api
+ * @param {string} threadID
+ * @param {'welcome'|'goodbye'} kind
+ * @param {object} who
+ * @param {string} threadName
+ * @param {string} template
+ * @param {boolean} isGroup
+ */
+async function announce(api, threadID, kind, who, threadName, template, isGroup) {
+  const leaving = kind === 'goodbye';
+
+  // A tag needs the name to already be resolved, so the live lookup happens
+  // here rather than inside the template filler.
+  const live = who.uid ? await profile.fetchRealName(who.uid, api) : null;
+  const name = live
+    || (who.name && !profile.isPlaceholderName(who.name) ? who.name : '')
+    || (who.uid ? `Hunter ${who.uid.slice(-4)}` : 'Someone');
+
+  // No body at all means the admin has not written one; the card carries the
+  // message and an empty text line would just be noise.
+  if (template) {
+    const mention = who.uid && name && !name.startsWith('Hunter ')
+      ? `@${name}`
+      : (who.uid ? `@${who.uid}` : name);
+    const text = fillPlaceholders(template, { uid: who.uid, name }, { threadName, threadID }, mention);
+    if (text.trim()) {
+      await reply(api, threadID, text, null, isGroup);
+    }
+  }
+
+  try {
+    const url = await cards.arrivalCard({
+      kind,
+      uid: who.uid,
+      name,
+      threadName,
+      threadID,
+      body: leaving ? `${name} left ${threadName}` : `${name} joined ${threadName}`,
+      api,
+    });
+    if (url) {
+      await api.sendMessage(
+        { attachment: { type: 'image', data: { url } } },
+        threadID,
+        null,
+        !isGroupThread(threadID, isGroup),
+      );
+    }
+  } catch (err) {
+    error(`[GROUP] ${kind} card failed: ${err.message}`);
+  }
+}
+
 async function handleGroupChange(api, event) {
   const threadID = event.threadID;
   // ws3-fca reports joins/leaves as log:subscribe / log:unsubscribe.
   const action = event.logMessageType;
   const data = event.logMessageData || {};
+  const isGroup = event.isGroup;
 
   try {
     // New member joined
     if (action === 'log:subscribe') {
       const group = await toggles.getGroup(threadID);
       if (group.settings?.welcome && group.settings.welcomeMsg) {
-        const added = Array.isArray(data.addedParticipants) ? data.addedParticipants : [];
-        const who = added[0] || event.author;
-        const text = String(group.settings.welcomeMsg)
-          .replace(/{user}/g, String(who))
-          .replace(/{group}/g, String(threadID));
-        await reply(api, threadID, text, null, true);
+        const people = changeParticipants(data, event.author);
+        if (people.length) {
+          const threadName = await chatName(threadID, api);
+          // Facebook can report several people at once — an admin import adds
+          // twenty. One card each is correct: a single card naming everybody
+          // reads as a list, not a welcome.
+          for (const who of people) {
+            // eslint-disable-next-line no-await-in-loop
+            await announce(api, threadID, 'welcome', who, threadName, group.settings.welcomeMsg, isGroup);
+          }
+        }
       }
+      return;
     }
 
     // Member left
@@ -492,9 +654,11 @@ async function handleGroupChange(api, event) {
       }
 
       if (group?.settings?.goodbye && group.settings.goodbyeMsg) {
-        const who = data.leftParticipantFbId || event.author;
-        const text = String(group.settings.goodbyeMsg).replace(/{user}/g, String(who));
-        await reply(api, threadID, text, null, true);
+        const people = changeParticipants(data, event.author);
+        if (people.length) {
+          const threadName = await chatName(threadID, api);
+          await announce(api, threadID, 'goodbye', people[0], threadName, group.settings.goodbyeMsg, isGroup);
+        }
       }
     }
   } catch (err) {
@@ -805,6 +969,12 @@ module.exports = {
   startServer,
   handleMessage,
   handleGroupChange,
+  // Exported for the tests: the placeholder rules and the payload shapes are
+  // the whole bug surface here, and they are much easier to assert on directly
+  // than through a mocked Facebook send.
+  changeParticipants,
+  chatName,
+  fillPlaceholders,
   attachClient,
   attachEvents,
   reloadCommands,

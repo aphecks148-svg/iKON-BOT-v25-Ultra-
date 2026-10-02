@@ -1778,6 +1778,121 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     return 'short cooldowns raised, long ones untouched';
   });
 
+  // ── 20. welcome / goodbye ─────────────────────────────────
+  // Three separate bugs hid in these two lines. {user} rendered a raw numeric
+  // uid, {group} rendered the thread id, and goodbye substituted no group at
+  // all. All three produced a message that looked correct in a screenshot and
+  // said nothing useful to the person who set it.
+  await step('a join names the person and the chat, not their uid', async () => {
+    const ik = require('../ws3-fca');
+    const people = ik.changeParticipants({ addedParticipants: [{ fbId: '5551234', fullName: '' }] });
+    assert.strictEqual(people.length, 1);
+    assert.strictEqual(people[0].uid, '5551234');
+
+    // Every payload shape Facebook sends must land on a uid, or the live name
+    // lookup has nothing to resolve and the card falls back to "Hunter 1234".
+    const shapes = [
+      [{ addedParticipants: [{ fbId: '1', fullName: 'Ada' }] }, '1'],
+      [{ addedParticipants: ['5551234'] }, '5551234'],
+      [{ addedParticipants: [{ id: '777' }] }, '777'],
+      [{ addedParticipants: [{ fbId: '888', name: 'Bob' }] }, '888'],
+      [{ addedParticipants: ['Ada Lovelace (999)'] }, '999'],
+    ];
+    for (const [data, want] of shapes) {
+      const got = ik.changeParticipants(data);
+      assert.strictEqual(got.length, 1, `${JSON.stringify(data)} must yield one person`);
+      assert.strictEqual(got[0].uid, want, `${JSON.stringify(data)} uid`);
+    }
+    // A leave is a different field entirely and must not be lost.
+    assert.strictEqual(ik.changeParticipants({ leftParticipantFbId: '4444' })[0].uid, '4444');
+
+    const text = ik.fillPlaceholders(
+      'Welcome {mention} to {group}! ({thread})',
+      { uid: '5551234', name: 'Ada Lovelace' },
+      { threadName: 'Lagos Hustle', threadID: '1234567890' },
+      '@Ada Lovelace',
+    );
+    assert.strictEqual(text, 'Welcome @Ada Lovelace to Lagos Hustle! (1234567890)');
+    assert.ok(!text.includes('undefined'), 'no placeholder may be left unfilled');
+    return 'five payload shapes resolve to a uid; {user} and {group} both resolve';
+  });
+
+  await step('the chat name comes from the thread, not the id', async () => {
+    const ik = require('../ws3-fca');
+    const api = { getThreadInfo: async () => ({ threadTitle: 'Lagos Hustle' }) };
+    assert.strictEqual(await ik.chatName('1234567890', api), 'Lagos Hustle');
+
+    // A failed lookup must degrade to the id rather than throw — the whole
+    // point of the join handler is to not take the listener down.
+    const broken = { getThreadInfo: async () => { throw new Error('nope'); } };
+    assert.strictEqual(await ik.chatName('1234567890', broken), '1234567890');
+    assert.strictEqual(await ik.chatName('1234567890', {}), '1234567890');
+    return 'resolves the title, falls back to the id';
+  });
+
+  await step('a join sends the name, the chat name and a canvas card', async () => {
+    const ik = require('../ws3-fca');
+    const sent = [];
+    const api = {
+      async sendMessage(payload, tid) { sent.push(payload); return { messageID: `m${sent.length}` }; },
+      async getUserInfo(uid) { return { name: uid === '5551234' ? 'Ada Lovelace' : 'Bob Mensah' }; },
+      async getThreadInfo() { return { threadTitle: 'Lagos Hustle' }; },
+    };
+    const realGetGroup = toggles.getGroup;
+    toggles.getGroup = async () => ({
+      autoAddLeavers: false,
+      settings: {
+        welcome: true,
+        welcomeMsg: 'Welcome {mention} to {group}!',
+        goodbye: true,
+        goodbyeMsg: '{user} left {group}.',
+      },
+    });
+    try {
+      await ik.handleGroupChange(api, {
+        threadID: '1234567890', isGroup: true, logMessageType: 'log:subscribe',
+        logMessageData: { addedParticipants: [{ fbId: '5551234', fullName: '' }] },
+      });
+      await ik.handleGroupChange(api, {
+        threadID: '1234567890', isGroup: true, logMessageType: 'log:unsubscribe',
+        logMessageData: { leftParticipantFbId: '7778889' },
+      });
+    } finally {
+      toggles.getGroup = realGetGroup;
+    }
+
+    const bodies = sent.map((s) => s.body).filter(Boolean);
+    const images = sent.filter((s) => s.attachment && s.attachment.data && s.attachment.data.url);
+    assert.strictEqual(bodies.length, 2, 'one text line per event');
+    assert.ok(bodies[0].includes('Ada Lovelace'), `join names the person: ${bodies[0]}`);
+    assert.ok(bodies[0].includes('Lagos Hustle'), `join names the chat: ${bodies[0]}`);
+    assert.ok(bodies[1].includes('Bob Mensah'), `goodbye names the leaver: ${bodies[1]}`);
+    assert.ok(bodies[1].includes('Lagos Hustle'), `goodbye names the chat: ${bodies[1]}`);
+    for (const b of bodies) {
+      assert.ok(!/\b\d{9,}\b/.test(b), `no raw thread id leaks into the text: ${b}`);
+    }
+
+    // The card is the point of the request, so assert one per event — but only
+    // where the native canvas binary actually loads.
+    if (canvas.available()) {
+      assert.strictEqual(images.length, 2, 'a canvas card per join and per goodbye');
+      for (const img of images) {
+        assert.ok(String(img.attachment.data.url).startsWith('data:image/png;base64,'));
+      }
+    } else {
+      assert.strictEqual(images.length, 0, 'no card without the canvas binary, and no crash');
+    }
+    return `2 lines + ${images.length} cards, all naming a person and a chat`;
+  });
+
+  await step('the arrival card refuses to render without a uid', async () => {
+    // No uid means no photo and no name lookup; drawing a card anyway produces
+    // an image of the word "Someone" that nobody can act on.
+    assert.strictEqual(await cards.arrivalCard({ kind: 'welcome', uid: null, api: {} }), null);
+    assert.strictEqual(await cards.arrivalCard({ kind: 'welcome', uid: '', api: {} }), null);
+    return 'refuses rather than rendering an unusable card';
+  });
+
   // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;

@@ -121,12 +121,48 @@ const yesNo = (on) => (on ? 'ON' : 'OFF');
 const plural = (n, word) => `${num(n)} ${word}${Number(n) === 1 ? '' : 's'}`;
 
 /** Substitute {user}, {group}, {count} into a configured message. */
+/**
+ * Fill a template's placeholders.
+ *
+ * `{group}` resolves to the chat NAME, not the thread id. It used to be the id,
+ * so `!setwelcome` printed a preview reading "Welcome to 1234567890123" and the
+ * live message said the same thing — fifteen digits where a chat name belongs.
+ * The caller passes `extra.groupName` because resolving it needs the api; when
+ * it is missing we still prefer the id over nothing, but say so plainly.
+ */
 function fill(tpl, userDoc, event, extra = {}) {
+  const name = userDoc ? (userDoc.name || 'someone') : 'someone';
+  const group = extra.groupName
+    || (event && event.threadTitle)
+    || (event && event.threadID)
+    || 'this chat';
   return String(tpl || '')
-    .replace(/\{user\}/g, userDoc ? userDoc.name : 'someone')
-    .replace(/\{mention\}/g, userDoc ? `@${userDoc.name}` : 'someone')
-    .replace(/\{group\}/g, (event && event.threadID) || 'this chat')
-    .replace(/\{count\}/g, extra.count !== undefined ? String(extra.count) : '0');
+    .replace(/{user}/g, name)
+    .replace(/{name}/g, name)
+    .replace(/{mention}/g, `@${name}`)
+    .replace(/{uid}/g, (userDoc && userDoc.uid) || '')
+    .replace(/{group}/g, group)
+    .replace(/{chat}/g, group)
+    .replace(/{thread}/g, String((event && event.threadID) || ''))
+    .replace(/{count}/g, extra.count !== undefined ? String(extra.count) : '0');
+}
+
+/**
+ * The chat's display name, from getThreadInfo.
+ *
+ * Best effort by design: an admin setting a welcome line should never be told
+ * the database is down because a Facebook lookup failed, so this resolves to
+ * null and the caller carries on.
+ */
+async function groupName(api, event) {
+  const tid = event && event.threadID;
+  if (!tid || !api || typeof api.getThreadInfo !== 'function') return null;
+  try {
+    const info = await api.getThreadInfo(String(tid));
+    return (info && (info.threadTitle || info.name || info.title)) || null;
+  } catch {
+    return null;
+  }
 }
 
 /** Persist a document, tolerating offline mode. */
@@ -493,11 +529,11 @@ const commands = [];
     name: 'setwelcome',
     aliases: ['setwelcomemsg'],
     category: 'group',
-    description: '✍️ Set the welcome text — {user}, {mention} and {group} all work',
+    description: '✍️ Set the welcome text — {user}, {mention}, {group}, {thread} all work',
     usage: '!setwelcome <message>',
     cooldown: 10,
     permission: 'groupAdmin',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'setwelcome', async () => {
+    execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'setwelcome', async () => {
       await react('✍️');
       const group = await liveGroup(event);
       if (!group) {
@@ -507,7 +543,11 @@ const commands = [];
 
       const msg = args.join(' ').trim();
       if (!msg) {
-        await reply(`❌ Usage: \`!setwelcome <message>\`\nCurrent: "${group.settings.welcomeMsg || DEFAULT_WELCOME}"`, event.messageID);
+        const now = await groupName(api, event);
+        await reply(
+          `❌ Usage: \`!setwelcome <message>\`\nCurrent: "${fill(group.settings.welcomeMsg || DEFAULT_WELCOME, { name: 'Newcomer' }, event, { groupName: now })}"`,
+          event.messageID,
+        );
         return;
       }
       if (msg.length > 400) {
@@ -518,7 +558,14 @@ const commands = [];
       group.settings.welcomeMsg = msg;
       group.settings.welcome = true;
       await save(group);
-      await reply(`✍️ **WELCOME SET**\n━━━━━━━━━━━━━━━\nPreview: ${fill(msg, { name: 'Newcomer' }, event)}`, event.messageID);
+      // Preview with the real chat name, so what the admin reads here is what
+      // the next arrival actually sees.
+      const name = await groupName(api, event);
+      await reply(
+        `✍️ **WELCOME SET**\n━━━━━━━━━━━━━━━\nPreview: ${fill(msg, { name: 'Newcomer', uid: '0000' }, event, { groupName: name })}`
+        + '\nPlaceholders: `{user}` `{mention}` `{group}` `{thread}` `{uid}`',
+        event.messageID,
+      );
     }),
   });
 
@@ -526,11 +573,11 @@ const commands = [];
     name: 'setgoodbye',
     aliases: ['setgoodbyemsg'],
     category: 'group',
-    description: '✍️ Set the goodbye text — {user}, {mention} and {group} all work',
+    description: '✍️ Set the goodbye text — {user}, {mention}, {group}, {thread} all work',
     usage: '!setgoodbye <message>',
     cooldown: 10,
     permission: 'groupAdmin',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'setgoodbye', async () => {
+    execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'setgoodbye', async () => {
       await react('✍️');
       const group = await liveGroup(event);
       if (!group) {
@@ -540,7 +587,11 @@ const commands = [];
 
       const msg = args.join(' ').trim();
       if (!msg) {
-        await reply(`❌ Usage: \`!setgoodbye <message>\`\nCurrent: "${group.settings.goodbyeMsg || DEFAULT_GOODBYE}"`, event.messageID);
+        const now = await groupName(api, event);
+        await reply(
+          `❌ Usage: \`!setgoodbye <message>\`\nCurrent: "${fill(group.settings.goodbyeMsg || DEFAULT_GOODBYE, { name: 'Leaver' }, event, { groupName: now })}"`,
+          event.messageID,
+        );
         return;
       }
       if (msg.length > 400) {
@@ -551,7 +602,12 @@ const commands = [];
       group.settings.goodbyeMsg = msg;
       group.settings.goodbye = true;
       await save(group);
-      await reply(`✍️ **GOODBYE SET**\n━━━━━━━━━━━━━━━\nPreview: ${fill(msg, { name: 'Leaver' }, event)}`, event.messageID);
+      const name = await groupName(api, event);
+      await reply(
+        `✍️ **GOODBYE SET**\n━━━━━━━━━━━━━━━\nPreview: ${fill(msg, { name: 'Leaver', uid: '0000' }, event, { groupName: name })}`
+        + '\nPlaceholders: `{user}` `{mention}` `{group}` `{thread}` `{uid}`',
+        event.messageID,
+      );
     }),
   });
 

@@ -504,7 +504,93 @@ async function pairCard({ title, emoji, subtitle, pairs, api, value, limit = 8 }
   }
 }
 
+
+/**
+ * A single-person card for a chat arrival or departure.
+ *
+ * The thread NAME is on this card, not just the id, because "Welcome to the
+ * arcade" is a lie in a chat called something else entirely — and because a
+ * welcome is per-chat state (it lives on the Group document), so a screenshot
+ * of one is otherwise unattributable. The id sits beside it so a wrong-thread
+ * bug is obvious at a glance.
+ *
+ * Returns a PNG data URL, or null when the native canvas binary is missing —
+ * the caller must fall back to its text reply.
+ *
+ * @param {object} opts
+ * @param {'welcome'|'goodbye'} opts.kind
+ * @param {string|number} opts.uid
+ * @param {string} [opts.name] name from the join event, used if Facebook is slow
+ * @param {string} [opts.threadName]
+ * @param {string|number} [opts.threadID]
+ * @param {string} [opts.body]
+ * @param {object} opts.api ws3-fca client
+ * @returns {Promise<string|null>}
+ */
+async function arrivalCard({ kind, uid, name, threadName, threadID, body = '', api }) {
+  if (!canvasKit.available()) return null;
+  if (!uid) return null;
+
+  const leaving = kind === 'goodbye';
+  const H = 500;
+
+  try {
+    const cv = canvasKit.create(W, H);
+    const ctx = cv.ctx;
+
+    paintBackground(ctx, H);
+    paintHeader(
+      ctx,
+      leaving ? '🚪' : '👋',
+      leaving ? 'GOODBYE' : 'WELCOME',
+      threadName || `Thread ${threadID == null ? '' : threadID}`,
+    );
+
+    // The event may already carry the name; a live lookup is preferred because
+    // a join payload frequently has an empty one, and "Hunter 4821" is a poor
+    // welcome. Both run in parallel — one round trip, not two.
+    const id = String(uid);
+    const [liveName, pic] = await Promise.all([
+      profile.fetchRealName(id, api),
+      profile.picture(id, api),
+    ]);
+    const shown = liveName
+      || (name && !profile.isPlaceholderName(name) ? String(name) : '')
+      || `Hunter ${id.slice(-4)}`;
+
+    await drawAvatar(ctx, pic, W / 2, 286, 150);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 40px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(fit(ctx, shown, W - 120), W / 2, 398);
+
+    if (body) {
+      ctx.font = '23px sans-serif';
+      ctx.fillStyle = '#9aa0b5';
+      ctx.fillText(fit(ctx, String(body).replace(/\n+/g, ' '), W - 120), W / 2, 442);
+    }
+
+    // The thread id is the debugging aid: a card from the wrong chat is the
+    // fastest failure mode to notice when the id is on the image.
+    ctx.font = '19px sans-serif';
+    ctx.fillStyle = 'rgba(154,160,181,0.7)';
+    ctx.fillText(
+      fit(ctx, threadID == null ? 'iKON-BOT v2 Ultra' : `thread ${threadID} · iKON-BOT v2 Ultra`, W - 90),
+      W / 2,
+      H - 26,
+    );
+
+    return cv.canvas.toDataURL('image/png');
+  } catch (err) {
+    error(`[CARD] arrivalCard failed: ${err.message}`);
+    return null;
+  }
+}
+
 module.exports = {
+  arrivalCard,
   duoCard,
   userCard,
   boardCard,
