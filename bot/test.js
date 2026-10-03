@@ -2982,6 +2982,90 @@ const PIKACHU = dex.find('pikachu');
     return `money ${cache.STARTING_MONEY}, save() works, never null`;
   });
 
+  // ── the message that must never reach a chat again ───────
+  await step('no command ever replies "could not load your profile"', async () => {
+    const fs3 = require('fs');
+    const path3 = require('path');
+    const ROOT3 = path3.join(__dirname, '..');
+
+    // The whole of this is one sentence a member used to get for being new:
+    // "⚠️ I could not load your profile just now. Try again in a moment."
+    // It fired for exactly the people the bot should have been welcoming —
+    // anyone not already sitting in the cache — while whoever happened to be
+    // cached first was served normally. So the bug looked selective and random.
+
+    // 1. The sentence is not in the tree at all. Comments are excluded: the
+    // module documents the bug on purpose, and grepping for it has to find the
+    // explanation, not the reply.
+    const FORBIDDEN = /could not load your profile|could not load a profile|profile just now/i;
+    const walk = (dir) => fs3.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const full = path3.join(dir, e.name);
+      if (e.isDirectory()) return e.name === 'node_modules' || e.name === '.git' ? [] : walk(full);
+      return /\.js$/.test(e.name) && !/^test(-|\.)/.test(e.name) ? [full] : [];
+    });
+    const shipped = [...walk(path3.join(ROOT3, 'bot')), ...walk(path3.join(ROOT3, 'commands')), path3.join(ROOT3, 'ws3-fca.js')];
+    for (const file of shipped) {
+      const body = fs3.readFileSync(file, 'utf8')
+        .split('\n')
+        // Drop block and line comments so the note explaining the fix in
+        // bot/cache.js does not read as the bug being back.
+        .map((l) => l.replace(/^\s*(\*|\/\/).*$/, ''))
+        .join('\n');
+      assert.ok(!FORBIDDEN.test(body), `${path3.relative(ROOT3, file)} can still send that reply`);
+    }
+
+    // 2. And the engine itself, driven end to end with no database at all,
+    // serves a stranger rather than complaining about them.
+    const mongo3 = require('./mongo');
+    const Group3 = require('../models/Group');
+    const User3 = require('../models/User');
+    const realReady = mongo3.isReady;
+    const realGFind = Group3.findOne;
+    const realUFind = User3.findOne;
+    mongo3.isReady = () => false;
+    Group3.findOne = () => ({ lean: () => Promise.reject(new Error('buffering timeout')) });
+    User3.findOne = () => ({ lean: () => Promise.reject(new Error('buffering timeout')) });
+
+    const replies = [];
+    let seq = 0;
+    const api = {
+      getCurrentUserID() { return 'BOT'; },
+      async sendMessage(p) { replies.push(typeof p === 'string' ? p : (p.body || '')); return { messageID: `m${++seq}` }; },
+      async setMessageReaction() { return true; },
+      async react() { return true; },
+      async getUserInfo() { return { name: 'New Person' }; },
+      async getThreadInfo() { return { threadTitle: 'G', adminIDs: [] }; },
+    };
+
+    try {
+      const loaded3 = loader.loadCommands(path3.join(ROOT3, 'commands'));
+      const reg = new Map();
+      const ali = new Map();
+      loaded3.registry.forEach((v, k) => reg.set(k, v));
+      loaded3.aliases.forEach((v, k) => ali.set(k, v));
+      const engine = require('../ws3-fca');
+      engine.registry.clear(); reg.forEach((v, k) => engine.registry.set(k, v));
+      engine.aliases.clear(); ali.forEach((v, k) => engine.aliases.set(k, v));
+      engine.attachClient(api);
+
+      for (const body of ['!ping', '!profile', '!balance', '!bank', '!inventory', '!xp', '!userinfo']) {
+        // eslint-disable-next-line no-await-in-loop
+        await engine.handleMessage(api, {
+          threadID: 't_regression', messageID: 'm', senderID: `stranger_${body}`, isGroup: true, body, type: 'message',
+        });
+      }
+      assert.ok(replies.length > 0, 'the stranger got answers, not silence');
+      const bad = replies.filter((r) => FORBIDDEN.test(r));
+      assert.strictEqual(bad.length, 0, `a stranger was still told their profile could not load: ${JSON.stringify(bad)}`);
+      cache.clear();
+      return `${replies.length} replies to a stranger with no database, none of them an apology`;
+    } finally {
+      mongo3.isReady = realReady;
+      Group3.findOne = realGFind;
+      User3.findOne = realUFind;
+    }
+  });
+
   await step('no group is gated behind an approval list', async () => {
     // Ten groups were manually approved and the eleventh was never going to be.
     // Being in the chat is the whole test now.
