@@ -31,6 +31,7 @@ const canvas = require('./canvas');
 const helpers = require('./helpers');
 const groq = require('./groq');
 const profile = require('./profile');
+const pending = require('./pending');
 const cards = require('./cards');
 const config = require('../config');
 const target = require('./target');
@@ -129,6 +130,43 @@ function mockApi() {
 }
 
 const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
+
+/**
+ * The text out of whatever the mocked api recorded.
+ *
+ * The record shapes differ — a bare string, `{ body }`, or the `{ payload }`
+ * envelope mockApi wraps sends in — so joining the array directly produces
+ * "[object Object]" and every assertion against it is quietly false.
+ */
+function texts(sent) {
+  return (sent || [])
+    .map((p) => {
+      if (typeof p === 'string') return p;
+      if (p && p.body) return String(p.body);
+      if (p && p.payload) {
+        const inner = p.payload;
+        return typeof inner === 'string' ? inner : String(inner.body || '');
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * A stand-in for a mongoose query that resolves to `doc`.
+ *
+ * Callers use both shapes on the same method: `await Group.findOne(x)` for the
+ * document and `Group.findOne(x).lean()` for the plain object. A plain
+ * `async () => doc` mock satisfies the first and throws "lean is not a function"
+ * on the second, because `.lean()` is reached before anything is awaited.
+ */
+function query(doc) {
+  const q = { lean: () => Promise.resolve(doc) };
+  q.then = (res, rej) => Promise.resolve(doc).then(res, rej);
+  q.catch = (rej) => Promise.resolve(doc).catch(rej);
+  return q;
+}
 
 (async function main() {
   console.log('\n=== iKON-BOT core system test ===\n');
@@ -3282,16 +3320,265 @@ const PIKACHU = dex.find('pikachu');
     }
   });
 
-  await step('no group is gated behind an approval list', async () => {
+  await step('a chat already in service is not gated behind an approval list', async () => {
     // Ten groups were manually approved and the eleventh was never going to be.
-    // Being in the chat is the whole test now.
+    // Existing chats keep working; only chats added from now on are held, and
+    // holding them is a decision rather than a flag's default.
     const gate = await toggles.isCommandDisabled('t_some_group', 'ping', 'system');
     assert.strictEqual(gate.allowed, true, 'a role-0 command must run in any group');
     assert.strictEqual(await permissions.check({ senderID: '1', threadID: 't' }, null, 'all'), 'all');
     const fresh = new Group({ tid: 'fresh_group' });
     assert.strictEqual(fresh.isApproved, true, 'a new group is approved on creation');
     assert.strictEqual(fresh.pendingApproval, false, 'and is not left pending');
-    return 'role 0 runs anywhere; new groups are approved by default';
+    return 'role 0 runs anywhere; established groups are approved by default';
+  });
+
+  // ── PENDING APPROVAL ─────────────────────────────────────────────
+  await step('the lock only answers the three commands that can end it', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const find = (name) => loaded.registry.get(name);
+    for (const name of ['pending', 'approve', 'deny']) {
+      assert.ok(find(name), `${name} should exist`);
+      assert.strictEqual(pending.ALWAYS_ALLOWED.has(name), true, `${name} must be allowed while locked`);
+    }
+    assert.ok(!pending.ALWAYS_ALLOWED.has('ping'), 'a locked chat must not be able to run commands');
+    // The names have to resolve, or the lock message is telling a stranger to
+    // type something that does nothing.
+    for (const name of ['pending', 'approve', 'deny']) {
+      assert.strictEqual(find(name).permission, 'owner', `${name} must be owner-only`);
+    }
+    return 'pending, approve, deny — and nothing else';
+  });
+
+  await step('a locked chat is refused, and an unlocked one is not', async () => {
+    const stranger = { senderID: '999000777', threadID: 't_gate' };
+    const operator = { senderID: '999000111', threadID: 't_gate' };
+    const cmd = { name: 'ping' };
+
+    pending.reset();
+    assert.strictEqual(pending.refusal('t_gate', cmd, stranger), null, 'an unlocked chat says nothing');
+
+    pending.seed([{ tid: 't_gate', threadName: 'Locked Chat', approval: { addedBy: '999000777' } }]);
+    assert.strictEqual(pending.isPending('t_gate'), true);
+    const refusal = pending.refusal('t_gate', cmd, stranger);
+    assert.ok(refusal && /pending approval/i.test(refusal), 'a stranger gets the lock message');
+
+    // Fail closed: an unrecognised command must not become a way through.
+    assert.ok(pending.refusal('t_gate', null, stranger), 'an unknown command is still refused');
+
+    assert.strictEqual(pending.refusal('t_gate', cmd, operator), null, 'the owner is not locked out');
+    assert.strictEqual(
+      pending.refusal('t_gate', { name: 'approve' }, stranger), null,
+      'approve runs in a locked chat, or nobody can unlock it',
+    );
+    pending.reset();
+    return 'refused to strangers, silent to owners, closed to unknown commands';
+  });
+
+  await step('the pending list names chats instead of listing ids', async () => {
+    // snapshot() iterated the Set with .entries(), which yields [value, value] —
+    // so every row read its own tid as the name and showed no name at all.
+    const requestedAt = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    pending.seed([
+      { tid: 't_one', threadName: 'Study Group', approval: { addedBy: '999000777', requestedAt } },
+      { tid: 't_two', threadName: '', approval: {} },
+    ]);
+    const rows = pending.snapshot();
+    assert.strictEqual(rows.length, 2);
+    assert.strictEqual(rows[0].name, 'Study Group', 'a named chat must show its name');
+    assert.strictEqual(rows[0].addedBy, '999000777', 'and who asked for it');
+    assert.ok(rows[0].age > 3 * 60 * 60 * 1000 - 5000, 'and how long it has been waiting');
+    assert.ok(rows[1].name, 'an unnamed chat still needs something to show');
+    pending.reset();
+    return 'name, who added it, how long it has waited';
+  });
+
+  await step('the lock survives a restart', async () => {
+    const realFind = Group.find;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    let asked = null;
+    // Answered by query, not by a fixed list: hydrate's correctness depends on
+    // asking for the locked chats and nothing else, which a canned result
+    // would hide.
+    Group.find = (q) => {
+      asked = q;
+      const rows = q && q.pendingApproval
+        ? [{ tid: 't_held', threadName: 'Held Chat', approval: { addedBy: '999000777' } }]
+        : [];
+      return query(rows);
+    };
+    try {
+      pending.reset();
+      assert.strictEqual(pending.isPending('t_held'), false, 'nothing is locked before a restart');
+      const n = await pending.hydrate();
+      assert.deepStrictEqual(asked, { pendingApproval: true }, 'hydrate must ask for pending chats only');
+      assert.strictEqual(n, 1, 'one chat came back locked');
+      assert.strictEqual(pending.isPending('t_held'), true, 'the lock came back');
+    } finally {
+      Group.find = realFind;
+      mongo.isReady = realReady;
+      pending.reset();
+    }
+    return 'a locked chat is still locked after the process restarts';
+  });
+
+  await step('the bot only locks chats it was just added to', async () => {
+    const ik = require('../ws3-fca');
+    const realFindGroup = toggles.findGroup;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    const REG = { uid: '555000111' };
+    const api = {
+      async getCurrentUserID() { return REG.uid; },
+      async getThreadInfo() { return { threadTitle: 'New Group' }; },
+      async sendMessage() { return { messageID: 'x' }; },
+    };
+    const ev = (uids) => ({ threadID: 't_new', logMessageData: { participantIDs: uids }, isGroup: true });
+    try {
+      // Someone else joined. Not the bot being added — nothing to lock.
+      pending.reset();
+      toggles.findGroup = () => Promise.resolve(null);
+      assert.strictEqual(
+        await ik.handleBotArrival(api, ev(['999000777']), 't_new', { addedParticipants: ['999000777'] }, REG.uid, true),
+        false,
+        'a person joining must not lock the chat',
+      );
+      assert.strictEqual(pending.isPending('t_new'), false);
+
+      // The bot itself, into a chat with no document. That is a stranger
+      // adding the bot, and it is the one thing this locks.
+      assert.strictEqual(
+        await ik.handleBotArrival(api, ev([REG.uid]), 't_new', { addedParticipants: [REG.uid] }, REG.uid, true),
+        true,
+        'the bot being added must lock the chat',
+      );
+      assert.strictEqual(pending.isPending('t_new'), true, 'and the chat is locked');
+
+      // Re-added to a chat it already serves: no document is created, so the
+      // existing group keeps working.
+      pending.reset();
+      toggles.findGroup = () => Promise.resolve({ tid: 't_new' });
+      assert.strictEqual(
+        await ik.handleBotArrival(api, ev([REG.uid]), 't_new', { addedParticipants: [REG.uid] }, REG.uid, true),
+        false,
+        'an established chat must not be re-locked',
+      );
+      assert.strictEqual(pending.isPending('t_new'), false);
+
+      // A DM is not a group chat.
+      assert.strictEqual(
+        await ik.handleBotArrival(api, ev([REG.uid]), 'u_1', { addedParticipants: [REG.uid] }, REG.uid, false),
+        false,
+        'a private chat is not gated',
+      );
+    } finally {
+      toggles.findGroup = realFindGroup;
+      mongo.isReady = realReady;
+      pending.reset();
+    }
+    return 'locks a chat the bot joins, never one it already serves';
+  });
+
+  await step("the bot's own uid is a uid, not a promise", async () => {
+    // api.getCurrentUserID() returns a Promise. String() on it produced
+    // "[object Promise]", which then failed every comparison it was used in —
+    // including "was the bot the one who just joined?".
+    const ik = require('../ws3-fca');
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    try {
+      const async1 = { async getCurrentUserID() { return '555000111'; } };
+      assert.strictEqual(await ik.selfUid(async1, null), '555000111', 'an async uid must be awaited');
+      const sync1 = { getCurrentUserID() { return '555000222'; } };
+      assert.strictEqual(await ik.selfUid(sync1, null), '555000222', 'a sync uid must still work');
+      // A client that cannot answer must not invent an answer.
+      assert.strictEqual(await ik.selfUid({}, null), '');
+      assert.strictEqual(await ik.selfUid(null, { BotID: '555000333' }), '555000333', 'the event is the fallback');
+      const junk = { async getCurrentUserID() { return { not: 'a uid' }; } };
+      assert.strictEqual(await ik.selfUid(junk, { BotID: '555000333' }), '555000333',
+        'an unrecognisable value must fall back, not be stringified in');
+    } finally {
+      mongo.isReady = realReady;
+    }
+    return 'no call site ever compares against "[object Promise]"';
+  });
+
+  await step('a locked chat cannot run a command at all, through the engine', async () => {
+    const ik = require('../ws3-fca');
+    ik.reloadCommands();
+    pending.seed([{ tid: 't_gate' }]);
+
+    const api = mockApi();
+    const before = api.sent.length;
+    try {
+      await ik.handleMessage(api, {
+        type: 'message',
+        isSelf: false,
+        isGroup: true,
+        threadID: 't_gate',
+        messageID: 'gate_locked_mid',
+        senderID: '999000777', // a stranger
+        body: `${config.PREFIX}ping`,
+        attachments: [],
+      });
+    } finally {
+      pending.reset();
+    }
+    const said = texts(api.sent.slice(before));
+    assert.ok(said.trim(), 'the chat got an answer — it must not be silent');
+    assert.ok(/pending approval/i.test(said), `the answer should be the lock message, got: ${said}`);
+    assert.ok(!/pong/i.test(said), `the command must not have run, got: ${said}`);
+    return 'a locked chat is told why and gets nothing else';
+  });
+
+  await step('an operator can approve the locked chat they are standing in', async () => {
+    // The other half of the gate: if the lock could not be lifted from inside
+    // the chat, the only way out would be a database edit, and the chat would be
+    // locked forever.
+    const ik = require('../ws3-fca');
+    ik.reloadCommands();
+    const realFindOne = Group.findOne;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    const doc = {
+      tid: 't_gate',
+      threadName: 'Locked Chat',
+      // Enabled, like a real locked chat: a brand new one has never been
+      // paused. Pause is a separate switch with its own command, and it holds
+      // for the owner too, so combining the two here would be testing a
+      // different feature.
+      isEnabled: true,
+      isApproved: false,
+      pendingApproval: true,
+      approval: {},
+      async save() { return this; },
+      markModified() {},
+    };
+    Group.findOne = () => query(doc);
+    pending.seed([{ tid: 't_gate' }]);
+
+    const api = mockApi();
+    const before = api.sent.length;
+    try {
+      await ik.handleMessage(api, {
+        type: 'message',
+        isSelf: false,
+        isGroup: true,
+        threadID: 't_gate',
+        messageID: 'gate_unlock_mid',
+        senderID: '999000111', // a bot admin
+        body: `${config.PREFIX}approve`,
+        attachments: [],
+      });
+    } finally {
+      Group.findOne = realFindOne;
+      mongo.isReady = realReady;
+      pending.reset();
+    }
+    const said = texts(api.sent.slice(before));
+    assert.ok(/approv/i.test(said), `the approve command should have replied, got: ${said}`);
+    return 'the lock can be lifted from inside the chat';
   });
 
   await step('the thread list asks for 100 chats, not 10', async () => {

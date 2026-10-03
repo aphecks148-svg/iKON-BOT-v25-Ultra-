@@ -30,6 +30,7 @@ const mongo = require('./mongo');
 const dex = require('./pokemon');
 const media = require('./media');
 const toggles = require('./toggles');
+const pending = require('./pending');
 const config = require('../config');
 
 /** How often the scheduler wakes up to ask "is anything due?". */
@@ -107,6 +108,12 @@ function hasLiveSpawn(group, now = Date.now()) {
  */
 function isDue(group, now = Date.now()) {
   const poke = group && group.pokemon;
+  // A locked chat is not due, and never was. The scheduler posts without going
+  // through the engine, so it does not pass the pending gate on the way in: this
+  // is the only thing standing between a stranger's group and a Pokemon every
+  // fifteen minutes, which is the same as a stranger's group and a bot that
+  // ignores them, and the opposite of what "pending" means.
+  if (pending.isPending(group && group.tid)) return false;
   if (!mayPost(group)) return false;
   if (hasLiveSpawn(group, now)) return false;
   const interval = Number(poke && poke.intervalMs) || dex.DEFAULT_INTERVAL_MS;

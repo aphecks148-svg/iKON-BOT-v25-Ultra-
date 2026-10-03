@@ -297,18 +297,20 @@ async function cleanup(api, opts = {}) {
 }
 
 /**
- * Mark every chat the bot is in as approved and enabled.
+ * Make sure every chat the bot is in is enabled, without touching approval.
  *
- * Called on boot. The approved list was the reason a freshly added group sat
- * there refusing commands until an owner noticed it existed — with more than
- * ten groups that check was never going to be maintained by hand.
+ * Called on boot. This used to approve every chat it found, which is precisely
+ * how the old approval list failed: the sweep ran on every restart, so any
+ * lock was undone by the next deploy. A pending chat is now skipped, because
+ * the one moment a lock must hold is the moment the process comes back up.
  *
  * @param {object} api ws3-fca client
- * @returns {Promise<number>} how many chats were approved
+ * @returns {Promise<number>} how many chats were enabled
  */
 async function approveAll(api) {
   const threads = await listThreads(api);
   let approved = 0;
+  let held = 0;
   for (const thread of threads) {
     const tid = tidOf(thread);
     if (!tid) continue;
@@ -319,17 +321,23 @@ async function approveAll(api) {
       const toggles = require('./toggles');
       // eslint-disable-next-line no-await-in-loop
       const group = await toggles.getGroup(tid);
+      // The flag is read, never written. A chat that is waiting for a decision
+      // keeps waiting, and is left locked and un-enabled.
+      if (group.pendingApproval === true) {
+        held += 1;
+        continue;
+      }
       group.isApproved = true;
-      group.pendingApproval = false;
       group.isEnabled = true;
       // eslint-disable-next-line no-await-in-loop
       await group.save();
       approved += 1;
     } catch (err) {
-      error(`[GCS] auto-approve of ${tid} failed: ${err.message}`);
+      error(`[GCS] enable-sweep of ${tid} failed: ${err.message}`);
     }
   }
-  if (approved) log(`[GCS] Auto-approved ${approved} group chat(s).`);
+  if (approved) log(`[GCS] Enabled ${approved} group chat(s).`);
+  if (held) log(`[GCS] Left ${held} group chat(s) locked, pending approval.`);
   return approved;
 }
 

@@ -36,6 +36,7 @@ const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
 const userTarget = require('../bot/target');
+const pending = require('../bot/pending');
 // Group listing, the 100-chat sweep and the dead-account detector. Owns the
 // work behind !gclist and !gccleanup.
 const gcs = require('../bot/gcs');
@@ -323,10 +324,11 @@ async function targetArgsOr(reply, messageID, args, event, label, api) {
  * The group document for this thread, or null when the database is down.
  * Commands that need to persist state bail out rather than pretend.
  */
-async function liveGroup(event) {
+async function liveGroup(event, tidOverride) {
   if (!mongo.isReady()) return null;
-  if (!event || !event.threadID) return null;
-  return Group.findOne({ tid: String(event.threadID) });
+  const tid = tidOverride || (event && event.threadID);
+  if (!tid) return null;
+  return Group.findOne({ tid: String(tid) });
 }
 
 /**
@@ -2371,5 +2373,127 @@ const commands = [];
       );
     }),
   });
+
+// ── PENDING APPROVAL ────────────────────────────────────────────────
+  // Three commands, and only three, that a chat waiting for approval can run.
+  //
+  // The names are short because the lock message has to fit next to them, and
+  // the aliases exist because the person typing them is, by definition, someone
+  // who has not used this bot before.
+  const pendingAge = (ms) => fmt.dur(Math.max(0, Math.round((Date.now() - ms) / 1000)));
+
+  commands.push(
+    {
+      name: 'pending',
+      aliases: ['pendingapprovals', 'pendinglist', 'gcpending'],
+      category: 'group',
+      description: '⏳ List the chats waiting for approval',
+      usage: '!pending',
+      cooldown: 20,
+      permission: 'owner',
+      execute: async ({ event, reply, react, api, config }) => guard(reply, event.messageID, 'pending', async () => {
+        await react('⏳');
+        const rows = pending.snapshot();
+        if (!rows.length) {
+          await reply('⏳ **NO PENDING CHATS**\n· · · · · · ·\nNothing is waiting for a decision.', event.messageID);
+          return;
+        }
+        const lines = rows.slice(0, 20).map((row, i) => {
+          const here = String(row.tid) === String(event.threadID) ? ' ← this chat' : '';
+          const who = row.addedBy ? `added by \`${row.addedBy}\`` : 'added by unknown';
+          return `${i + 1}. **${row.name}**\n   \`${row.tid}\` · ${who} · ${row.requestedAt ? `${pendingAge(row.age)} ago` : 'unknown time'}${here}`;
+        });
+        await reply(
+          `⏳ **PENDING APPROVAL** (${rows.length})\n`
+          + '· · · · · · ·\n'
+          + `${lines.join('\n')}\n`
+          + (rows.length > 20 ? `…and ${rows.length - 20} more.\n` : '')
+          + `Approve with ${config.PREFIX}approve · ${config.PREFIX}approve <tid>`,
+          event.messageID,
+        );
+      }),
+    },
+
+    {
+      name: 'approve',
+      aliases: ['approvecg', 'approvethread'],
+      category: 'group',
+      description: '✅ Approve this chat and switch the bot on',
+      usage: '!approve',
+      cooldown: 20,
+      permission: 'owner',
+      execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'approve', async () => {
+        await react('✅');
+        const tid = String(args[0] || event.threadID || '');
+        if (!tid) {
+          await reply('❌ Give me a chat id: `!approve <tid>`.', event.messageID);
+          return;
+        }
+        if (!pending.isPending(tid)) {
+          await reply(`✅ That chat is not waiting for approval. Nothing to do.`, event.messageID);
+          return;
+        }
+        await pending.approve(tid, event.senderID);
+
+        // Approving the lock is not enough on its own: the document also has to
+        // be switched on, or the chat goes from "refused" to "refused" with a
+        // nicer message and nobody ever notices the difference.
+        try {
+          const group = await liveGroup(event, tid);
+          if (group) {
+            group.isEnabled = true;
+            await save(group);
+          }
+        } catch (err) {
+          await reply(`⚠️ Approved, but the chat could not be switched on: ${err.message}`, event.messageID);
+          return;
+        }
+        await reply('✅ **Group Approved!**\nNow you can use commands.', event.messageID);
+      }),
+    },
+
+    {
+      name: 'deny',
+      aliases: ['denygc', 'gcdeny'],
+      category: 'group',
+      description: '🚫 Refuse this chat and take the bot back out',
+      usage: '!deny',
+      cooldown: 20,
+      permission: 'owner',
+      execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'deny', async () => {
+        await react('🚫');
+        const tid = String(args[0] || event.threadID || '');
+        if (!tid) {
+          await reply('❌ Give me a chat id: `!deny <tid>`.', event.messageID);
+          return;
+        }
+        if (!pending.isPending(tid)) {
+          await reply(`🚫 That chat is not waiting for approval. Nothing to do.`, event.messageID);
+          return;
+        }
+        await pending.deny(tid, event.senderID);
+
+        // Out it goes. A denial that leaves the bot sitting in a stranger's
+        // group has refused every command but still occupies the chat, still
+        // receives events, and still gets added to by people who join later.
+        let removed = false;
+        try {
+          if (typeof api.gcmember === 'function') {
+            await api.gcmember('remove', tid);
+            removed = true;
+          } else if (typeof api.removeUserFromGroup === 'function') {
+            await api.removeUserFromGroup(tid);
+            removed = true;
+          }
+        } catch (err) {
+          await reply(`🚫 Denied. But the bot could not be removed from the chat: ${err.message}`, event.messageID);
+          return;
+        }
+        await reply(removed
+          ? '🚫 **Group Denied.** The bot has left the chat.'
+          : '🚫 **Group Denied.** This client cannot remove the bot — please remove it by hand.', event.messageID);
+      }),
+    },
+  );
 
 module.exports = commands;

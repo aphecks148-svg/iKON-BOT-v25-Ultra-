@@ -45,19 +45,21 @@ async function getGroup(tid) {
     group = await Group.create({
       tid: tidStr,
       isEnabled: true,
-      // Approved on creation. The bot is in this chat, which is the whole test.
+      // Approved on creation, because reaching this point means the chat is
+      // already established. A brand new chat is held before it ever gets
+      // here, in handleBotArrival — this path is for chats the bot was already
+      // serving when a document went missing.
       isApproved: true,
       pendingApproval: false,
     });
   }
-  // Groups created before this change are still sitting on pendingApproval:true
-  // in Mongo. Migrate them the first time they are touched rather than leaving
-  // the old flag to decide whether commands run.
-  if (group.pendingApproval === true) {
-    group.pendingApproval = false;
-    group.isApproved = true;
-    await group.save().catch(() => {});
-  }
+  // A group found still flagged pending is left exactly as it is found.
+  //
+  // This used to migrate it to approved on first touch, which is the same
+  // "being in the group is the whole test" rule the old approval system ran on:
+  // a chat nobody had approved was unlocked by the first message that arrived,
+  // so the lock was only ever a delay rather than a decision. The flag now
+  // means what it says, and bot/pending.js decides.
   return group;
 }
 
@@ -141,12 +143,12 @@ function evaluateGroup(group, cmdName, category) {
  * whole bot down — maintenance is enforced from config.MAINTENANCE_MODE, which
  * needs no database at all.
  *
- * THERE IS NO APPROVAL CHECK HERE, and that is deliberate. There used to be an
- * approved list, and past ten groups it was never maintained, so a chat added
- * weeks earlier sat there refusing every command on a flag nobody remembered
- * setting. Being in the group is the whole test — see getGroup(), which creates
- * threads already approved, and bot/gcs.js, which approves every existing
- * thread on boot.
+ * There is no approval check here, and that is not an oversight — bot/pending.js
+ * runs before this one and answers it, in memory, for every event. It does not
+ * belong here because it fails CLOSED, which is the opposite of the rule below:
+ * a chat that is locked and whose command cannot be resolved still has to be
+ * refused, and by the time a command has been resolved this gate is already
+ * past the point where "we could not tell" means "allow".
  *
  * @returns {Promise<{allowed:boolean, reason:string, adminsOnly:boolean, adminBypass:boolean}>}
  *   `adminBypass` says whether an admin of the thread may run the command anyway.

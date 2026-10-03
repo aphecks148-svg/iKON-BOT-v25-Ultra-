@@ -31,6 +31,7 @@ const gcs = require('./bot/gcs');
 const helpers = require('./bot/helpers');
 const profile = require('./bot/profile');
 const cards = require('./bot/cards');
+const pending = require('./bot/pending');
 
 const { log, error, reply, react, safe } = helpers;
 
@@ -290,6 +291,26 @@ async function handleMessage(api, event) {
     // Not a command. Count the message for the RPG profile and stop.
     await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
     return;
+  }
+
+  // ── PENDING APPROVAL ──────────────────────────────────────
+  // Ahead of command lookup and of every other gate, including maintenance.
+  //
+  // Ahead of lookup because this gate answers "should this chat be talking to
+  // the bot at all", and not recognising a word is not a reason to start. Behind
+  // lookup, a locked chat answered `❌ Unknown command` to anything unfamiliar —
+  // the wrong message, and a way to map the command list from a chat that is
+  // supposed to be getting nothing.
+  //
+  // It is also the only gate that must fail closed. A locked chat whose command
+  // cannot be resolved is still refused, because "we could not tell" has to mean
+  // "no" here and only here.
+  if (pending.isPending(threadID)) {
+    const allowed = pending.mayRun(loader.findCommand(parsed.name, registry, aliases), event);
+    if (!allowed) {
+      await say('🔒 This group is pending approval. Contact bot admins.');
+      return;
+    }
   }
 
   // ── COMMAND LOOKUP ────────────────────────────────────────
@@ -810,6 +831,98 @@ async function announce(api, threadID, kind, who, info, template, isGroup) {
   await reply(api, threadID, payload, null, isGroup);
 }
 
+/**
+ * The bot's own uid, or ''.
+ *
+ * `api.getCurrentUserID()` returns a Promise. The two call sites that used it
+ * did `String(api.getCurrentUserID())`, which stringifies the *Promise* — the
+ * value was literally "[object Promise]" — so every comparison below compared a
+ * real uid against that string and never matched.
+ *
+ * The Promise is awaited here, and the result is only accepted if it looks like
+ * a uid. Anything else is worse than nothing: a wrong value flows on into
+ * "did the bot just join?" and "did the leaver leave?" and both answer yes or
+ * no wrongly.
+ *
+ * @param {object} api
+ * @param {object|null} event
+ * @returns {Promise<string>}
+ */
+async function selfUid(api, event) {
+  const fallback = (event && (event.BotID || STATE.userID)) || '';
+  if (!api || typeof api.getCurrentUserID !== 'function') return String(fallback);
+  try {
+    const id = await api.getCurrentUserID();
+    if (typeof id === 'string' || typeof id === 'number') {
+      const s = String(id);
+      if (/^\d+$/.test(s)) return s;
+    }
+  } catch {
+    // Fall through to the event and cached values.
+  }
+  return String(fallback);
+}
+
+/**
+ * Lock a chat the moment the bot is added to it.
+ *
+ * Called on every log:subscribe, and almost always does nothing: the bot is
+ * already in the chat, the document already exists, or the uid that joined was
+ * a person. It acts on exactly one event — the bot's own uid appearing in a
+ * chat with no Group document — which is what "a stranger added this bot"
+ * looks like from the inside.
+ *
+ * That condition is the whole design. There is no flag to set before adding
+ * the bot and no way to lock a chat retroactively, because both would require
+ * trusting whoever added it, which is the person the lock exists to hold back.
+ *
+ * It fails open if the database is not ready. A bot that refuses to speak
+ * because it cannot check a flag is a worse outcome than one un-locked chat,
+ * and this is the only code path that decides whether a *new* chat is held —
+ * existing locks do not depend on it.
+ *
+ * @returns {Promise<boolean>} true when this call locked the chat
+ */
+async function handleBotArrival(api, event, threadID, data, selfId, isGroup) {
+  if (!isGroup || !selfId) return false;
+  // changeParticipants returns {uid, name} entries, not bare ids — comparing
+  // the uid list against selfId directly never matched anything, so this
+  // returned false on the one event it exists for.
+  const added = changeParticipants(data)
+    .map((p) => (p && p.uid) || '')
+    .filter(Boolean);
+  if (!added.includes(selfId)) return false;
+  // An existing Group document means the bot was already serving this chat, so
+  // this subscribe is the bot being re-added, not a stranger adding it. Asking
+  // rather than creating: getGroup() would happily mint an approved document,
+  // which is exactly the wrong answer for a chat nobody approved.
+  if (await toggles.findGroup(threadID)) return false;
+  if (!mongo.isReady()) return false;
+
+  let threadName = '';
+  try {
+    const info = await threadInfo(threadID, api);
+    threadName = info && (info.threadTitle || info.name) ? String(info.threadTitle || info.name) : '';
+  } catch {
+    // A name is a nicety for `!pending`; the lock does not depend on it.
+  }
+
+  // The first entry is the bot, by construction — the whole event is. Who else
+  // came along with it is the useful part, so that is what gets recorded.
+  const alsoAdded = added.filter((u) => u !== selfId);
+  await pending.lock(threadID, { name: threadName, addedBy: (alsoAdded[0] || selfId) });
+  log(`[PENDING] ${threadID} is waiting for approval${threadName ? ` (${threadName})` : ''}`);
+
+  try {
+    await reply(api, threadID, {
+      body: `🔒 This group is pending approval. Contact bot admins.\n\nOnce approved: ${config.PREFIX}pending · ${config.PREFIX}approve`,
+    }, null, true);
+  } catch (err) {
+    error(`[PENDING] could not announce lock in ${threadID}: ${err.message}`);
+  }
+  return true;
+}
+
 async function handleGroupChange(api, event) {
   const threadID = event.threadID;
   // ws3-fca reports joins/leaves as log:subscribe / log:unsubscribe.
@@ -822,12 +935,14 @@ async function handleGroupChange(api, event) {
   // events only ever happen in group threads, so it is derived once, here.
   const isGroup = event.isGroup === undefined ? true : event.isGroup !== false;
   // The bot's own uid, used to keep it out of its own welcome/goodbye cards.
-  const selfId = String((api && typeof api.getCurrentUserID === 'function' ? api.getCurrentUserID() : null)
-    || event.BotID || STATE.userID || '');
+  const selfId = await selfUid(api, event);
 
   try {
     // New member joined
     if (action === 'log:subscribe') {
+      // Ahead of getGroup(), which would create the document this is deciding
+      // about. Returns true when the bot itself was the one added.
+      if (await handleBotArrival(api, event, threadID, data, selfId, isGroup)) return;
       const group = await toggles.getGroup(threadID);
       // The toggle alone, not the toggle AND a configured line. A chat that ran
       // `!welcome on` and never touched `!setwelcome` used to get silence,
@@ -907,7 +1022,13 @@ function attachClient(api) {
   // The spawner and the group sweep both need a live client, and the only moment
   // we are certain we have one is the moment it is handed over.
   pokemonSpawn.start(api, { log, error });
-  gcs.approveAll(api).catch((err) => error(`[GCS] boot approval sweep failed: ${err.message}`));
+  // Before the sweep, not beside it. A restart is exactly when a lock has to
+  // still be true, and the sweep runs per-chat writes that take as long as the
+  // thread list does.
+  pending.hydrate()
+    .catch((err) => error(`[PENDING] hydrate failed: ${err.message}`))
+    .then(() => gcs.approveAll(api))
+    .catch((err) => error(`[GCS] boot enable sweep failed: ${err.message}`));
 }
 
 /**
@@ -1085,9 +1206,7 @@ function login() {
         }
 
         STATE.loggedIn = true;
-        try {
-          STATE.userID = api.getCurrentUserID();
-        } catch { STATE.userID = null; }
+        STATE.userID = await selfUid(api, null);
         log(`[LOGIN] ${config.BOT_NAME} logged in as ${STATE.userID || 'unknown'}`);
 
         // Wild Pokemon start spawning now that there is a client to post with
@@ -1161,10 +1280,15 @@ async function boot() {
   // first tick after a successful retry is the first one that does anything.
   pokemonSpawn.start(api || client, { log, error });
 
-  // 7. AUTO-APPROVE EVERY CHAT — there is no approved list any more, and a
-  // group that was added before this change would otherwise keep refusing
-  // commands on a flag nobody remembers setting.
-  if (api) await gcs.approveAll(api).catch((err) => error(`[GCS] boot approval sweep failed: ${err.message}`));
+  // 7. PENDING LOCKS — read the database's locks back into memory, then sweep
+  // the chats so every established group is enabled.
+  //
+  // Hydrate first and await it. Until the cache is rebuilt a restarted bot
+  // believes no chat is pending, and would let a locked chat run commands until
+  // the read landed — a window that is exactly as long as the query and is
+  // taken every single restart.
+  await pending.hydrate().catch((err) => error(`[PENDING] hydrate failed: ${err.message}`));
+  if (api) await gcs.approveAll(api).catch((err) => error(`[GCS] boot enable sweep failed: ${err.message}`));
 
   // 8. HOUSEKEEPING
   if (!housekeeping) {
@@ -1225,6 +1349,8 @@ module.exports = {
   startServer,
   handleMessage,
   handleGroupChange,
+  handleBotArrival,
+  selfUid,
   // Exported for the tests: the placeholder rules and the payload shapes are
   // the whole bug surface here, and they are much easier to assert on directly
   // than through a mocked Facebook send.
@@ -1254,6 +1380,7 @@ module.exports = {
   config,
   loader,
   toggles,
+  pending,
   permissions,
   cooldown,
   cache,

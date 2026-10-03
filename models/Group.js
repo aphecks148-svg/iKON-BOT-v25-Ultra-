@@ -8,13 +8,34 @@ const GroupSchema = new mongoose.Schema(
 
     isEnabled: { type: Boolean, default: true },
 
-    // The bot being in the chat IS the approval. These two defaulted to
-    // false/true once, which meant a newly added group refused every command
-    // until an owner noticed it existed — past ten groups nobody notices, and
-    // the group looked broken. They are kept as fields because !approveGC and
-    // !disapproveGC still write them, and bot/gcs.js migrates the old rows.
+    // Whether an owner has signed off on this chat, and whether a decision is
+    // still outstanding. See bot/pending.js for what enforces them.
+    //
+    // isApproved defaults to true so every chat that already exists keeps
+    // working: the alternative is that deploying this locks every established
+    // group until someone notices. Only chats added from now on are held, and
+    // holding them is done in memory and written here, not decided by these
+    // defaults.
     isApproved: { type: Boolean, default: true },
     pendingApproval: { type: Boolean, default: false },
+
+    // The chat's name, captured when the bot was added. `!pending` lists chats
+    // by name; without it an owner is reading a column of ids.
+    threadName: { type: String, default: '' },
+
+    // Who asked for this chat, when, and what was decided. Kept as a document
+    // rather than three loose fields because these are only ever written and
+    // read together, and a half-written decision (approved, but not by whom)
+    // is worse than none.
+    approval: {
+      requestedAt: { type: Date, default: null },
+      addedBy: { type: String, default: '' },
+      addedByName: { type: String, default: '' },
+      approvedBy: { type: String, default: '' },
+      approvedAt: { type: Date, default: null },
+      deniedBy: { type: String, default: '' },
+      deniedAt: { type: Date, default: null },
+    },
 
     prefix: { type: String, default: null }, // null = fall back to config.PREFIX
 
