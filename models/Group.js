@@ -54,6 +54,10 @@ const GroupSchema = new mongoose.Schema(
       enabled: { type: Boolean, default: true },
       intervalMs: { type: Number, default: 15 * 60 * 1000 },
       lastSpawnAt: { type: Date, default: null },
+      // A spawn that was tried and failed — sprite 404, send timeout. Counted
+      // alongside lastSpawnAt when deciding whether a group is due, so a dead
+      // network backs off to the next interval instead of retrying every tick.
+      lastAttemptAt: { type: Date, default: null },
       current: {
         id: { type: Number, default: 0 },
         messageID: { type: String, default: '' },

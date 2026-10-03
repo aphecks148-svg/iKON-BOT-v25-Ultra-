@@ -29,6 +29,8 @@ const Group = require('../models/Group');
 const mongo = require('./mongo');
 const dex = require('./pokemon');
 const media = require('./media');
+const toggles = require('./toggles');
+const config = require('../config');
 
 /** How often the scheduler wakes up to ask "is anything due?". */
 const TICK_MS = 60 * 1000;
@@ -42,15 +44,15 @@ const TICK_MS = 60 * 1000;
 const MAX_PER_TICK = 5;
 
 /**
- * Chance that an eligible group actually spawns on a given tick.
+ * The command whose switches govern a spawn.
  *
- * 8% against a 60s tick and a 15-minute per-group interval. Without a roll, a
- * group that came due would fire immediately and then every 15 minutes forever,
- * which is a wall of messages in a busy chat. With it, the average wait after a
- * group becomes due is a couple of minutes and the cadence still reads as
- * "something is out there".
+ * The scheduler posts on its own, so it has to answer the same question the
+ * engine asks before it runs a command: is this thing allowed to talk in this
+ * chat right now? `!pokemon off`, a paused chat, a maintenance switch and
+ * `!disable pokemon` are all the same question, and the tick used to answer it
+ * for none of them except the first.
  */
-const SPAWN_CHANCE = 0.08;
+const SWITCH = { cmdName: 'pokemon', category: 'rpg' };
 
 /** Guards against two ticks overlapping, which a slow send can cause. */
 let ticking = false;
@@ -92,19 +94,55 @@ function hasLiveSpawn(group, now = Date.now()) {
 /**
  * Is this group due a new spawn?
  *
+ * Exactly fifteen minutes after the last one, or after the last attempt. The
+ * schedule is a clock, not a dice roll: an 8% per-tick chance used to sit in
+ * front of this, so a group that came due waited an average of twelve and a
+ * half minutes for a coin flip and then started the next fifteen — an average
+ * spawn every twenty-seven minutes, advertised as fifteen. Chat after chat saw
+ * the same Pokemon card somewhere in the middle of a boring afternoon.
+ *
  * @param {object} group
  * @param {number} [now]
  * @returns {boolean}
  */
 function isDue(group, now = Date.now()) {
   const poke = group && group.pokemon;
-  // Only an explicit `false` opts out. An absent field must not, or a group
-  // whose document predates the setting would silently never spawn.
-  if (!poke || poke.enabled === false) return false;
+  if (!mayPost(group)) return false;
   if (hasLiveSpawn(group, now)) return false;
-  const interval = Number(poke.intervalMs) || dex.DEFAULT_INTERVAL_MS;
-  const last = poke.lastSpawnAt ? new Date(poke.lastSpawnAt).getTime() : 0;
+  const interval = Number(poke && poke.intervalMs) || dex.DEFAULT_INTERVAL_MS;
+  // An attempt counts even when it failed. A sprite that 404s or a send that
+  // times out must not turn into a download attempt every 60 seconds until the
+  // network comes back — that is how one broken CDN turns into a rate limit.
+  const stamps = [poke && poke.lastSpawnAt, poke && poke.lastAttemptAt]
+    .filter(Boolean)
+    .map((d) => new Date(d).getTime())
+    .filter(Number.isFinite);
+  const last = stamps.length ? Math.max(...stamps) : 0;
   return now - last >= interval;
+}
+
+/**
+ * May the bot post a Pokemon into this chat at all?
+ *
+ * Everything an admin can switch off, in one answer: `!pokemon off`, a paused
+ * chat, a maintenance switch, `!disable pokemon`, `!disable rpg`, and bot-wide
+ * maintenance. The engine honours all of these before it runs a command; the
+ * scheduler posts without running a command, so it used to honour only the
+ * first — which is how an admin turned the feature off and kept getting
+ * pictures.
+ *
+ * An absent `pokemon` block is not an opt-out. It reads as "no opinion yet",
+ * which matches the schema default: a group nobody has configured is a group
+ * that wants Pokemon. Only an explicit `false` turns it off.
+ *
+ * @param {object} group
+ * @returns {boolean}
+ */
+function mayPost(group) {
+  if (!group || !group.tid) return false;
+  if (group.pokemon && group.pokemon.enabled === false) return false;
+  if (config.MAINTENANCE_MODE) return false;
+  return toggles.evaluateGroup(group, SWITCH.cmdName, SWITCH.category).allowed;
 }
 
 /**
@@ -141,6 +179,10 @@ function spawnBody(p) {
 async function spawnOne(api, group, now = Date.now()) {
   const p = dex.random();
   const threadID = String(group.tid);
+  if (!group.pokemon) group.pokemon = {};
+  // Stamped before the send, not after: isDue() reads this to back off, and a
+  // failure has to count as an attempt or a dead network retries every tick.
+  group.pokemon.lastAttemptAt = new Date(now);
   let sent = null;
   try {
     // A stream, not a descriptor: ws3-fca 3.5.2 rejects `{ type, data: { url } }`
@@ -158,6 +200,7 @@ async function spawnOne(api, group, now = Date.now()) {
     );
   } catch (err) {
     io.error(`[POKEMON] could not post ${p.name} to ${threadID}: ${err.message}`);
+    await group.save().catch(() => {});
     return null;
   }
 
@@ -166,6 +209,7 @@ async function spawnOne(api, group, now = Date.now()) {
     // Without an id this spawn is a picture nobody can answer, so there is no
     // point marking the group as having spawned.
     io.error(`[POKEMON] ${threadID} sent ${p.name} but returned no message id`);
+    await group.save().catch(() => {});
     return null;
   }
 
@@ -191,6 +235,12 @@ async function spawnOne(api, group, now = Date.now()) {
 /**
  * Post a spawn in every group that is due, up to a cap.
  *
+ * The fifteen-minute promise is kept here: a group whose fifteen minutes are up
+ * gets a Pokemon on this tick, not on a roll of the dice some minutes later.
+ * Burst protection is the cap above and the `lastAttemptAt` backoff in isDue(),
+ * which is what the old random chance was reaching for — and both of those hold
+ * without making the interval a lie.
+ *
  * @param {object} api
  * @param {number} [now]
  * @returns {Promise<number>} how many were posted
@@ -211,9 +261,6 @@ async function tick(api = client, now = Date.now()) {
     for (const group of groups) {
       if (posted >= MAX_PER_TICK) break;
       if (!isDue(group, now)) continue;
-      // One roll per eligible group per tick, so a chat does not fire the
-      // instant its interval lapses — it just becomes due, and usually wins.
-      if (Math.random() >= SPAWN_CHANCE) continue;
       // eslint-disable-next-line no-await-in-loop
       const p = await spawnOne(api, group, now);
       if (p) posted += 1;
@@ -253,6 +300,10 @@ async function attemptCatch(api, event, deps = {}) {
 
   const group = await loadGroup({ tid: String(event.threadID) }).catch(() => null);
   if (!group || !group.pokemon || group.pokemon.enabled === false) return null;
+  // The same switches the scheduler honours before it posts. A paused chat or a
+  // disabled module stops the catch as well as the spawn: paying out for a
+  // Pokemon nobody is allowed to see is the worse half of the bug.
+  if (!mayPost(group)) return null;
 
   const cur = group.pokemon.current;
   if (!cur || !cur.messageID || String(cur.messageID) !== String(parent)) return null;
@@ -352,17 +403,21 @@ function stop() {
 /**
  * Post a spawn right now, ignoring the schedule. Used by the admin command.
  *
+ * Still subject to the switches: an admin who has turned the feature off, or
+ * paused the chat, must not be able to summon one anyway.
+ *
  * @param {object} api
  * @param {object} group
  * @returns {Promise<object|null>}
  */
 async function spawnNow(api, group) {
+  if (!mayPost(group)) return null;
   if (hasLiveSpawn(group)) return null;
   return spawnOne(api, group);
 }
 
 module.exports = {
-  TICK_MS, MAX_PER_TICK, SPAWN_CHANCE,
-  hasLiveSpawn, isDue, spawnBody, spawnOne, tick,
+  TICK_MS, MAX_PER_TICK, SWITCH,
+  hasLiveSpawn, isDue, mayPost, spawnBody, spawnOne, tick,
   attemptCatch, catchBody, start, stop, spawnNow,
 };

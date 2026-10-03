@@ -27,12 +27,14 @@ const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
 /**
  * How long a spawn survives if nobody catches it.
  *
- * Longer than the interval on purpose: a spawn nobody wanted should not be
- * replaced before it has had its fifteen minutes to be found, but it must not
- * sit there forever either, or a chat that was busy at 14:00 and quiet at 14:30
- * ends up with no spawn at all.
+ * SHORTER THAN THE INTERVAL, on purpose. A spawn that outlives its own
+ * interval holds the group's slot — `hasLiveSpawn` says there is still one on
+ * the table — so a Pokemon nobody wanted used to push the next one out by five
+ * minutes, and a chat that ignored one at 14:00 saw nothing again until 14:20.
+ * The fifteen-minute promise is the one players are told about, so an ignored
+ * spawn has to expire before it can break it.
  */
-const DEFAULT_TTL_MS = 20 * 60 * 1000;
+const DEFAULT_TTL_MS = 12 * 60 * 1000;
 
 /** What each rarity is worth when caught. Rarer is fatter. */
 const BOUNTY = {

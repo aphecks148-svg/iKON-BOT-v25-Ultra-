@@ -31,6 +31,7 @@ const userTarget = require('../bot/target');
 const Group = require('../models/Group');
 const dex = require('../bot/pokemon');
 const pokemonSpawn = require('../bot/pokemonSpawn');
+const toggles = require('../bot/toggles');
 
 const CASH = 'K-Cash';
 
@@ -391,7 +392,21 @@ async function xpTail(userDoc, gained, levels, newTitles) {
 async function pokeGroup(event) {
   if (!mongo.isReady() || !event || !event.isGroup || !event.threadID) return null;
   const group = await Group.findOne({ tid: String(event.threadID) }).catch(() => null);
-  if (group && !group.pokemon) group.pokemon = {};
+  if (group && !group.pokemon) {
+    // Backfilled with the same defaults the schema states, not with `{}`. A
+    // document written before wild Pokemon existed read as OFF here while the
+    // scheduler read it as ON, so `!pokemon` reported a setting that had never
+    // been turned down and sent the admin off to fix the wrong thing.
+    group.pokemon = {
+      enabled: true,
+      intervalMs: dex.DEFAULT_INTERVAL_MS,
+      lastSpawnAt: null,
+      lastAttemptAt: null,
+      current: {
+        id: 0, messageID: '', spawnedAt: null, expiresAt: null, caughtBy: '',
+      },
+    };
+  }
   return group;
 }
 
@@ -2234,16 +2249,23 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
       const interval = Number(group.pokemon.intervalMs) || dex.DEFAULT_INTERVAL_MS;
       const last = group.pokemon.lastSpawnAt ? new Date(group.pokemon.lastSpawnAt) : null;
       const next = last ? new Date(last.getTime() + interval) : null;
+      // A group that has never spawned is due on the next tick, not in fifteen
+      // minutes — saying otherwise here is how an admin talks themselves into
+      // thinking the scheduler is asleep.
+      const dueIn = !group.pokemon.enabled
+        ? 'while they are off'
+        : last ? ago(next) : 'any minute now';
       await react('🌿');
       await reply(
         `🌿 **POKEMON IN THIS CHAT: ${yesNo(!!group.pokemon.enabled)}**\n`
         + '· · · · · · ·\n'
         + `⏱️ One every ${Math.round(interval / 60000)} minutes\n`
         + `🕐 Last spawn: ${ago(last)}\n`
-        + `⏭️ Next due: ${next ? ago(next) : 'once you turn it on'}\n`
+        + `⏭️ Next due: ${dueIn}\n`
         + `🎯 ${currentLine(group)}\n`
         + '· · · · · · ·\n'
-        + 'Turn it on or off with `!pokemon on` / `!pokemon off`.',
+        + 'Turn it on or off with `!pokemon on` / `!pokemon off`.'
+        + `${!group.pokemon.enabled || pokemonSpawn.mayPost(group) ? '' : '\n⚠️ The scheduler will not post here anyway: ' + toggles.evaluateGroup(group, pokemonSpawn.SWITCH.cmdName, pokemonSpawn.SWITCH.category).reason}`,
         event.messageID,
       );
     }),

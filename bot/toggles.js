@@ -70,42 +70,24 @@ function findGroup(tid) {
 }
 
 /**
- * Decide whether a command may run in a thread.
- * Checks, in order: bot-wide maintenance, group isEnabled, maintenance,
- * disabledModules, disabledCommands.
+ * The per-group switch rules, against a document that is already in hand.
  *
- * Fails OPEN when the database is unreachable so a DB outage never takes the
- * whole bot down — maintenance is enforced from config.MAINTENANCE_MODE, which
- * needs no database at all.
+ * Split out of isCommandDisabled because the scheduler asks the same question
+ * about work it does itself. `!pokemon off` is honoured by the command, but a
+ * wild Pokemon posted by the background tick is not a command: it used to walk
+ * straight past a paused chat, a maintenance switch and a disabled module,
+ * which is how an admin turned a feature off and kept getting pictures anyway.
+ * One set of rules, two callers.
  *
- * THERE IS NO APPROVAL CHECK HERE, and that is deliberate. There used to be an
- * approved list, and past ten groups it was never maintained, so a chat added
- * weeks earlier sat there refusing every command on a flag nobody remembered
- * setting. Being in the group is the whole test — see getGroup(), which creates
- * threads already approved, and bot/gcs.js, which approves every existing
- * thread on boot.
+ * Pure — no database, no config — so a caller that already has the document
+ * does not pay for a second lookup.
  *
- * @returns {Promise<{allowed:boolean, reason:string, adminsOnly:boolean}>}
- fedbbb0 (fix: all core bugs)
- *
- * @returns {Promise<{allowed:boolean, reason:string, adminsOnly:boolean, adminBypass:boolean}>}
- *   `adminBypass` says whether an admin of the thread may run the command anyway.
- *   It is true for the per-command and per-module switches — the things an admin
- *   sets — and false for maintenance, which is a deliberate shutdown that has to
- *   hold for everybody, including the owner who turned it on.
+ * @param {object|null} group a Group document, lean object, or null
+ * @param {string} cmdName the command being gated
+ * @param {string} category its category, which doubles as a module key
+ * @returns {{allowed:boolean, reason:string, adminsOnly:boolean, adminBypass:boolean}}
  */
-async function isCommandDisabled(tid, cmdName, category) {
-  if (config.MAINTENANCE_MODE) {
-    return {
-      allowed: false, reason: 'Bot is under maintenance. Back shortly.', adminsOnly: false, adminBypass: false,
-    };
-  }
-
-  const group = await findGroup(tid);
-  if (!group) return {
-    allowed: true, reason: '', adminsOnly: false, adminBypass: true,
-  };
-
+function evaluateGroup(group, cmdName, category) {
   // Reported rather than enforced here: only the engine knows the sender, and
   // this module has no api to resolve thread admins with.
   const adminsOnly = group.adminsOnly === true;
@@ -149,6 +131,42 @@ async function isCommandDisabled(tid, cmdName, category) {
   return {
     allowed: true, reason: '', adminsOnly, adminBypass: true,
   };
+}
+
+/**
+ * Decide whether a command may run in a thread.
+ * Checks, in order: bot-wide maintenance, then the group rules above.
+ *
+ * Fails OPEN when the database is unreachable so a DB outage never takes the
+ * whole bot down — maintenance is enforced from config.MAINTENANCE_MODE, which
+ * needs no database at all.
+ *
+ * THERE IS NO APPROVAL CHECK HERE, and that is deliberate. There used to be an
+ * approved list, and past ten groups it was never maintained, so a chat added
+ * weeks earlier sat there refusing every command on a flag nobody remembered
+ * setting. Being in the group is the whole test — see getGroup(), which creates
+ * threads already approved, and bot/gcs.js, which approves every existing
+ * thread on boot.
+ *
+ * @returns {Promise<{allowed:boolean, reason:string, adminsOnly:boolean, adminBypass:boolean}>}
+ *   `adminBypass` says whether an admin of the thread may run the command anyway.
+ *   It is true for the per-command and per-module switches — the things an admin
+ *   sets — and false for maintenance, which is a deliberate shutdown that has to
+ *   hold for everybody, including the owner who turned it on.
+ */
+async function isCommandDisabled(tid, cmdName, category) {
+  if (config.MAINTENANCE_MODE) {
+    return {
+      allowed: false, reason: 'Bot is under maintenance. Back shortly.', adminsOnly: false, adminBypass: false,
+    };
+  }
+
+  const group = await findGroup(tid);
+  if (!group) return {
+    allowed: true, reason: '', adminsOnly: false, adminBypass: true,
+  };
+
+  return evaluateGroup(group, cmdName, category);
 }
 
 /** Turn maintenance mode on/off for a group. */
@@ -204,6 +222,7 @@ async function setEnabled(tid, on) {
 module.exports = {
   getGroup,
   findGroup,
+  evaluateGroup,
   isCommandDisabled,
   setMaintenance,
   toggleCommand,

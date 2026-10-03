@@ -3189,9 +3189,12 @@ const PIKACHU = dex.find('pikachu');
     const pokemonSpawn = require('./pokemonSpawn');
     const dex = require('./pokemon');
 
-    // Once a minute, with an 8% roll per group that has come due.
+    // Once a minute, and a group whose fifteen minutes are up spawns on that
+    // tick. The 8% roll used to sit in front of this, which made the real
+    // cadence twenty-seven minutes while every message in the bot advertised
+    // fifteen.
     assert.strictEqual(pokemonSpawn.TICK_MS, 60 * 1000, 'the roll is once a minute');
-    assert.strictEqual(pokemonSpawn.SPAWN_CHANCE, 0.08, 'and an 8% chance');
+    assert.strictEqual(pokemonSpawn.SPAWN_CHANCE, undefined, 'and nothing rolls the dice on top of that');
 
     // The roster is the 151-entry Gen 1 list with rarity tiers, not a flat
     // species table, so a spawn always has a tier and a type to announce.
@@ -3209,9 +3212,24 @@ const PIKACHU = dex.find('pikachu');
     });
     assert.strictEqual(pokemonSpawn.isDue(mk(), Date.now()), true, 'a fresh group is due');
     assert.strictEqual(pokemonSpawn.isDue(mk({ enabled: false }), Date.now()), false, 'an opt-out is not due');
-    // A document with no `enabled` field at all must still spawn, or every group
-    // saved before the setting existed stays silent forever.
-    assert.strictEqual(pokemonSpawn.isDue(mk({ enabled: undefined }), Date.now()), true, 'an absent flag does not opt out');
+    // A document with no `pokemon` block at all — a lean object, or a row
+    // written before this feature existed — is not an opt-out. isDue used to
+    // treat a missing block as "off" and never spawn there, with nothing
+    // anywhere to say why.
+    assert.strictEqual(pokemonSpawn.isDue({ tid: 't1' }, Date.now()), true, 'a group with no pokemon block still spawns');
+    assert.strictEqual(
+      pokemonSpawn.isDue({ tid: 't1', pokemon: { enabled: undefined } }, Date.now()),
+      true,
+      'an absent flag does not opt out',
+    );
+
+    // A failed attempt backs off. Otherwise a sprite that 404s turns into one
+    // download attempt per group per minute, forever.
+    assert.strictEqual(
+      pokemonSpawn.isDue(mk({ lastSpawnAt: new Date(Date.now() - 20 * 60 * 1000), lastAttemptAt: new Date(Date.now() - 60 * 1000) }), Date.now()),
+      false,
+      'a group whose last attempt just failed waits the full interval',
+    );
 
     // First catch wins: the spawn records who took it and refuses the next.
     const g = mk();
@@ -3225,6 +3243,117 @@ const PIKACHU = dex.find('pikachu');
     g.pokemon.current.caughtBy = 'u1';
     assert.strictEqual(pokemonSpawn.hasLiveSpawn(g), false, 'a caught spawn is no longer live');
     return `${dex.POKEMON.length} in the roster, one spawn per group, first catch wins`;
+  });
+
+  await step('a spawn really lands every fifteen minutes, and only where an admin allows it', async () => {
+    const pokemonSpawn = require('./pokemonSpawn');
+    const dex = require('./pokemon');
+    const mongo = require('./mongo');
+    const media = require('./media');
+    const Group = require('../models/Group');
+
+    // THE PROOF, not a description of one. An hour of real ticks against a fake
+    // clock and a stubbed transport: the spawns are counted, and their spacing
+    // is measured. Everything else in this file checks that a function returns
+    // what it should; this checks that the schedule players are told about —
+    // "one every 15 minutes", in the hint, in `!pokemon`, in the message itself
+    // — is the schedule the bot actually keeps.
+    const MIN = 60 * 1000;
+    const realReady = mongo.isReady;
+    const realFind = Group.find;
+    const realAttachment = media.attachment;
+    mongo.isReady = () => true;
+    // The sprite fetch is the only part that touches the network. Replaced with a
+    // stream so this test measures the schedule and not GitHub's uptime.
+    media.attachment = async () => require('stream').Readable.from([Buffer.from('sprite')]);
+
+    const mkGroup = (tid, over = {}) => ({
+      tid,
+      isEnabled: true,
+      maintenance: false,
+      disabledCommands: [],
+      disabledModules: [],
+      pokemon: {
+        enabled: true,
+        intervalMs: dex.DEFAULT_INTERVAL_MS,
+        lastSpawnAt: null,
+        lastAttemptAt: null,
+        current: { id: 0, messageID: '', spawnedAt: null, expiresAt: null, caughtBy: '' },
+      },
+      async save() { return this; },
+      ...over,
+    });
+
+    /** Run an hour of ticks, minute by minute, against a set of groups. */
+    const runHour = async (groups) => {
+      const at = [];
+      // Fixed base. Re-reading Date.now() each pass would make the simulated
+      // clock drift by however long the loop took, and the test would be
+      // measuring the test.
+      const T0 = Date.now();
+      const api = {
+        now: 0,
+        async sendMessage(msg, tid) {
+          at.push({ tid, body: msg.body, at: T0 + api.now });
+          return { messageID: `M_${tid}_${at.length}` };
+        },
+      };
+      Group.find = async () => groups;
+      // t = 0 through t = 60 minutes inclusive: 61 ticks, one a minute.
+      for (let t = 0; t <= 60 * MIN; t += pokemonSpawn.TICK_MS) {
+        api.now = t;
+        // eslint-disable-next-line no-await-in-loop
+        await pokemonSpawn.tick(api, T0 + t);
+      }
+      return at;
+    };
+
+    try {
+      // 1. The cadence. One group, nobody catches anything, one hour.
+      const lonely = mkGroup('cadence');
+      const seen = await runHour([lonely]);
+      assert.strictEqual(seen.length, 5, `five spawns in an hour at a fifteen-minute interval, got ${seen.length}`);
+
+      // Never early, and never more than one tick late. That is the whole promise
+      // the hint, `!pokemon` and the spawn message itself all make.
+      const gaps = seen.slice(1).map((s, i) => (s.at - seen[i].at) / MIN);
+      assert.ok(
+        gaps.every((g) => g * MIN >= dex.DEFAULT_INTERVAL_MS && g * MIN <= dex.DEFAULT_INTERVAL_MS + pokemonSpawn.TICK_MS),
+        `every gap is fifteen minutes, give or take the tick, got ${gaps.join(', ')}`,
+      );
+
+      // Every message is a real announcement, not a placeholder.
+      assert.ok(seen.every((s) => /wild/i.test(s.body) && /reply to this message/i.test(s.body)), 'each spawn announces itself and how to catch it');
+
+      // 2. The switches. Every one of these is an admin switch, and every one of
+      // them used to be ignored by the one thing the bot does on its own.
+      const off = mkGroup('off', { pokemon: { ...mkGroup('x').pokemon, enabled: false } });
+      const paused = mkGroup('paused', { isEnabled: false });
+      const maint = mkGroup('maint', { maintenance: true });
+      const noCmd = mkGroup('nocmd', { disabledCommands: ['pokemon'] });
+      const noMod = mkGroup('nomod', { disabledModules: ['rpg'] });
+      const live = mkGroup('live');
+      const silenced = await runHour([off, paused, maint, noCmd, noMod, live]);
+      assert.strictEqual(silenced.length, 5, `only the one allowed group spawned, got ${silenced.length}`);
+      assert.ok(silenced.every((s) => s.tid === 'live'), `every spawn went to the allowed group, got ${[...new Set(silenced.map((s) => s.tid))].join(', ')}`);
+
+      // 3. An ignored spawn must not swallow the next one. The TTL was longer
+      // than the interval, so a Pokemon nobody wanted pushed the schedule out by
+      // five minutes and the chat saw nothing at all until it expired.
+      assert.ok(
+        dex.DEFAULT_TTL_MS < dex.DEFAULT_INTERVAL_MS,
+        `a spawn expires before the next one is due (${dex.DEFAULT_TTL_MS / MIN} < ${dex.DEFAULT_INTERVAL_MS / MIN} min)`,
+      );
+      const ignored = mkGroup('ignored');
+      const ignoredSeen = await runHour([ignored]);
+      assert.strictEqual(ignoredSeen.length, 5, 'nobody caught a single one, and the fifteen minutes still held');
+
+      return `5 spawns an hour, 15 min apart, and 5 admin switches all stop it`;
+    } finally {
+      mongo.isReady = realReady;
+      Group.find = realFind;
+      media.attachment = realAttachment;
+    }
   });
 
   await step('.catch answers whatever the prefix is', () => {
