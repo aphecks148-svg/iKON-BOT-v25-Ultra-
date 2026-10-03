@@ -28,6 +28,7 @@
 const Group = require('../models/Group');
 const mongo = require('./mongo');
 const dex = require('./pokemon');
+const media = require('./media');
 
 /** How often the scheduler wakes up to ask "is anything due?". */
 const TICK_MS = 60 * 1000;
@@ -142,10 +143,15 @@ async function spawnOne(api, group, now = Date.now()) {
   const threadID = String(group.tid);
   let sent = null;
   try {
+    // A stream, not a descriptor: ws3-fca 3.5.2 rejects `{ type, data: { url } }`
+    // with "Attachment should be a readable stream", and this catch used to
+    // swallow it, so every spawn was posted as text with no picture at all.
+    const sprite = await media.attachment(dex.sprite(p.id), { type: 'image' });
+    if (!sprite) throw new Error(`no sprite bytes for ${p.name}`);
     sent = await api.sendMessage(
       {
         body: spawnBody(p),
-        attachment: { type: 'image', data: { url: dex.sprite(p.id) } },
+        attachment: sprite,
       },
       threadID,
       null,

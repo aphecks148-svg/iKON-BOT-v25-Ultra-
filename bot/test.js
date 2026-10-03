@@ -2077,7 +2077,10 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     }
 
     const bodies = sent.map((s) => s.body).filter(Boolean);
-    const images = sent.filter((s) => s.attachment && s.attachment.data && s.attachment.data.url);
+    // The attachment is a stream, because ws3-fca 3.5.2 rejects the
+    // `{ type, data: { url } }` descriptor outright — the card used to render
+    // here and then be thrown away at send time.
+    const images = sent.filter((s) => s.attachment && typeof s.attachment.on === 'function');
     assert.strictEqual(bodies.length, 2, 'one text line per event');
     assert.ok(bodies[0].includes('Ada Lovelace'), `join names the person: ${bodies[0]}`);
     assert.ok(bodies[0].includes('Lagos Hustle'), `join names the chat: ${bodies[0]}`);
@@ -2092,7 +2095,13 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     if (canvas.available()) {
       assert.strictEqual(images.length, 2, 'a canvas card per join and per goodbye');
       for (const img of images) {
-        assert.ok(String(img.attachment.data.url).startsWith('data:image/png;base64,'));
+        // Read the stream the way the uploader would, and check what is in it.
+        const chunks = [];
+        // eslint-disable-next-line no-restricted-syntax
+        for await (const chunk of img.attachment) chunks.push(chunk);
+        const png = Buffer.concat(chunks);
+        assert.ok(png.length > 8, 'the card carries real bytes');
+        assert.strictEqual(png.subarray(1, 4).toString('ascii'), 'PNG', 'and they are a PNG');
       }
     } else {
       assert.strictEqual(images.length, 0, 'no card without the canvas binary, and no crash');
@@ -3272,6 +3281,311 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(src.includes('p.thumbSrc'), 'duoCard must prefer thumbSrc over a lookup');
     assert.strictEqual(typeof cards.thumbBuffer, 'function');
     return 'both avatars come from the thread member list';
+  });
+
+  // ── the media stack ──────────────────────────────────────
+  // The download half of this bot used to end in a URL. Three things had to be
+  // true before a file could actually land in a chat, and each one was broken in
+  // a way no existing test could see:
+  //
+  //   1. ws3-fca 3.5.2 only accepts a READABLE STREAM as an attachment. Every
+  //      command here wrote `{ type, data: { url } }`, so every image the bot
+  //      drew was silently dropped by the send.
+  //   2. nothing resolved a link to bytes. `!ytdown` printed a thumbnail URL and
+  //      a guess; there was no way to get a song or a video out of the bot.
+  //   3. `!sing` printed a coaching sheet instead of singing anything.
+  await step('an attachment reaches sendMessage as a stream, never an object', async () => {
+    const helpers = require('./helpers');
+    const stream = require('stream');
+
+    const api = mockApi();
+    const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+    const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
+
+    // The descriptor shape the whole repo writes.
+    await helpers.reply(api, 't1', { body: 'card', attachment: { type: 'image', data: { url: dataUrl } } }, 'm1');
+    // A raw Buffer, for audio.
+    await helpers.reply(api, 't1', { body: 'voice', attachment: png }, 'm1');
+    // An array of several, which is how six pictures go out.
+    await helpers.reply(api, 't1', {
+      body: 'six',
+      attachment: [
+        { type: 'image', data: { url: dataUrl } },
+        { type: 'image', data: { url: dataUrl } },
+      ],
+    }, 'm1');
+
+    const [card, voice, six] = api.sent;
+    for (const sent of api.sent) {
+      const list = Array.isArray(sent.payload.attachment) ? sent.payload.attachment : [sent.payload.attachment];
+      for (const att of list) {
+        assert.ok(att instanceof stream.Stream, 'attachment must be a stream — this build throws on an object');
+        assert.strictEqual(typeof att._read, 'function', 'ws3-fca checks _read before uploading');
+      }
+    }
+    assert.ok(!Array.isArray(card.payload.attachment), 'one picture goes out as one stream');
+    assert.strictEqual(six.payload.attachment.length, 2, 'several pictures go out as several streams');
+    assert.strictEqual(voice.payload.body, 'voice', 'the text side still rides along');
+
+    // Bytes that cannot be had must not swallow the text.
+    await helpers.reply(api, 't1', { body: 'still here', attachment: { type: 'image', data: { url: 'not a url' } } }, 'm1');
+    const lost = api.sent[3];
+    assert.strictEqual(lost.payload.attachment, undefined, 'an unusable attachment is dropped');
+    assert.strictEqual(lost.payload.body, 'still here', 'the text is sent on its own rather than lost with it');
+
+    // An existing stream is passed through untouched.
+    const ready = stream.Readable.from([png]);
+    await helpers.reply(api, 't1', { body: 'raw', attachment: ready }, 'm1');
+    assert.strictEqual(api.sent[4].payload.attachment, ready, 'a stream is not re-wrapped');
+    return 'descriptors, Buffers and arrays all become streams; text survives a bad attachment';
+  });
+
+  await step('media reads a YouTube link and picks a stream with sound in it', async () => {
+    const media = require('./media');
+
+    // Every link shape people paste, not just the tidy one.
+    const shapes = {
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+      'https://youtu.be/dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+      'https://www.youtube.com/shorts/dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+      'https://www.youtube.com/embed/dQw4w9WgXcQ': 'dQw4w9WgXcQ',
+      'https://m.youtube.com/watch?v=dQw4w9WgXcQ&t=30': 'dQw4w9WgXcQ',
+      dQw4w9WgXcQ: 'dQw4w9WgXcQ',
+    };
+    for (const [link, id] of Object.entries(shapes)) {
+      assert.strictEqual(media.youtubeId(link), id, `link shape not understood: ${link}`);
+    }
+    assert.strictEqual(media.youtubeId('https://vimeo.com/12345'), '', 'a non-YouTube link has no id');
+    assert.strictEqual(media.youtubeId('https://www.youtube.com/'), '', 'a channel link has no video id');
+
+    // Offline: the picker is exercised against the exact shape innertube returns.
+    // A progressive file advertises sound as the mp4a codec, never as the word
+    // "audio" — matching on the word is how a downloader ships a silent video
+    // and calls it a music video.
+    const progressive = 'video/mp4; codecs="avc1.42001E, mp4a.40.2"';
+    const videoOnly = 'video/mp4; codecs="avc1.4d401f"';
+    const formats = [
+      { mimeType: videoOnly, url: 'u1', bitrate: 4000000, qualityLabel: '1080p', contentLength: '90000000' },
+      { mimeType: videoOnly, url: 'u2', bitrate: 2000000, qualityLabel: '720p', contentLength: '40000000' },
+      { mimeType: progressive, url: 'u3', bitrate: 500000, qualityLabel: '360p', contentLength: '20000000' },
+      { mimeType: 'audio/mp4; codecs="mp4a.40.2"', url: 'a1', bitrate: 130000, contentLength: '3400000' },
+      { mimeType: 'audio/webm; codecs="opus"', url: 'a2', bitrate: 136000, contentLength: '3400000' },
+    ];
+    const picked = media.pickVideo(formats);
+    assert.strictEqual(picked.url, 'u3', 'a progressive file beats a higher-resolution silent one');
+    assert.strictEqual(picked.silent, false, 'and it is not the silent one');
+    const audio = media.pickAudio(formats);
+    assert.strictEqual(audio.url, 'a1', 'm4a is preferred over webm/opus');
+    assert.strictEqual(audio.extension, 'm4a');
+
+    // Nothing usable resolves to null rather than a broken link.
+    assert.strictEqual(media.pickAudio([{ mimeType: videoOnly, url: 'x' }]), null);
+    assert.strictEqual(media.pickVideo([]), null);
+    return 'six link shapes parsed; sound survives the pick';
+  });
+
+  await step('a download command sends the file, not a link to it', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const media = require('./media');
+
+    // A one pixel PNG, so the "upload" is a real stream without a real network.
+    const png = Buffer.from(
+      '89504e470d0a1a0a0000000d494844520000000100000001080600000'
+      + '01f15c4890000000d4944415478da63fccfc0500f0004850181' + '84a2a5d7b0000000049454e44ae426082',
+      'hex',
+    );
+
+    const realResolve = media.resolve;
+    const realAttachment = media.attachment;
+    let sent = null;
+    try {
+      media.resolve = async () => ({
+        platform: 'youtube',
+        title: 'Test Track',
+        author: 'Tester',
+        mode: 'audio',
+        file: { url: 'https://example.invalid/song.m4a', mimeType: 'audio/mp4', size: 3400000, extension: 'm4a' },
+      });
+      // The upload is the part that used to fail, so it is the part under test.
+      media.attachment = async () => require('stream').Readable.from([png]);
+
+      const mp3 = loaded.registry.get('songdown');
+      assert.ok(mp3, '!mp3 must exist — it is how a song gets downloaded');
+      await mp3.execute({
+        api: mockApi(),
+        args: ['https://youtu.be/dQw4w9WgXcQ'],
+        event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
+        config,
+        reply: async (t) => { sent = t; },
+        react: async () => true,
+        userDoc: { uid: '9', name: 'Tester', coins: 100000 },
+      });
+
+      assert.ok(sent, '!mp3 replied');
+      assert.ok(sent.attachment, 'the reply carries an attachment, not just a URL');
+      assert.ok(/Test Track/.test(sent.body || ''), 'and it names what it sent');
+      assert.ok(!/⬇️ https:\/\//.test(sent.body || ''), 'a link is not a download');
+    } finally {
+      media.resolve = realResolve;
+      media.attachment = realAttachment;
+    }
+
+    // When nothing resolves, the command says so instead of going quiet — a paid
+    // command that returns nothing at all is indistinguishable from a crash.
+    try {
+      media.resolve = async () => null;
+      media.attachment = async () => null;
+      const failed = [];
+      const dl = loaded.registry.get('download');
+      assert.ok(dl, '!download must exist — one command for every site');
+      await dl.execute({
+        api: mockApi(),
+        args: ['https://www.youtube.com/watch?v=dQw4w9WgXcQ'],
+        event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
+        config,
+        reply: async (t) => { failed.push(t); },
+        react: async () => true,
+        userDoc: { uid: '9', name: 'Tester', coins: 100000 },
+      });
+      const said = failed.join('\n');
+      assert.ok(/no file/i.test(said), 'a dead resolver is reported, not swallowed');
+    } finally {
+      media.resolve = realResolve;
+      media.attachment = realAttachment;
+    }
+    return '!mp3 attaches the file; !download explains itself when it cannot';
+  });
+
+  await step('!pinterestsearch sends five or more pictures', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const media = require('./media');
+    const stream = require('stream');
+
+    const realPictures = media.pictures;
+    const realAttachment = media.attachment;
+    try {
+      const png = Buffer.from('89504e470d0a1a0a', 'hex');
+      media.pictures = async (topic, want) => ({
+        source: 'pinterest',
+        pictures: Array.from({ length: want }, (_, i) => ({
+          url: `https://i.pinimg.com/originals/a/${i}.jpg`,
+          page: `https://www.pinterest.com/pin/${i}/`,
+          title: `pin ${i + 1}`,
+        })),
+      });
+      media.attachment = async () => stream.Readable.from([png]);
+
+      const sent = [];
+      const cmd = loaded.registry.get('pinterestsearch');
+      await cmd.execute({
+        api: mockApi(),
+        args: ['aesthetic bedroom'],
+        event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
+        config,
+        reply: async (t) => { sent.push(t); },
+        react: async () => true,
+        userDoc: { uid: '9', name: 'Tester', coins: 100000 },
+      });
+
+      // The contact sheet plus one message per picture. The sheet needs canvas,
+      // so only the six numbered pictures are counted: those are the promise.
+      const numbered = sent.filter((s) => typeof s.body === 'string' && /^\d\/6/.test(s.body));
+      assert.strictEqual(numbered.length, 6, 'every picture is sent and numbered so they can be told apart');
+      const picturesSent = numbered.filter((s) => s.attachment);
+      assert.strictEqual(picturesSent.length, 6, 'and each numbered message carries the picture itself');
+    } finally {
+      media.pictures = realPictures;
+      media.attachment = realAttachment;
+    }
+    return 'six real images, each its own attachment';
+  });
+
+  await step('!sing sings, and !lyrics writes when it cannot find', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const media = require('./media');
+    const realSpeech = media.speech;
+    const realAsk = groq.ask;
+    try {
+      media.speech = async () => Buffer.from('ID3fake-mp3-bytes-for-the-test');
+      groq.ask = async () => 'key feel: minor. tempo: 92. hardest line: the bridge. warm up on "la la la".';
+
+      const sung = [];
+      const sing = loaded.registry.get('sing');
+      await sing.execute({
+        api: mockApi(),
+        args: ['never gonna give you up', 'rick astley'],
+        event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
+        config,
+        reply: async (t) => { sung.push(t); },
+        react: async () => true,
+        userDoc: { uid: '9', name: 'Tester', coins: 100000 },
+      });
+
+      const voice = sung.find((s) => s.attachment);
+      assert.ok(voice, '!sing must attach audio — a coaching sheet is not singing');
+      assert.ok(sung.some((s) => typeof s.body === 'string' && /SINGING/.test(s.body)), 'the guide still ships as text');
+
+      // Writing mode: no lyrics.ovh hit must still produce a song, and it must
+      // not be passed off as somebody else's chorus.
+      const written = [];
+      const lyrics = loaded.registry.get('lyrics');
+      await lyrics.execute({
+        api: mockApi(),
+        args: ['write', 'heartbreak', 'at', '3am'],
+        event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
+        config,
+        reply: async (t) => { written.push(t); },
+        react: async () => true,
+        userDoc: { uid: '9', name: 'Tester', coins: 100000 },
+      });
+      const out = written.join('\n');
+      assert.ok(/original/i.test(out), 'a written song is labelled as original');
+      assert.ok(/heartbreak/i.test(out), 'and it is the song that was asked for');
+    } finally {
+      media.speech = realSpeech;
+      groq.ask = realAsk;
+    }
+    return '!sing attaches a voice note; !lyrics write composes';
+  });
+
+  await step('every one of the fifty pets is listed, with its price', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const petlist = loaded.registry.get('petlist');
+    const pages = [];
+    await petlist.execute({
+      api: {}, args: [], event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
+      config, reply: async (t) => { pages.push(t); }, react: async () => true,
+      userDoc: { uid: '9', name: 'Owner', coins: 100000 },
+    });
+
+    const all = pages.join('\n');
+    // The roster itself, straight off disk, so the test cannot pass by agreeing
+    // with a hardcoded number.
+    const src = require('fs').readFileSync(path.join(__dirname, '..', 'commands', 'cmds_4.js'), 'utf8');
+    const block = src.slice(src.indexOf('const DANGEROUS_PETS = ['));
+    const ids = [...block.slice(0, block.indexOf('\n];')).matchAll(/id:\s*'([^']+)'/g)].map((m) => m[1]);
+
+    assert.strictEqual(ids.length, 50, 'the roster is fifty pets');
+    const missing = ids.filter((id) => !all.includes(`!adopt ${id}`));
+    assert.strictEqual(missing.length, 0, `pets missing from the bestiary: ${missing.join(', ')}`);
+
+    // Ids alone are not a catalogue: a player cannot see what a pet costs or how
+    // strong it is without a second command.
+    const prices = (all.match(/K-Cash/g) || []).length;
+    assert.ok(prices >= 50, `every pet shows its price — found ${prices}`);
+
+    // `all` is the catalogue spelled out, so it must behave like no argument.
+    const viaAll = [];
+    await petlist.execute({
+      api: {}, args: ['all'], event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
+      config, reply: async (t) => { viaAll.push(t); }, react: async () => true,
+      userDoc: { uid: '9', name: 'Owner', coins: 100000 },
+    });
+    assert.ok(viaAll.join('\n').includes('BESTIARY'), '`!petlist all` is the whole ladder, not an unknown rarity');
+
+    // One page per rarity, so Messenger cannot truncate the bottom of the list.
+    assert.ok(pages.length >= 3, `the list is paginated, got ${pages.length} messages`);
+    return `all ${ids.length} pets, priced and paginated`;
   });
 
 // ── summary ───────────────────────────────────────────────

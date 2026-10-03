@@ -647,9 +647,9 @@ module.exports = [
     name: 'adopt',
     aliases: [],
     category: 'pets',
-    description: '🥚 Adopt a starter dragon (1k) or buy one of 15 dangerous pets',
+    description: `🥚 Adopt a starter dragon (1k) or buy one of ${DANGEROUS_PETS.length} dangerous pets`,
     usage: '!adopt [starter | <pet id>]',
-    hint: '1,000 coins for a starter dragon, or buy one of fifteen dangerous pets outright.',
+    hint: '1,000 coins for a starter dragon, or buy one of the fifty dangerous pets outright.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'adopt', async () => {
@@ -1703,14 +1703,16 @@ module.exports = [
     name: 'petlist',
     aliases: [],
     category: 'pets',
-    description: '🐉 The bestiary — every dangerous pet, by rarity',
-    usage: '!petlist [rarity]',
-    hint: 'Fifty of them, from Common to Divine. `!petlist divine` is the shortlist.',
+    description: '🐉 The bestiary — all fifty buyable pets, by rarity',
+    usage: '!petlist [rarity | all]',
+    hint: 'Fifty pets, from Common to Divine. `!petlist all` shows every price; `!petlist divine` is the shortlist.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petlist', async () => {
       await react('🐉');
-      const want = String(args[0] || '').toLowerCase().trim();
+      const typed = String(args[0] || '').toLowerCase().trim();
+      // `all` is the catalogue spelled out loud, so it means the whole ladder.
+      const want = /^(all|every|full)$/.test(typed) ? '' : typed;
 
       if (want) {
         // A shortlist beats a wall of 50 lines, so asking for a rarity gives
@@ -1719,7 +1721,7 @@ module.exports = [
         // bottom rung for anything it does not recognise, so it can never
         // report an unknown rarity and the guard below would never fire.
         if (!rarity.BY_KEY.has(want)) {
-          await reply(`❓ No rarity called \`${want}\`. Try: ${rarity.LADDER.map((r) => `\`${r.key}\``).join(', ')}`, event.messageID);
+          await reply(`❓ No rarity called \`${want}\`. Try: \`${rarity.LADDER.map((r) => `\`${r.key}\``).join(', ')}\`, or \`all\``, event.messageID);
           return;
         }
         const picked = DANGEROUS_PETS.filter((p) => p.rarity === want);
@@ -1740,19 +1742,45 @@ module.exports = [
         return;
       }
 
-      // Grouped, not alphabetical — the ladder is the point of the page.
-      const out = [`🐉 **iKON BESTIARY — ${DANGEROUS_PETS.length} DANGEROUS PETS**`];
+      // The full page. Ids alone are not a catalogue — a player cannot tell what
+      // `ratking` costs or how strong it is without a second command — so every
+      // pet gets its name, emoji, power, price and the exact command that buys
+      // it. It runs long, so it is paginated per rarity rather than dropped in
+      // one message and truncated by Messenger.
+      const pages = [];
       for (const r of rarity.LADDER) {
         const group = DANGEROUS_PETS.filter((p) => p.rarity === r.key);
         if (!group.length) continue;
-        out.push('', `${r.symbol} **${r.label}** · ${group.length}`);
-        out.push(group.map((p) => `\`${p.id}\``).join(' '));
+        const lines = group.map((p) => (
+          `${p.emoji} **${p.name}** ⚡${num(p.power)} · ${kc(p.price)} · 🔒Lv${p.level}\n   \`!adopt ${p.id}\``
+        ));
+        pages.push([
+          `${r.symbol} **${r.label.toUpperCase()}** · ${group.length} of ${DANGEROUS_PETS.length}`,
+          '· · · · · · ·',
+          ...lines,
+        ].join('\n'));
       }
-      out.push('', '· · · · · · ·');
-      out.push(`🔎 \`${config.PREFIX}petlist <rarity>\` — one rarity at a time`);
-      out.push(`🥚 Starter dragon: \`${config.PREFIX}adopt starter\``);
-      out.push(`💡 Divine pets are one of one — price is the smallest part of getting one.`);
-      await reply(out.join('\n'), event.messageID);
+
+      // Messenger truncates a long body, so a 50-pet list is sent one rarity at
+      // a time. Players see all fifty and nothing gets cut off the bottom.
+      for (let i = 0; i < pages.length; i += 1) {
+        const head = i === 0
+          ? `🐉 **iKON BESTIARY — ${DANGEROUS_PETS.length} DANGEROUS PETS**\n`
+            + `📖 ${pages.length} pages · every one is buyable with \`!adopt <id>\`\n`
+          : `🐉 **BESTIARY ${i + 1}/${pages.length}**\n`;
+        // eslint-disable-next-line no-await-in-loop
+        await reply(`${head}${pages[i]}`, event.messageID);
+        // eslint-disable-next-line no-await-in-loop
+        if (i < pages.length - 1) await wait(400);
+      }
+
+      await reply(
+        `· · · · · · ·\n`
+        + `🔎 \`${config.PREFIX}petlist <rarity>\` — one rarity at a time\n`
+        + `🥚 Starter dragon: \`${config.PREFIX}adopt starter\` (1,000)\n`
+        + `💡 Divine pets are one of one — price is the smallest part of getting one.`,
+        event.messageID,
+      );
     }),
   },
 

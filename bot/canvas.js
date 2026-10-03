@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { isGroupThread } = require('./helpers');
+const media = require('./media');
 
 let canvas = null;
 let loadError = null;
@@ -130,13 +131,21 @@ async function registerDefaultFont(dir = path.join(__dirname, 'fonts')) {
  * whitelists payload properties and throws "Dissallowed props" otherwise, which
  * is why the text side of these commands used to go out while the image did not.
  *
+ * The attachment itself has to be a readable stream. This build rejects the
+ * `{ type, data: { url } }` descriptor that every command in the repo used to
+ * write, so media.attachment() turns the PNG into something the uploader accepts.
+ * Passing a stream in front of a client that wanted an object would be harmless;
+ * passing an object in front of this one loses the image silently.
+ *
  * @param {boolean} [isGroup] the event's isGroup flag. Required for groups whose
  *   threadID has no `t_` prefix, which is how these images failed too.
  */
 async function sendImage(api, threadID, canvasObj, messageID, isGroup = undefined) {
   const buffer = await toBuffer(canvasObj);
   if (!buffer || !api) return null;
-  const payload = { attachment: { type: 'image', data: { url: `data:image/png;base64,${buffer.toString('base64')}` } } };
+  const stream = await media.attachment(buffer, { type: 'image' });
+  if (!stream) return null;
+  const payload = { attachment: stream };
   const replyTo = messageID === undefined || messageID === null ? null : String(messageID);
   try {
     return await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID, isGroup));

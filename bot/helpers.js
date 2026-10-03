@@ -5,6 +5,8 @@
  * and the safe() wrapper that guarantees a broken command can never crash the bot.
  */
 
+const media = require('./media');
+
 const STAMP = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
 /** Timestamped console log. */
@@ -31,6 +33,13 @@ function error(...parts) {
  *   - a one-to-one thread must pass isSingleUser=true. Its threadID is a bare
  *     uid, not a `t_` thread_fbid, so without the flag the send is addressed
  *     to a thread that does not exist.
+ *   - `attachment` has to be a READABLE STREAM. This build throws
+ *     "Attachment should be a readable stream and not Object" for the
+ *     `{ type, data: { url } }` descriptor shape, and because this function
+ *     catches that, every image the bot drew used to vanish with a cheerful
+ *     text reply and nothing in the chat. Descriptors, Buffers, data URLs and
+ *     remote URLs are all converted to streams here, so callers can keep
+ *     writing the readable form.
  *
  * @param {object} api ws3-fca client
  * @param {string|number} threadID conversation id
@@ -46,6 +55,21 @@ async function reply(api, threadID, msg, messageID = null, isGroup = undefined) 
 
   const payload = typeof msg === 'string' ? { body: msg } : { ...(msg || {}) };
   if (!payload.body && !payload.attachment) return null;
+
+  // One message may carry several pictures, so arrays are handled as arrays
+  // rather than being treated as one mystery attachment.
+  if (payload.attachment) {
+    const list = Array.isArray(payload.attachment) ? payload.attachment : [payload.attachment];
+    const streams = [];
+    for (const item of list) {
+      // eslint-disable-next-line no-await-in-loop
+      const stream = await media.attachment(item);
+      if (stream) streams.push(stream);
+    }
+    // Nothing uploadable: send the text on its own rather than losing both.
+    if (!streams.length) delete payload.attachment;
+    else payload.attachment = streams.length === 1 ? streams[0] : streams;
+  }
 
   // sendMessage only accepts a reply-to id that is a string.
   const replyTo = messageID === undefined || messageID === null ? null : String(messageID);

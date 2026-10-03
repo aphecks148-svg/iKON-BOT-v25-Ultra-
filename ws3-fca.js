@@ -707,12 +707,18 @@ async function announce(api, threadID, kind, who, threadName, template, isGroup)
       api,
     });
     if (url) {
-      await api.sendMessage(
-        { attachment: { type: 'image', data: { url } } },
-        threadID,
-        null,
-        !isGroupThread(threadID, isGroup),
-      );
+      // A stream, not a descriptor. ws3-fca 3.5.2 throws on
+      // `{ type, data: { url } }`, and this catch turned that into a silent
+      // no-op — the group still got its join/leave card, just without the art.
+      const card = await require('./bot/media').attachment(url, { type: 'image' });
+      if (card) {
+        await api.sendMessage(
+          { attachment: card },
+          threadID,
+          null,
+          !isGroupThread(threadID, isGroup),
+        );
+      }
     }
   } catch (err) {
     error(`[GROUP] ${kind} card failed: ${err.message}`);

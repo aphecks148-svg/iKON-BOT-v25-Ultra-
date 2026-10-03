@@ -1,11 +1,19 @@
 'use strict';
 
 /**
- * MODULE 8 — DOWNLOAD + AI, GROQ ONLY (35 commands)
+ * MODULE 8 — DOWNLOAD + AI, GROQ ONLY (37 commands)
  *
  * iKON-BOT v2 Ultra. The download half of the bot and the AI half, wired
- * together: every one of these 35 commands calls Groq, and the downloaders
- * use it to write the caption rather than just handing back a file.
+ * together: these 37 commands all call Groq, and the downloaders use it to
+ * write the caption that goes out with the file.
+ *
+ * DOWNLOADING IS NOT OPTIONAL
+ * A download command that ends in a URL is a link dispenser. So every download
+ * here resolves the link through bot/media.js and sends the actual bytes as an
+ * attachment: YouTube audio and video come off YouTube's own innertube API,
+ * TikTok/Facebook/Instagram/X come off tikwm, `!sing` sends a voice note, and
+ * `!pinterestsearch` sends six pictures. The link is only ever the fallback for
+ * when the upload itself fails, and the command says so when it does.
  *
  * Exports a plain array. No factories, no legacy loader.
  *
@@ -20,16 +28,16 @@
  * AI — GROQ ONLY
  * Every handler routes through askGroq(). That is the single place that knows
  * how to talk to api.groq.com, which matters for two reasons: the endpoint is
- * spelt the same way 35 times or it is spelt wrong 35 times, and a missing API
+ * spelt the same way 37 times or it is spelt wrong 37 times, and a missing API
  * key has to degrade to a placeholder in exactly one spot instead of crashing
  * a command. aiOffline() builds that fallback from the same prompt so the reply
  * still has something true in it.
  *
- * The external download APIs (tikwm, lyrics.ovh, football-data, pollinations)
- * are all free and all flaky. Every one of them is wrapped in fetchJson /
- * fetchBuffer, which return null instead of throwing, and every command has a
- * defined path when they return null. A download API being down is a worse day,
- * not a broken bot.
+ * The external APIs (innertube, tikwm, Bing images, lyrics.ovh, Google TTS,
+ * football-data, pollinations) are all free and all flaky. Every one of them is
+ * wrapped by bot/media.js or fetchJson/fetchBuffer, which return null instead of
+ * throwing, and every command has a defined path when they do. A download API
+ * being down is a worse day, not a broken bot.
  *
  * PRICING
  * Coin costs run 50-200 and are charged up front, before the expensive work
@@ -43,6 +51,7 @@ const Economy = require('../models/Economy');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
 const groq = require('../bot/groq');
+const media = require('../bot/media');
 
 const config = require('../config');
 
@@ -473,6 +482,264 @@ function wrap(ctx, text, x, y, maxWidth, lineHeight) {
   return at;
 }
 
+/**
+ * The search topic hiding in a pin URL.
+ *
+ * `/pin/1055599564417088/cute-black-cat/` carries its own subject, so the
+ * recovery hint can name it instead of telling the user to invent one. Returns
+ * '' when the link has no slug, and the caller words the hint accordingly.
+ */
+function pinTopic(link) {
+  const slug = String(link || '').match(/\/pin\/[^/?#]+\/([^/?#]+)/);
+  if (!slug) return '';
+  try {
+    return decodeURIComponent(slug[1]).replace(/[-_+]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+  } catch {
+    return '';
+  }
+}
+
+// ───────────────────────────────────────────────────────────
+// SENDING THE ACTUAL THING
+//
+// Every download command used to end with a link and a Groq joke. A link is not
+// a download, so all of them now end here instead: the real file goes out as an
+// attachment, and if the file cannot be had the honest link message does. The
+// helpers below are shared so a command only has to resolve something.
+// ───────────────────────────────────────────────────────────
+
+/** "12.4 MB", for a file the user is about to receive. */
+function humanSize(bytesCount) {
+  const n = Number(bytesCount) || 0;
+  if (!n) return '';
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Send a resolved file to the chat.
+ *
+ * The upload, not the link, is the feature. So the file is the message body and
+ * the attachment, and the plain link only comes out when the bytes could not be
+ * fetched — with the reason, because "it did not work" is what a paid command
+ * feels like otherwise.
+ *
+ * @param {object} o
+ * @param {function} o.reply bound reply
+ * @param {string|number} o.messageID the command message
+ * @param {object} o.resolved from media.resolve()
+ * @param {string} [o.caption] Groq's text, shown above the file
+ * @param {string} [o.label] command name for the failure line
+ * @param {number} [o.fee] what was charged, so a failure can say so
+ * @returns {Promise<boolean>} whether the file went out
+ */
+async function sendFile({ reply, messageID, resolved, caption = '', label = 'download', fee = 0 }) {
+  const file = resolved && resolved.file;
+  if (!file || !file.url) {
+    await reply(noFileLine(label, fee, resolved), messageID);
+    return false;
+  }
+
+  const header = [
+    `📥 **${(resolved.title || 'Downloaded').slice(0, 90)}**`,
+    resolved.author ? `👤 ${String(resolved.author).slice(0, 60)}` : '',
+    resolved.music ? `🎵 ${String(resolved.music).slice(0, 60)}` : '',
+    [
+      resolved.platform ? `📡 ${resolved.platform}` : '',
+      resolved.mode === 'audio' ? '🎧 audio only' : '',
+      resolved.qualityLabel ? `🎞️ ${resolved.qualityLabel}` : '',
+      file.mimeType ? `📄 ${file.mimeType}` : '',
+      file.size ? `💾 ${humanSize(file.size)}` : '',
+    ].filter(Boolean).join(' · '),
+  ].filter(Boolean).join('\n');
+
+  const body = [caption, header].filter(Boolean).join('\n\n');
+
+  // A file we already know is too big is not worth downloading to find out.
+  // Facebook's ceiling is around 50MB and Render's free memory is smaller, so
+  // the raw link beats an upload that fails after a long wait.
+  if (file.size && file.size > media.MAX_UPLOAD_BYTES) {
+    await reply(
+      `${body}\n\n⚠️ That file is ${humanSize(file.size)}, over what Messenger will take. `
+      + `Here is the link — \`!mp3\` for the audio on its own is usually small enough:\n⬇️ ${file.url}`,
+      messageID,
+    );
+    return false;
+  }
+
+  // A resolved stream is the difference between the file arriving and not.
+  const stream = await media.attachment(file.url, { maxBytes: media.MAX_UPLOAD_BYTES });
+  if (stream) {
+    await reply({ body, attachment: stream }, messageID);
+    return true;
+  }
+
+  // The resolver found a URL but the upload did not take. Handing over the link
+  // still lets the user get the file, so this is a downgraded success, not a
+  // silent failure.
+  await reply(
+    `${body}\n\n⚠️ Messenger would not take the upload, so here is the raw link:\n⬇️ ${file.url}`,
+    messageID,
+  );
+  return false;
+}
+
+/** The "nothing came back" message, with the charged fee spelled out. */
+function noFileLine(label, fee, resolved) {
+  const why = (resolved && resolved.reason) || 'every free endpoint for it is down or blocked';
+  return `⚠️ **\`${label}\` got no file** — ${why}.\n`
+    + (fee ? `_(Your ${kc(fee)} fee was already charged.)_\n` : '')
+    + '💡 Try again in a minute, or hand the link to a downloader app yourself.';
+}
+
+/**
+ * Load one picture into a canvas, cover-fitted into a box.
+ *
+ * Pinterest hands back every aspect ratio ever invented, so a naive drawImage
+ * stretches a tall pin into a smear. Cover-fit crops the overflow instead, which
+ * is what a grid has to do.
+ *
+ * @returns {Promise<boolean>} whether anything was drawn
+ */
+async function drawCover(ctx, url, x, y, w, h) {
+  try {
+    const lib = canvasKit.lib();
+    if (!lib) return false;
+    const buf = await fetchBuffer(url);
+    if (!buf || !buf.length) return false;
+    const { Image } = lib;
+    const img = new Image();
+    img.src = buf;
+    const sw = img.width || w;
+    const sh = img.height || h;
+    if (!sw || !sh) return false;
+    const scale = Math.max(w / sw, h / sh);
+    const dw = sw * scale;
+    const dh = sh * scale;
+    ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A contact sheet of the pictures, as one image.
+ *
+ * Six separate messages is six chances for one upload to fail and six times the
+ * rate limiter gets involved. The sheet is also the thing a user wants to look
+ * at — the individual pictures follow it for anyone who wants to save them.
+ *
+ * @param {Array<{url:string,title:string}>} pictures
+ * @param {string} title
+ * @returns {Promise<string|null>} data URL
+ */
+async function pictureSheet(pictures, title = 'iKON PICKS') {
+  const made = canvasKit.create(1024, 1024);
+  if (!made) return null;
+  const { ctx } = made;
+
+  const bg = ctx.createLinearGradient(0, 0, 1024, 1024);
+  bg.addColorStop(0, canvasKit.theme.bg1);
+  bg.addColorStop(1, canvasKit.theme.bg2);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  ctx.fillStyle = canvasKit.theme.accent;
+  ctx.fillRect(0, 0, 1024, 8);
+
+  const cols = 2;
+  const rows = Math.min(3, Math.max(2, Math.ceil((pictures || []).length / cols)));
+  const top = 96;
+  const gap = 10;
+  const cellW = Math.floor((1024 - 24 - gap * (cols - 1)) / cols);
+  const cellH = Math.floor((1024 - top - 24 - gap * (rows - 1)) / rows);
+
+  ctx.fillStyle = canvasKit.theme.text;
+  ctx.font = 'bold 40px iKonSans';
+  ctx.fillText(String(title).slice(0, 26), 24, 58);
+  ctx.fillStyle = canvasKit.theme.accent2;
+  ctx.font = '22px iKonSans';
+  ctx.fillText(`${pictures.length} pictures · tap below to open each one`, 24, 86);
+
+  let drawn = 0;
+  for (let i = 0; i < pictures.length && i < cols * rows; i += 1) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = 12 + col * (cellW + gap);
+    const y = top + row * (cellH + gap);
+
+    ctx.fillStyle = '#10101c';
+    ctx.fillRect(x, y, cellW, cellH);
+    // eslint-disable-next-line no-await-in-loop
+    if (await drawCover(ctx, pictures[i].url, x, y, cellW, cellH)) drawn += 1;
+
+    // The index is what makes the follow-up messages findable.
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(x, y + cellH - 34, 44, 34);
+    ctx.fillStyle = canvasKit.theme.gold;
+    ctx.font = 'bold 22px iKonSans';
+    ctx.fillText(String(i + 1), x + 14, y + cellH - 10);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, cellW, cellH);
+  }
+
+  if (!drawn) return null;
+  return pngUrl(made);
+}
+
+/**
+ * Send a picture with a caption.
+ *
+ * Used by the Pinterest commands, where the picture is the payload and Groq's
+ * text is decoration. A remote URL is fetched here, which is what makes the
+ * stream that ws3-fca needs.
+ */
+async function sendPhoto({ reply, messageID, url, body = '', title = 'iKON' }) {
+  if (url) {
+    const stream = await media.attachment(url, { type: 'image' });
+    if (stream) {
+      await reply({ body: body || '', attachment: stream }, messageID);
+      return true;
+    }
+  }
+
+  const card = await captionCard({ title, body: body || title, footer: OWNER });
+  if (card) {
+    await reply({ body, attachment: { type: 'image', data: { url: card } } }, messageID);
+    return true;
+  }
+  await reply(`${body}${body ? '\n\n' : ''}🖼️ ${url || ''}`, messageID);
+  return false;
+}
+
+/**
+ * Send text as a voice note, with the text alongside it.
+ *
+ * `!sing` promised singing and used to deliver a coaching sheet, which is not
+ * the same thing at all. This turns the words into an MP3 through Google
+ * Translate's synthesiser and attaches it, so the chat plays the song back. The
+ * body always ships with it: a voice note nobody asked for is noise.
+ *
+ * If the synthesiser is unreachable the text goes out alone rather than the
+ * command going quiet, because a guide sheet is still worth the fee.
+ *
+ * @returns {Promise<boolean>} whether audio went out
+ */
+async function sendVoice({ reply, messageID, text, body = '' }) {
+  const audio = await media.speech(text);
+  if (!audio) {
+    await reply(`${body}\n\n🔇 The voice box did not answer, so this one is text only.`, messageID);
+    return false;
+  }
+
+  const stream = media.streamOf(audio);
+  const sent = await reply({ body, attachment: stream }, messageID);
+  return Boolean(sent);
+}
+
 // ───────────────────────────────────────────────────────────
 // SMALL HELPERS
 // ───────────────────────────────────────────────────────────
@@ -498,6 +765,8 @@ const FEES = {
   tiktokdown: 100,
   igdown: 100,
   ytdown: 100,
+  songdown: 100,
+  download: 100,
   twitterdown: 100,
   pinterestdown: 100,
   pinterestsearch: 150,
@@ -544,7 +813,7 @@ const commands = [];
     name: 'fbdown',
     aliases: ['fb', 'fbdl'],
     category: 'downloader',
-    description: '📥 Facebook video downloader — Groq writes the caption and title',
+    description: '📥 Facebook video downloader — the real file, with a Groq caption',
     usage: '!fbdown <fb link>',
     cooldown: 15,
     permission: 'all',
@@ -555,6 +824,10 @@ const commands = [];
         await reply('❌ Usage: `!fbdown <fb video link>`', event.messageID);
         return;
       }
+      if (!/facebook|fb\.watch/i.test(hostOf(link))) {
+        await reply(`❌ That is a ${hostOf(link)} link, not Facebook.`, event.messageID);
+        return;
+      }
 
       const paid = await charge(userDoc, FEES.fbdown, 'downloader:fbdown');
       if (!paid.ok) {
@@ -562,11 +835,8 @@ const commands = [];
         return;
       }
 
-      // tikwm is used for Facebook as well as TikTok. It is free, it has no key,
-      // and it is the endpoint most likely to answer at 2am.
-      const data = await fetchJson(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}&hd=1`);
-      const hit = data && data.data && data.data.play;
       await reply('🔎 Fetching it...', event.messageID);
+      const resolved = await media.resolve(link, { mode: 'video' });
 
       // Groq writes the caption whether or not the file came back, so the
       // command is useful even when the free API is down.
@@ -576,25 +846,14 @@ const commands = [];
         'Style: a caption someone would actually post. Punchy, no emoji spam.',
       );
 
-      if (!hit) {
-        await reply(
-          `⚠️ **The download API did not answer** — the free FB endpoints are down.\n\n`
-          + `${caption}\n\n`
-          + `_(Your ${kc(FEES.fbdown)} fee was already charged.)_\n`
-          + `📎 Try again in a minute, or hand the link to the AI yourself: ${link}`,
-          event.messageID,
-        );
-        return;
-      }
-
-      await reply(
-        `📥 **${typeof data.data.title === 'string' ? data.data.title : 'Facebook video'}**\n`
-        + '· · · · · · ·\n'
-        + `🔗 ${link}\n\n`
-        + `${caption}\n\n`
-        + `⬇️ ${hit}`,
-        event.messageID,
-      );
+      await sendFile({
+        reply,
+        messageID: event.messageID,
+        resolved,
+        caption,
+        label: 'fbdown',
+        fee: FEES.fbdown,
+      });
     }),
   });
 
@@ -602,7 +861,7 @@ const commands = [];
     name: 'tiktokdown',
     aliases: ['ttdown', 'tiktok'],
     category: 'downloader',
-    description: '📥 TikTok downloader in HD — Groq roasts what the video probably is',
+    description: '📥 TikTok downloader in HD — the real file, with a Groq roast',
     usage: '!tiktokdown <link>',
     cooldown: 15,
     permission: 'all',
@@ -625,9 +884,8 @@ const commands = [];
         return;
       }
 
-      const data = await fetchJson(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}&hd=1`);
-      const item = (data && data.data) || {};
       await reply('🔎 Fetching it...', event.messageID);
+      const resolved = await media.resolve(link, { mode: 'video' });
 
       const roast = await askGroq(
         `Write one savage two-sentence roast of whatever this TikTok is probably about, `
@@ -635,23 +893,14 @@ const commands = [];
         'Style: brutal, funny, and harmless. No hate, no real names.',
       );
 
-      if (!item.play) {
-        await reply(
-          `⚠️ **tikwm did not answer.**\n\n${roast}\n\n_(Your ${kc(FEES.tiktokdown)} fee was already charged.)_`,
-          event.messageID,
-        );
-        return;
-      }
-
-      await reply(
-        `📥 **${item.title || 'TikTok'}**\n`
-        + '· · · · · · ·\n'
-        + `👤 ${item.author || 'unknown'}\n`
-        + `🎵 ${item.music || 'unknown'}\n\n`
-        + `${roast}\n\n`
-        + `⬇️ HD: ${item.hdplay || item.play}`,
-        event.messageID,
-      );
+      await sendFile({
+        reply,
+        messageID: event.messageID,
+        resolved,
+        caption: roast,
+        label: 'tiktokdown',
+        fee: FEES.tiktokdown,
+      });
     }),
   });
 
@@ -659,7 +908,7 @@ const commands = [];
     name: 'igdown',
     aliases: ['igdl', 'insta'],
     category: 'downloader',
-    description: '📥 Instagram reel/post downloader — Groq captions it',
+    description: '📥 Instagram reel/post downloader — the real file, with a Groq caption',
     usage: '!igdown <reel link>',
     cooldown: 15,
     permission: 'all',
@@ -682,36 +931,24 @@ const commands = [];
         return;
       }
 
+      await reply('🔎 Fetching it...', event.messageID);
+      const resolved = await media.resolve(link, { mode: 'video' });
+
       // Instagram has no free public endpoint that stays up. The caption is
       // still worth the fee, so this never dead-ends on a blank error.
-      const data = await fetchJson(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}&hd=1`);
-      const item = (data && data.data) || {};
-      await reply('🔎 Fetching it...', event.messageID);
-
       const caption = await askGroq(
         `Write a short Instagram caption for this post, plus a one-line title. Link: ${link}.`,
         'Style: cool and dry. Emoji only if earned.',
       );
 
-      if (!item.play) {
-        await reply(
-          `⚠️ **No free IG endpoint answered** — Instagram keeps them shut.\n\n`
-          + `${caption}\n\n`
-          + `_(Your ${kc(FEES.igdown)} fee was already charged.)_\n`
-          + `📎 Reel: ${link}`,
-          event.messageID,
-        );
-        return;
-      }
-
-      await reply(
-        `📥 **${item.title || 'Instagram reel'}**\n`
-        + '· · · · · · ·\n'
-        + `👤 ${item.author || 'unknown'}\n\n`
-        + `${caption}\n\n`
-        + `⬇️ ${item.play}`,
-        event.messageID,
-      );
+      await sendFile({
+        reply,
+        messageID: event.messageID,
+        resolved,
+        caption,
+        label: 'igdown',
+        fee: FEES.igdown,
+      });
     }),
   });
 
@@ -719,20 +956,30 @@ const commands = [];
     name: 'ytdown',
     aliases: ['ytdl', 'yt'],
     category: 'downloader',
-    description: '📥 YouTube info, thumbnail and a Groq summary of the title',
-    usage: '!ytdown <yt link>',
+    description: '📥 YouTube downloader — sends the actual video file, or `audio` for the song',
+    usage: '!ytdown <yt link> | !ytdown audio <yt link>',
+    hint: 'Video is capped at 720p so Messenger accepts the upload. `!mp3` is the audio-only shortcut.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'ytdown', async () => {
       await react('📥');
-      const link = args[0];
+
+      // `!ytdown audio <link>` and `!ytdown <link>` are both valid, so the mode
+      // word is pulled out before the link is read.
+      let mode = 'video';
+      let rest = args.slice();
+      if (/^(audio|mp3|music|song|vid|video)$/i.test(String(rest[0] || ''))) {
+        mode = /^(audio|mp3|music|song)$/i.test(String(rest[0])) ? 'audio' : 'video';
+        rest = rest.slice(1);
+      }
+
+      const link = rest[0];
       if (!link || !isUrl(link)) {
-        await reply('❌ Usage: `!ytdown <yt link>`', event.messageID);
+        await reply('❌ Usage: `!ytdown <yt link>` or `!ytdown audio <yt link>`', event.messageID);
         return;
       }
 
-      // Pull the 11 character video id without a dependency.
-      const vid = (link.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/) || [])[1] || '';
+      const vid = media.youtubeId(link);
       if (!vid) {
         await reply('❌ That does not look like a YouTube video link.', event.messageID);
         return;
@@ -744,36 +991,130 @@ const commands = [];
         return;
       }
 
-      const thumb = `https://img.youtube.com/vi/${vid}/maxresdefault.jpg`;
-      const card = await fetchBuffer(thumb);
-      await reply('🔎 Reading it...', event.messageID);
+      await reply('🔎 Pulling the stream...', event.messageID);
+      const resolved = await media.resolve(link, { mode });
+      const title = (resolved && resolved.title) || `YouTube ${vid}`;
 
       const summary = await askGroq(
-        `Summarise what this YouTube video is probably about from its id and title, `
+        `Summarise what this YouTube video is probably about from its title, `
         + `and give it a one-line iKON verdict on whether it is worth the watch. `
-        + `Video id: ${vid}. Be honest that you are guessing from the link.`,
+        + `Title: "${String(title).slice(0, 160)}". Be honest that you are guessing from the title.`,
         'Style: short, opinionated, chat-ready.',
       );
 
-      const meta = [
-        `📥 **YouTube**\n`,
-        `━━━━━━━━━━━━━━━\n`,
-        `🆔 ${vid}\n`,
-        `🔗 ${link}\n`,
-        `\n${summary}\n`,
-        `\n🖼️ Thumbnail: ${thumb}`,
-      ].join('');
+      await sendFile({
+        reply,
+        messageID: event.messageID,
+        resolved,
+        caption: summary,
+        label: 'ytdown',
+        fee: FEES.ytdown,
+      });
+    }),
+  });
 
-      if (card && card.length) {
-        await reply({
-          body: meta,
-          attachment: { type: 'image', data: { url: `data:image/jpeg;base64,${card.toString('base64')}` } },
-        }, event.messageID);
+  commands.push({
+    name: 'songdown',
+    aliases: ['mp3', 'audiodown', 'ytmp3', 'songdl'],
+    category: 'downloader',
+    description: '🎧 YouTube song downloader — the audio file itself, m4a',
+    usage: '!mp3 <yt link>',
+    hint: 'Audio only. `!mp3 <link>` is the fastest way to get a song out of a video.',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'songdown', async () => {
+      await react('🎧');
+      const link = args[0];
+      if (!link || !isUrl(link)) {
+        await reply('❌ Usage: `!mp3 <yt link>` — paste the YouTube link of the song.', event.messageID);
+        return;
+      }
+      if (!media.youtubeId(link)) {
+        await reply(`❌ That is a ${hostOf(link)} link, not YouTube.`, event.messageID);
         return;
       }
 
-      // No thumbnail buffer: still show the link rather than failing the command.
-      await reply(meta, event.messageID);
+      const paid = await charge(userDoc, FEES.songdown, 'downloader:songdown');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      await reply('🎧 Pulling the audio...', event.messageID);
+      const resolved = await media.resolve(link, { mode: 'audio' });
+
+      const note = await askGroq(
+        `One line: what this track sounds like from its title alone, and whether it is worth `
+        + `saving. Title: "${String((resolved && resolved.title) || 'unknown').slice(0, 160)}".`,
+        'Style: a DJ who has heard everything and is not impressed yet.',
+      );
+
+      await sendFile({
+        reply,
+        messageID: event.messageID,
+        resolved,
+        caption: note,
+        label: 'mp3',
+        fee: FEES.songdown,
+      });
+    }),
+  });
+
+  commands.push({
+    name: 'download',
+    aliases: ['dl', 'get', 'saveit'],
+    category: 'downloader',
+    description: '📥 Download anything — video or audio, from any supported link',
+    usage: '!download <link> | !download audio <link>',
+    hint: 'One command for every site: YouTube, TikTok, Facebook, Instagram, X.',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'download', async () => {
+      await react('📥');
+
+      let mode = 'video';
+      let rest = args.slice();
+      if (/^(audio|mp3|music|song)$/i.test(String(rest[0] || ''))) {
+        mode = 'audio';
+        rest = rest.slice(1);
+      } else if (/^(video|vid|mp4)$/i.test(String(rest[0] || ''))) {
+        rest = rest.slice(1);
+      }
+
+      const link = rest[0];
+      if (!link || !isUrl(link)) {
+        await reply('❌ Usage: `!download <link>` or `!download audio <link>`', event.messageID);
+        return;
+      }
+
+      const site = platformOf(link);
+      if (!site) {
+        await reply(`❌ ${hostOf(link)} is not a site this bot downloads from.`, event.messageID);
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.download, 'downloader:download');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      await reply(`🔎 Downloading from ${site}...`, event.messageID);
+      const resolved = await media.resolve(link, { mode });
+
+      if (!resolved) {
+        await reply(noFileLine('download', FEES.download, { reason: `${site} closed off anonymous access` }), event.messageID);
+        return;
+      }
+
+      await sendFile({
+        reply,
+        messageID: event.messageID,
+        resolved,
+        caption: '',
+        label: 'download',
+        fee: FEES.download,
+      });
     }),
   });
 
@@ -781,7 +1122,7 @@ const commands = [];
     name: 'twitterdown',
     aliases: ['xdown', 'twdl'],
     category: 'downloader',
-    description: '📥 X/Twitter video downloader — Groq explains the tweet',
+    description: '📥 X/Twitter video downloader — the real file, with a Groq read',
     usage: '!twitterdown <x link>',
     cooldown: 15,
     permission: 'all',
@@ -804,9 +1145,9 @@ const commands = [];
         return;
       }
 
+      await reply('🔎 Fetching it...', event.messageID);
+      const resolved = await media.resolve(link, { mode: 'video' });
       const statusId = (link.match(/\/status\/(\d+)/) || [])[1] || '';
-      const data = await fetchJson(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}&hd=1`);
-      const item = (data && data.data) || {};
 
       const read = await askGroq(
         `Explain what this tweet is reacting to and give it a one-line savage read. Link: ${link}.`
@@ -814,16 +1155,14 @@ const commands = [];
         'Style: funny, mean in a harmless way.',
       );
 
-      if (!item.play) {
-        await reply(
-          `⚠️ **The X downloader did not answer.** X closed off anonymous media access.\n\n`
-          + `${read}\n\n_(Your ${kc(FEES.twitterdown)} fee was already charged.)_`,
-          event.messageID,
-        );
-        return;
-      }
-
-      await reply(`📥 **Tweet**\n━━━━━━━━━━━━━━━\n\n${read}\n\n⬇️ ${item.play}`, event.messageID);
+      await sendFile({
+        reply,
+        messageID: event.messageID,
+        resolved,
+        caption: read,
+        label: 'twitterdown',
+        fee: FEES.twitterdown,
+      });
     }),
   });
 
@@ -831,8 +1170,9 @@ const commands = [];
     name: 'pinterestdown',
     aliases: ['pindown', 'pin'],
     category: 'downloader',
-    description: '📌 Pinterest pin downloader — Groq describes what the pin is',
-    usage: '!pinterestdown <pin link>',
+    description: '📌 Pinterest pin downloader — sends the actual picture, Groq names it',
+    usage: '!pinterestdown <pin link | image link>',
+    hint: 'Pinterest stopped serving pin images to bots, so this also takes a copied image address.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pinterestdown', async () => {
@@ -842,8 +1182,9 @@ const commands = [];
         await reply('❌ Usage: `!pinterestdown <pin link>`', event.messageID);
         return;
       }
-      if (!/pinterest/i.test(hostOf(link))) {
-        await reply(`❌ That is a ${hostOf(link)} link, not Pinterest.`, event.messageID);
+      const host = hostOf(link);
+      if (!/pinterest|pinimg/i.test(host)) {
+        await reply(`❌ That is a ${host} link, not Pinterest.`, event.messageID);
         return;
       }
 
@@ -853,36 +1194,50 @@ const commands = [];
         return;
       }
 
-      // Pinterest OG tags are public, so the image is usually in the markup even
-      // when no download API answers.
-      const html = await fetchBuffer(link);
-      const meta = html ? html.toString('utf8') : '';
-      const img = (meta.match(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i)
-        || meta.match(/<meta[^>]+content="([^"]+)"[^>]+property="og:image"/i) || [])[1] || '';
-      const title = (meta.match(/<meta[^>]+property="og:title"[^>]+content="([^"]+)"/i) || [])[1] || '';
-
       await reply('🔎 Fetching it...', event.messageID);
-      const desc = await askGroq(
-        `Describe what this Pinterest pin probably shows and give it a one-line iKON title. `
-        + `Pin title on the page: "${title || 'not found'}". Link: ${link}.`,
-        'Style: vivid, a bit mean, short.',
-      );
+      const pin = await media.pinImage(link);
 
-      if (!img) {
+      if (!pin) {
+        // Pinterest serves its pins through client-side JavaScript now, so there
+        // is no image in the markup to pull. Saying so plainly is the only
+        // honest option — sending a similar-looking picture would be a lie with
+        // a download button on it.
+        const topic = pinTopic(link);
         await reply(
-          `⚠️ **No image came back** — Pinterest served no og:image to us.\n\n${desc}\n\n`
-          + `_(Your ${kc(FEES.pinterestdown)} fee was already charged.)_\n📌 ${link}`,
+          `⚠️ **Pinterest gave us no image for that pin.**\n`
+          + 'Their pages are built by JavaScript now, so there is nothing in the markup for a bot to read.\n\n'
+          + '🛠️ Two ways that still work:\n'
+          + '· Copy the image address off the pin and send that here — an `i.pinimg.com` link downloads every time.\n'
+          + (topic
+            ? `· Or search the topic instead: \`${config.PREFIX}pinterestsearch ${topic}\`\n`
+            : `· Or search a topic instead: \`${config.PREFIX}pinterestsearch <topic>\`\n`)
+          + `\n_(Your ${kc(FEES.pinterestdown)} fee was already charged.)_\n📌 ${link}`,
           event.messageID,
         );
         return;
       }
 
-      const card = await captionCard({ title: title || 'Pinterest pin', body: desc, footer: '📌 iKON-BOT' });
-      if (card) {
-        await reply({ body: `📌 **PINNED**\n\n${desc}\n\n🖼️ Source: ${img}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
+      const desc = await askGroq(
+        `Describe what this Pinterest pin probably shows and give it a one-line iKON title. `
+        + `Pin title on the page: "${pin.title || 'not found'}". Link: ${link}.`,
+        'Style: vivid, a bit mean, short.',
+      );
+
+      const sent = await sendPhoto({
+        reply,
+        messageID: event.messageID,
+        url: pin.url,
+        body: `📌 **${String(pin.title || 'Pinterest pin').slice(0, 80)}**\n\n${desc}\n\n🔗 ${link}`,
+        title: 'Pinterest pin',
+      });
+
+      // Pins that are really video clips carry an og:video as well, and handing
+      // that over costs one line and saves the user opening the site.
+      if (pin.video && pin.video !== pin.url) {
+        await reply(`🎞️ This pin is a video clip too:\n⬇️ ${pin.video}`, event.messageID);
+      } else if (!sent) {
+        await reply(`🖼️ Raw image: ${pin.url}`, event.messageID);
       }
-      await reply(`📌 **${title || 'Pin'}**\n\n${desc}\n\n🖼️ ${img}`, event.messageID);
     }),
   });
 
@@ -890,8 +1245,9 @@ const commands = [];
     name: 'pinterestsearch',
     aliases: ['pinsearch', 'pinfind'],
     category: 'downloader',
-    description: '🔍 Search Pinterest and let Groq pick the five worth seeing',
+    description: '🔍 Pinterest search — six real pictures of the topic, sent as images',
     usage: '!pinterestsearch <topic>',
+    hint: 'Six pictures land in the chat. The first one is a contact sheet of all six.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pinterestsearch', async () => {
@@ -908,25 +1264,62 @@ const commands = [];
         return;
       }
 
-      await reply(`🔍 Looking for pins about "${topic}"...`, event.messageID);
+      await reply(`🔍 Pulling pictures of "${topic}"...`, event.messageID);
 
-      // Pinterest has no free keyless search API, so Groq does the picking and
-      // the links it returns are real pinterest.com search URLs, not invented
-      // pin ids.
-      const picks = await askGroq(
-        `Give me the 5 best Pinterest search angles for "${topic}". For each, one line: `
-        + `a specific search term, then why it finds something good. `
-        + `Do not invent pin URLs.`,
-        'Style: a curator with taste, not a keyword list.',
-      );
+      const { pictures, source } = await media.pictures(topic, 6);
 
-      await reply(
-        `🔍 **PICKS FOR "${topic.toUpperCase()}"**\n`
-        + '· · · · · · ·\n'
-        + `${picks}\n\n`
-        + `🔗 https://www.pinterest.com/search/pins/?q=${encodeURIComponent(topic)}`,
-        event.messageID,
-      );
+      if (!pictures.length) {
+        // Every image source is down. Groq can still name the search terms that
+        // will find the good pins, which is more use than an error page.
+        const picks = await askGroq(
+          `Give me the 5 best Pinterest search angles for "${topic}". For each, one line: `
+          + `a specific search term, then why it finds something good. `
+          + `Do not invent pin URLs.`,
+          'Style: a curator with taste, not a keyword list.',
+        );
+        await reply(
+          `⚠️ **Every image source is down right now**, so here are search terms instead:\n\n`
+          + `${picks}\n\n🔗 https://www.pinterest.com/search/pins/?q=${encodeURIComponent(topic)}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const where = source === 'pinterest' ? 'Pinterest pins'
+        : source === 'mixed' ? 'Pinterest pins + web images'
+          : 'web images (Pinterest was unreachable)';
+
+      // One contact sheet first, so the six images that follow have an order
+      // and the chat is not six messages of nothing.
+      const sheet = await pictureSheet(pictures, topic.toUpperCase());
+      if (sheet) {
+        await reply({
+          body: `📌 **PICKS FOR "${topic.toUpperCase()}"**\n`
+            + `${pictures.length} pictures · ${where}\n`
+            + '· · · · · · ·\n'
+            + `Each one is on its way as its own image.`,
+          attachment: { type: 'image', data: { url: sheet } },
+        }, event.messageID);
+      } else {
+        await reply(`📌 **PICKS FOR "${topic.toUpperCase()}"** — ${pictures.length} pictures · ${where}`, event.messageID);
+      }
+
+      // The pictures themselves. A download command that sends a picture is a
+      // different command from one that sends a URL.
+      for (let i = 0; i < pictures.length; i += 1) {
+        const pic = pictures[i];
+        await sendPhoto({
+          reply,
+          messageID: event.messageID,
+          url: pic.url,
+          body: `${i + 1}/${pictures.length} 📌 ${String(pic.title || topic).slice(0, 70)}\n🔗 ${pic.page || 'source page unknown'}`,
+          title: topic,
+        });
+        // Messenger throttles bursts; a short pause keeps every picture out.
+        if (i < pictures.length - 1) await sleep(450);
+      }
+
+      await reply(`🔗 More: https://www.pinterest.com/search/pins/?q=${encodeURIComponent(topic)}`, event.messageID);
     }),
   });
 
@@ -938,16 +1331,29 @@ const commands = [];
     name: 'lyrics',
     aliases: ['lyric'],
     category: 'downloader',
-    description: '🎤 Lyrics from lyrics.ovh, then Groq explains the meaning and rates it',
-    usage: '!lyrics <song> [artist]',
+    description: '🎤 Lyrics from lyrics.ovh — and when nothing is found, Groq writes the song',
+    usage: '!lyrics <song> [artist] | !lyrics write <anything>',
+    hint: '`!lyrics write heartbreak` gets you a brand new song instead of a lookup.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'lyrics', async () => {
       await react('🎤');
-      const q = args.join(' ').trim();
+      let q = args.join(' ').trim();
       if (!q) {
-        await reply('❌ Usage: `!lyrics <song> [artist]`', event.messageID);
+        await reply('❌ Usage: `!lyrics <song> [artist]` or `!lyrics write <topic>`', event.messageID);
         return;
+      }
+
+      // Writing mode. Asking for the words of a song that does not exist should
+      // not return an apology, and asking for words that do exist should not
+      // have Groq pretending it wrote them either.
+      const writing = /^(write|make|create|compose|new)$/i.test(String(args[0] || ''));
+      if (writing) {
+        q = args.slice(1).join(' ').trim();
+        if (!q) {
+          await reply('❌ Usage: `!lyrics write heartbreak at 3am`', event.messageID);
+          return;
+        }
       }
 
       const paid = await charge(userDoc, FEES.lyrics, 'downloader:lyrics');
@@ -956,26 +1362,50 @@ const commands = [];
         return;
       }
 
+      await reply('🔎 Looking it up...', event.messageID);
+
+      if (writing) {
+        const song = await askGroq(
+          `Write an ORIGINAL song called "${q}". Give: the title, one line of the mood it needs, `
+          + `then verse 1, chorus, verse 2 and a bridge. Write words nobody has sung before — `
+          + `do not reuse or imitate the lyrics of any real song, and do not name a real artist. `
+          + `Keep it singable: short lines, one idea per line.`,
+          'Style: a real songwriter, not a wiki entry. No preamble.',
+        );
+        await reply(`🎤 **ORIGINAL: ${q.toUpperCase()}**\n· · · · · · ·\n${song}`, event.messageID);
+        return;
+      }
+
       const query = encodeURIComponent(q.replace(/\s+-\s+/, ' - '));
       const data = await fetchJson(`https://api.lyrics.ovh/v1/${query}`);
       const found = data && data.lyrics;
-      await reply('🔎 Looking it up...', event.messageID);
-
-      const read = await askGroq(
-        `Explain what this song means, name its mood, and give it a savage iKON review out of 10. `
-        + `Song: ${q}.`
-        + (found ? `\nFirst lines of the lyrics for context:\n${found.slice(0, 400)}` : '\nI could not fetch the lyrics, so work from the title alone.'),
-        'Style: literary but chat-ready. No essay.',
-      );
 
       if (!found || String(found).trim().length < 20) {
+        // Nothing in the database is not a dead end: the command writes the
+        // song instead, and says plainly that the words are new rather than
+        // letting Groq's verses pass as somebody else's chorus.
+        const written = await askGroq(
+          `Write an ORIGINAL song with the title "${q}" — for a chat bot to sing. `
+          + `Verse, chorus, verse. The words must be yours: never reproduce or closely imitate `
+          + `the lyrics of any real song, and never claim a real artist wrote them. `
+          + `Keep lines short so it can be sung out loud.`,
+          'Style: catchy, a bit savage, singable.',
+        );
         await reply(
-          `🎤 **${q.toUpperCase()}**\n━━━━━━━━━━━━━━━\n`
-          + `⚠️ lyrics.ovh had nothing for that title.\n\n${read}`,
+          `🎤 **${q.toUpperCase()}**\n· · · · · · ·\n`
+          + `⚠️ lyrics.ovh had nothing for that title, so this is a song **written for you** `
+          + `— not the real track's words.\n\n${written}`,
           event.messageID,
         );
         return;
       }
+
+      const read = await askGroq(
+        `Explain what this song means, name its mood, and give it a savage iKON review out of 10. `
+        + `Song: ${q}.`
+        + `\nFirst lines of the lyrics for context:\n${String(found).slice(0, 400)}`,
+        'Style: literary but chat-ready. No essay.',
+      );
 
       const text = String(found).trim();
       await reply(
@@ -992,8 +1422,9 @@ const commands = [];
     name: 'sing',
     aliases: ['singing', 'singalong'],
     category: 'downloader',
-    description: '🎙️ Sing-along sheet — Groq turns the lyrics into a vocal guide',
+    description: '🎙️ Sings it out loud — a voice note of the lyrics, plus a vocal guide',
     usage: '!sing <song> [artist]',
+    hint: 'The voice note is a synthesiser singing the lyrics, not the original recording.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'sing', async () => {
@@ -1022,14 +1453,45 @@ const commands = [];
         'Style: a coach who is honest about how hard it is.',
       );
 
-      const lines = found ? String(found).trim().split('\n').slice(0, 12).join('\n') : '';
-      await reply(
-        `🎙️ **SINGING: ${q.toUpperCase()}**\n`
-        + '· · · · · · ·\n'
-        + `${guide}\n`
-        + (lines ? `━━━━━━━━━━━━━━━\n🎵 First lines:\n${lines}` : ''),
-        event.messageID,
-      );
+      const lines = found
+        ? String(found).trim().split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 16)
+        : [];
+
+      // Nothing in the database still has to produce a performance, so Groq
+      // writes eight original lines to sing. Its own words, so singing them
+      // costs nobody a copyright.
+      let sung = lines;
+      if (!sung.length) {
+        const written = await askGroq(
+          `Write 8 short original singable lines for a song called "${q}". `
+          + `One idea per line, no title, no labels, and the words must be yours — `
+          + `never reuse the lyrics of a real song.`,
+          'Style: singable, catchy, four bars.',
+        );
+        sung = String(written)
+          .split('\n')
+          .map((l) => l.replace(/^[-*\d.)\s]+/, '').replace(/[*_#`~|]/g, '').trim())
+          .filter((l) => l.length > 3)
+          .slice(0, 10);
+      }
+
+      // The voice note is the point of the command, so the words that get spoken
+      // are the singable lines themselves rather than the coaching text.
+      const spoken = [
+        `${q}. Here it is sung for you.`,
+        ...sung.slice(0, 10),
+      ].join(' ');
+
+      await sendVoice({
+        reply,
+        messageID: event.messageID,
+        text: spoken,
+        body: `🎙️ **SINGING: ${q.toUpperCase()}**\n`
+          + '· · · · · · ·\n'
+          + `${guide}\n`
+          + (sung.length ? `━━━━━━━━━━━━━━━\n🎵 Sung lines:\n${sung.slice(0, 10).join('\n')}` : '')
+          + `\n🔎 Original recording: https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
+      });
     }),
   });
 
@@ -2130,7 +2592,8 @@ const commands = [];
       const song = await askGroq(
         `Write a complete short song about "${topic}" for ${userDoc.name}. `
         + `Structure: TITLE, 2 verses, a chorus, a bridge line, then a 3 line "SING IT LIKE" `
-        + `guide with the vocal note that fits. No copyrighted melodies.`,
+        + `guide with the vocal note that fits. The words must be original — never reuse the `
+        + `lyrics of any real song. No copyrighted melodies.`,
         'Style: real lyrics. No commentary before or after.',
       );
 
@@ -2144,7 +2607,26 @@ const commands = [];
       if (card) {
         await reply({ attachment: { type: 'image', data: { url: card } } }, event.messageID);
       }
-      await reply(`🎵 **${topic.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${song}\n💸 ${kc(FEES.songai)}`, event.messageID);
+
+      // The song it just wrote, read back out loud. Groq's verses are original,
+      // so speaking them is not anyone's copyright.
+      const singable = String(song)
+        .replace(/```[\s\S]*?```/g, ' ')
+        .replace(/^#+\s*/gm, '')
+        .replace(/[*_#`~|]/g, ' ')
+        .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .slice(0, 14)
+        .join('. ');
+
+      await sendVoice({
+        reply,
+        messageID: event.messageID,
+        text: `${topic}. ${singable}`,
+        body: `🎵 **${topic.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${song}\n💸 ${kc(FEES.songai)}`,
+      });
     }),
   });
 

@@ -50,6 +50,7 @@ const Economy = require('../models/Economy');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
+const media = require('../bot/media');
 const pokemon = require('../bot/pokemon');
 const { isGroupThread } = require('../bot/helpers');
 const userTarget = require('../bot/target');
@@ -706,16 +707,20 @@ function wrap(ctx, text, x, y, maxWidth, lineHeight) {
 /**
  * Send a data URL as a photo, ignoring failure. Text always goes out too.
  *
- * The reply-to id is sendMessage's THIRD argument. ws3-fca whitelists payload
- * properties, so putting it on the payload throws "Dissallowed props" and the
- * image never leaves the process.
+ * Two things about ws3-fca, both learned the hard way. The reply-to id is
+ * sendMessage's THIRD argument: it whitelists payload properties, so putting it
+ * on the payload throws "Dissallowed props" and the image never leaves the
+ * process. And the attachment has to be a readable STREAM — the
+ * `{ type, data: { url } }` descriptor this used to pass is rejected outright,
+ * which is why the cards rendered fine locally and arrived as nothing.
  */
 async function send(api, threadID, dataUrl, messageID, isGroup = undefined) {
   if (!dataUrl || !api || !threadID) return false;
-  const payload = { attachment: { type: 'image', data: { url: dataUrl } } };
+  const stream = await media.attachment(dataUrl, { type: 'image' });
+  if (!stream) return false;
   const replyTo = messageID === undefined || messageID === null ? null : String(messageID);
   try {
-    await api.sendMessage(payload, threadID, replyTo, !isGroupThread(threadID, isGroup));
+    await api.sendMessage({ attachment: stream }, threadID, replyTo, !isGroupThread(threadID, isGroup));
     return true;
   } catch {
     return false;
