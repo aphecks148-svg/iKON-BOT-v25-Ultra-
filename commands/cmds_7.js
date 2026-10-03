@@ -29,6 +29,9 @@ const Group = require('../models/Group');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
+// The same real-name resolution the cards use, so a text list and a card cannot
+// disagree about who somebody is.
+const cards = require('../bot/cards');
 const { fmt } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
 const userTarget = require('../bot/target');
@@ -2423,7 +2426,7 @@ const commands = [];
     usage: '!gtacartel',
     cooldown: 60,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacartel', async () => {
+    execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'gtacartel', async () => {
       await react('💀');
       if (!event.isGroup) {
         await reply('💀 There is no cartel in a DM. Run this in the group chat.', event.messageID);
@@ -2443,6 +2446,9 @@ const commands = [];
 
       const mine = g(userDoc);
       const member = String(cartel.founder) === String(userDoc.uid);
+      // The founder's name, not their uid. This line is who to ask when the
+      // cartel needs something, and a 15-digit number cannot be asked anything.
+      const founder = member ? 'you' : await cards.realName({ uid: cartel.founder }, api);
       const war = cartel.warEnds ? new Date(cartel.warEnds).getTime() - Date.now() : 0;
       const taxPaid = (mine.cartel && String(mine.cartel) === String(cartel.name)) ? ' — you pay the 10%' : '';
 
@@ -2451,7 +2457,7 @@ const commands = [];
         + '· · · · · · ·\n'
         + `🏦 Vault: ${kc(cartel.vault)}\n`
         + `👥 Members: ${num((cartel.members || []).length)}\n`
-        + `👑 Founder: ${member ? 'you' : String(cartel.founder)}\n`
+        + `👑 Founder: ${founder}\n`
         + `⚔️ War: ${war > 0 ? `running, ${Math.ceil(war / 60000)} min left` : 'none running'}\n`
         + `💸 Tax: 10% of every mission payout goes here${taxPaid}.\n`
         + `📖 ${story()}`,
@@ -2547,7 +2553,7 @@ const commands = [];
     usage: '!gtaleaderboard',
     cooldown: 60,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaleaderboard', async () => {
+    execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'gtaleaderboard', async () => {
       await react('🏆');
       if (!mongo.isReady()) {
         await reply('🏆 The books are closed. The database is asleep.', event.messageID);
@@ -2572,10 +2578,14 @@ const commands = [];
       }
 
       const medals = ['🥇', '🥈', '🥉'];
+      // Real Facebook names. The stored one is a snapshot from whenever this
+      // player was last seen, and a stored "Facebook User" turns the whole city
+      // board into ten identical rows that still look ranked.
+      const names = await Promise.all(docs.map((d) => cards.realName(d, api)));
       const rows = docs.map((d, i) => {
         const t = g(d);
         const place = medals[i] || `${i + 1}.`;
-        return `${place} **${d.name}** — Lv ${t.level} · ${kc(t.money)} · ${stars(t.wanted)}`;
+        return `${place} **${names[i]}** — Lv ${t.level} · ${kc(t.money)} · ${stars(t.wanted)}`;
       });
 
       await reply(

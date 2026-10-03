@@ -2457,11 +2457,16 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     const adminlist = loaded.registry.get('adminlist');
 
     const sent = [];
+    // The name cache holds for ten minutes and earlier steps asked Facebook
+    // about these same uids through a mock that answers "Tester NN". Without this
+    // the assertions below depend on which step ran before it.
+    profile.clear();
     await adminlist.execute({
       api: {
         async getThreadInfo() {
           return { adminIDs: [{ id: '999000111', isAdmin: true }, { id: '777000888', isAdmin: true }], participantIDs: [] };
         },
+        async getUserInfo(uid) { return { id: uid, name: `Admin ${String(uid).slice(-2)}` }; },
       },
       event: { threadID: 't1', messageID: 'm1', senderID: '999000111', isGroup: true },
       config,
@@ -2472,8 +2477,14 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
 
     const text = sent.join('\n');
     assert.ok(!text.includes('[object Object]'), `adminlist printed an object: ${text}`);
-    assert.ok(text.includes('777000888'), 'the group admin id must actually appear');
-    return 'group admins render as ids';
+    // The id used to be the assertion here, because it stood in for "the entry
+    // rendered as something". It is a name now: a chat listing full of 15-digit
+    // numbers is not a list anybody can act on. Both admins still have to be
+    // there, which is what the two names and the row count are really checking.
+    assert.ok(/Admin 11/.test(text), `the sender is named, not numbered: ${text}`);
+    assert.ok(/Admin 88/.test(text), `every group admin is listed: ${text}`);
+    assert.strictEqual((text.match(/^• /gm) || []).length, 3, 'one row per admin, plus the one bot admin');
+    return 'group admins render as names, one row each';
   });
 
   // ── 24. the two halves of admins-only both answer ────────
@@ -3960,6 +3971,186 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(String(key(['2'])).length > 0, 'a part request still has its own bucket to abuse');
 
     return `50 pets in 2 parts (${one.length}/${two.length}), every rarity reachable`;
+  });
+
+// ── a list of people is a list of names ──────────────────
+  // Nine commands used to interpolate a uid whenever the database had no name
+  // for somebody, or no name they were willing to print. `!adminlist`,
+  // `!gcadmins`, `!calladmin`, `!gcmembers`, `!quotebomb`, `!gtacartel`,
+  // `!gtaleaderboard`, `!farmleaderboard` and `!minerank` all shipped a row of
+  // 15-digit numbers — or a row of "Facebook User" — under a heading claiming
+  // to be a list of people. Facebook has the name, so each now asks for it.
+  await step('commands that list people print names, never uids', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const UID = '987000111';
+
+    // Facebook answers with a name. That is the whole mechanism under test.
+    const api = {
+      ...mockApi(),
+      async getUserInfo(uid) { return { id: uid, name: `Rosa Real ${String(uid).slice(-2)}` }; },
+      async getThreadInfo() {
+        return { adminIDs: [{ id: UID }], participantIDs: [UID], isGroup: true };
+      },
+    };
+
+    const run = async (name, context = {}, args = []) => {
+      const cmd = loaded.registry.get(name);
+      assert.ok(cmd, `${name} is registered`);
+      profile.clear();
+      const sent = [];
+      await cmd.execute({
+        api,
+        args,
+        config,
+        registry: loaded.registry,
+        event: {
+          threadID: 't_ids', messageID: 'm', senderID: '999000111', isGroup: true, mentions: {},
+        },
+        react: async () => true,
+        userDoc: { uid: '999000111', name: 'Caller', coins: 100, async save() {} },
+        ...context,
+        reply: async (t) => { sent.push(t); },
+      });
+      return sent;
+    };
+
+    // A stored row whose name is the worst case: a lookup that failed once and
+    // was written down anyway.
+    const User = require('../models/User');
+    const realFind = User.find;
+    User.find = () => ({ lean: () => Promise.resolve([{ uid: UID, name: 'Facebook User' }]) });
+    try {
+      // !adminlist — bot admins and this group's admins, both named.
+      const admin = (await run('adminlist')).join('\n');
+      assert.ok(/Rosa Real 11/.test(admin), '!adminlist names the bot admins');
+      assert.ok(!/\b987000111\b/.test(admin), '!adminlist prints no uid');
+      assert.ok(!/999000111/.test(admin), '!adminlist prints no owner uid');
+
+      // !gcadmins — and the bot-admin footer, which was the same leak.
+      const gc = (await run('gcadmins')).join('\n');
+      assert.ok(/Rosa Real 11/.test(gc), '!gcadmins names the admins');
+      assert.ok(!/\b987000111\b/.test(gc), '!gcadmins prints no uid');
+      assert.ok(!/999000111/.test(gc), '!gcadmins does not print the bot admin uid');
+
+      // !calladmin — the mention tag is the name, so the admin is readable.
+      const call = await run('calladmin', {}, ['please', 'help']);
+      const payload = call.find((p) => p && typeof p === 'object' && p.mentions);
+      assert.ok(payload, '!calladmin still sends real mentions');
+      assert.ok(
+        payload.mentions.every((m) => /^@Rosa Real/.test(m.tag)),
+        `mentions are named — got ${JSON.stringify(payload.mentions.map((m) => m.tag))}`,
+      );
+    } finally {
+      User.find = realFind;
+    }
+
+    // !gcmembers — a leaderboard whose rows all say "Facebook User" looks
+    // finished, so the real name has to be asked for rather than trusted.
+    const board = (await run('gcmembers')).join('\n');
+    assert.ok(!/Facebook User/.test(board), '!gcmembers does not print the stored placeholder');
+    assert.ok(!/\b10000000\d\d\b/.test(board), '!gcmembers prints no uid');
+
+    // !gtacartel — "Founder: <uid>" is the line somebody reads to find out who
+    // to ask about the cartel.
+    const Group = require('../models/Group');
+    const realGroupFindOne = Group.findOne;
+    Group.findOne = () => Promise.resolve({
+      tid: 't_ids',
+      cartel: { name: 'Vault', founder: UID, vault: 10, members: [] },
+      fun: { ships: [], besties: [], enemies: [], hugs: {}, slaps: {}, kills: {} },
+      async save() {},
+    });
+    try {
+      const cartel = (await run('gtacartel')).join('\n');
+      assert.ok(/Rosa Real 11/.test(cartel), '!gtacartel names the founder');
+      assert.ok(!/\b987000111\b/.test(cartel), '!gtacartel prints no founder uid');
+    } finally {
+      Group.findOne = realGroupFindOne;
+    }
+
+    return 'adminlist, gcadmins, calladmin, gcmembers, gtacartel all name people';
+  });
+
+  // A leaderboard built from stored names is a leaderboard that can show ten
+  // rows of "Facebook User" and still look ranked, because nothing about the
+  // output says the lookup behind it failed. Four of them did exactly that.
+  await step('leaderboards resolve stored names through Facebook', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const api = {
+      ...mockApi(),
+      async getUserInfo(uid) { return { id: uid, name: `Rosa Real ${String(uid).slice(-2)}` }; },
+      async getThreadInfo() { return { adminIDs: [], participantIDs: [], isGroup: true }; },
+    };
+
+    // The worst case, stored on purpose: a lookup that failed once and wrote the
+    // failure down. Every one of these has to go and ask Facebook.
+    const User = require('../models/User');
+    const Group = require('../models/Group');
+    const realFind = User.find;
+    const realFindOne = User.findOne;
+    const realGroupFindOne = Group.findOne;
+    // These all refuse to rank anything while the database is asleep, so the test
+    // has to present them with a database.
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    const rows = ['11', '22', '33', '44'].map((tail) => ({
+      uid: `9870001${tail}`,
+      name: 'Facebook User',
+      farm: { level: 3, totalHarvest: 9 },
+      mine: { level: 2 },
+      gta: { started: true, level: 4, money: 500, wanted: 0 },
+    }));
+    User.find = () => ({
+      sort: () => ({ limit: () => Promise.resolve(rows) }),
+      limit: () => ({ lean: () => Promise.resolve(rows) }),
+    });
+    User.findOne = () => ({ lean: () => Promise.resolve(rows[0]), exec: () => Promise.resolve(rows[0]) });
+    // !quotebomb reads the chat's own document before it reads anybody's name.
+    Group.findOne = () => Promise.resolve({
+      tid: 't_board', gc: { msgs: 0, level: 1 }, fun: {}, async save() {},
+    });
+
+    const say = async (name) => {
+      const cmd = loaded.registry.get(name);
+      assert.ok(cmd, `${name} is registered`);
+      profile.clear();
+      const sent = [];
+      await cmd.execute({
+        api, args: [], config, registry: loaded.registry,
+        event: { threadID: 't_board', messageID: 'm', senderID: '999000111', isGroup: true, mentions: {} },
+        react: async () => true,
+        userDoc: { uid: '987000111', name: 'Caller', coins: 100, async save() {} },
+        reply: async (t) => { sent.push(t); },
+      });
+      return sent.join('\n');
+    };
+
+    try {
+      for (const name of ['farmleaderboard', 'minerank', 'gtaleaderboard', 'quotebomb']) {
+        const text = await say(name);
+        assert.ok(!/Facebook User/.test(text), `${name} printed the stored placeholder`);
+        assert.ok(/Rosa Real/.test(text), `${name} resolved the real Facebook name`);
+      }
+    } finally {
+      User.find = realFind;
+      User.findOne = realFindOne;
+      Group.findOne = realGroupFindOne;
+      mongo.isReady = realReady;
+    }
+
+    return 'farmleaderboard, minerank, gtaleaderboard, quotebomb name people';
+  });
+
+  // The rule the audit exists to enforce, checked against the source: a fallback
+  // that prints a uid is a fallback that prints a uid.
+  await step('no command falls back to a bare uid in a name slot', async () => {
+    const src = require('fs').readFileSync(
+      path.join(path.resolve(__dirname, '..'), 'commands', 'cmds_6.js'), 'utf8',
+    );
+    // `|| uid` is the shape of the bug this replaces.
+    const offenders = [...src.matchAll(/\|\|\s*(?:String\()?uid\)?/g)].map((m) => m[0]);
+    assert.strictEqual(offenders.length, 0, `cmds_6.js still falls back to a uid: ${offenders.join(', ')}`);
+    return 'cmds_6.js has no uid fallback left';
   });
 
 // ── summary ───────────────────────────────────────────────

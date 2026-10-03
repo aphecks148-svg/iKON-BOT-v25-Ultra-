@@ -29,6 +29,9 @@ const Group = require('../models/Group');
 const User = require('../models/User');
 const Economy = require('../models/Economy');
 const canvasKit = require('../bot/canvas');
+// The same real-name resolution the cards use, so a text list and a card cannot
+// disagree about who somebody is.
+const cards = require('../bot/cards');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
@@ -1843,8 +1846,13 @@ const commands = [];
       const hunters = await User.find({ 'gc.lastGroup': String(event.threadID) }).limit(50).lean().catch(() => []);
       const val = (e, path) => path.split('.').reduce((o, k) => (o == null ? 0 : o[k]), e) || 0;
       const busiest = [...(hunters || [])].sort((a, b) => val(b, 'gc.msgs') - val(a, 'gc.msgs')).slice(0, 5);
+      // Real Facebook names, not whatever the row happens to have stored. A name
+      // column that reads "Facebook User" five times in a row is the database
+      // telling you the lookup failed earlier, and repeating it here makes a
+      // finished-looking leaderboard out of a failed one.
+      const names = await Promise.all(busiest.map((e) => cards.realName(e, api)));
       const board = busiest.length
-        ? busiest.map((e, i) => `${i + 1}. ${e.name} — ${num(val(e, 'gc.msgs'))} msgs`).join('\n')
+        ? busiest.map((e, i) => `${i + 1}. ${names[i]} — ${num(val(e, 'gc.msgs'))} msgs`).join('\n')
         : 'No hunter activity recorded yet.';
 
       await reply(
@@ -1877,20 +1885,27 @@ const commands = [];
       }
 
       const docs = await User.find({ uid: { $in: admins } }).lean().catch(() => []);
-      const nameOf = (uid) => {
-        const d = (docs || []).find((x) => String(x.uid) === String(uid));
-        return d ? d.name : uid;
-      };
-      const rows = admins.map((uid, i) => `${i + 1}. ${nameOf(uid)}`).join('\n');
+      // Every admin gets a name before any of them is printed. Falling back to the
+      // uid here is what put a row of 15-digit numbers under a heading that claims
+      // to be the admin bench — and an admin list nobody can read is the one
+      // command in the group set whose failure stops somebody getting help.
+      const names = await Promise.all(admins.map((uid) => cards.realName({
+        uid,
+        name: ((docs || []).find((x) => String(x.uid) === String(uid)) || {}).name,
+      }, api)));
+      const rows = admins.map((uid, i) => `${i + 1}. ${names[i]}`).join('\n');
 
       // These are the admins Messenger reports for this chat. Bot admins from
       // ADMIN_IDS/OWNER_ID can also run the moderator commands anywhere, so they
       // are listed here too — otherwise this reads as "nobody else is an admin"
       // and sends people to re-demote someone who outranks them.
       const owners = permissions.ownerIds();
+      // Named, not numbered. The bot admins are people too, and the whole point
+      // of this list is finding out who can help.
+      const ownerNames = await Promise.all(owners.map((uid) => cards.realName({ uid }, api)));
       await reply(
         `🛡️ **THE ADMIN BENCH**\n━━━━━━━━━━━━━━━\n${rows}\n`
-        + (owners.length ? `\n👑 Bot admins (ADMIN_IDS): ${owners.join(', ')}\n` : '')
+        + (owners.length ? `\n👑 Bot admins (ADMIN_IDS): ${ownerNames.join(', ')}\n` : '')
         + `📖 ${OWNER} outranks all of them.`,
         event.messageID,
       );
@@ -1983,7 +1998,7 @@ const commands = [];
     usage: '!quotebomb',
     cooldown: 60,
     permission: 'all',
-    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'quotebomb', async () => {
+    execute: async ({ event, reply, react, api }) => guard(reply, event.messageID, 'quotebomb', async () => {
       await react('💣');
       const group = await liveGroup(event);
       if (!group) {
@@ -2010,11 +2025,15 @@ const commands = [];
       ];
 
       const pool = [...hunters];
-      const lines = [];
+      const picked = [];
       for (let i = 0; i < 10 && pool.length; i += 1) {
-        const who = pool.splice(rand(0, pool.length - 1), 1)[0];
-        lines.push(`${i + 1}. "${pick(SAYINGS)}" — ${who.name}`);
+        picked.push(pool.splice(rand(0, pool.length - 1), 1)[0]);
       }
+      // The ten people are picked first and named together after, so the whole
+      // batch costs one round of lookups instead of ten serial ones. Facebook
+      // has the name; a stored "Facebook User" attributes a joke to nobody.
+      const names = await Promise.all(picked.map((who) => cards.realName(who, api)));
+      const lines = picked.map((who, i) => `${i + 1}. "${pick(SAYINGS)}" — ${names[i]}`);
 
       cfg.msgs = clamp(cfg.msgs) + 10;
       cfg.level = levelFor(cfg.msgs);
@@ -2233,13 +2252,13 @@ const commands = [];
 
       // Real names, so an admin is greeted as themselves and not as a uid.
       const docs = await User.find({ uid: { $in: toCall } }).lean().catch(() => []);
-      const nameOf = (uid) => {
-        const d = (docs || []).find((x) => String(x.uid) === String(uid));
-        return (d && d.name) || uid;
-      };
+      const names = await Promise.all(toCall.map((uid) => cards.realName({
+        uid,
+        name: ((docs || []).find((x) => String(x.uid) === String(uid)) || {}).name,
+      }, api)));
       // A mention is { id, tag }. Without them the message is just text in the
       // chat and never reaches the admin's inbox, which is the whole point.
-      const mentions = toCall.map((uid) => ({ id: String(uid), tag: '@' + nameOf(uid) }));
+      const mentions = toCall.map((uid, i) => ({ id: String(uid), tag: '@' + names[i] }));
       const tags = mentions.map((m) => m.tag).join(' ');
 
       const note = args.join(' ').trim();

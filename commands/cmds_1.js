@@ -24,6 +24,9 @@ const canvas = require('../bot/canvas');
 const loader = require('../bot/loader');
 const { fmt, describeSendError, lastSent, error, reply: helpersReply } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
+// The same real-name resolution the cards use, so a text list and a card cannot
+// disagree about who somebody is.
+const cards = require('../bot/cards');
 const userTarget = require('../bot/target');
 const decks = require('../bot/categories');
 const menu = require('../bot/helpmenu');
@@ -403,10 +406,14 @@ module.exports = [
       // permission check uses. If the two ever disagree, an operator reading
       // this would be told the wrong thing about who can run what.
       const owners = permissions.ownerIds();
+      // Names, not ids. A chat listing full of 15-digit numbers cannot be read by
+      // the person who asked for it, and the id is not the question they asked —
+      // "who can I ask for help" is. Facebook has the name, so ask it.
+      const ownerNames = await Promise.all(owners.map((id) => cards.realName({ uid: id }, api)));
       const lines = [
         `${OWNER_ICON} Bot admins (${owners.length})`,
         '· · · · · · ·',
-        ...(owners.length ? owners.map((id) => `• ${id}`) : ['• none configured — set ADMIN_IDS in the Render environment']),
+        ...(owners.length ? ownerNames.map((name) => `• ${name}`) : ['• none configured — set ADMIN_IDS in the Render environment']),
       ];
 
       if (event.isGroup) {
@@ -416,15 +423,18 @@ module.exports = [
           admins = Array.isArray(info.adminIDs) ? info.adminIDs : [];
         } catch { /* ignore */ }
 
-        const sender = String(event.senderID);
-        lines.push('', `👥 Group admins (${admins.length})`);
-        if (!admins.length) lines.push('• could not read');
         // This build hands back { id, isAdmin } entries rather than bare ids,
         // so interpolating the array element directly printed [object Object].
-        else admins.forEach((entry) => {
-          const id = entry && typeof entry === 'object' ? entry.id : entry;
-          if (id === undefined || id === null) return;
-          lines.push(`• ${id}${String(id) === sender ? '  ← you' : ''}`);
+        const ids = admins
+          .map((entry) => (entry && typeof entry === 'object' ? entry.id : entry))
+          .filter((id) => id !== undefined && id !== null)
+          .map(String);
+        const names = await Promise.all(ids.map((id) => cards.realName({ uid: id }, api)));
+        const sender = String(event.senderID);
+        lines.push('', `👥 Group admins (${ids.length})`);
+        if (!ids.length) lines.push('• could not read');
+        else ids.forEach((id, i) => {
+          lines.push(`• ${names[i]}${id === sender ? '  ← you' : ''}`);
         });
       }
       await reply(lines.join('\n'), event.messageID);

@@ -50,6 +50,9 @@ const Economy = require('../models/Economy');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
+// The same real-name resolution the cards use, so a text list and a card cannot
+// disagree about who somebody is.
+const cards = require('../bot/cards');
 const media = require('../bot/media');
 const pokemon = require('../bot/pokemon');
 const { isGroupThread } = require('../bot/helpers');
@@ -1360,7 +1363,7 @@ commands.push({
   usage: '!farmleaderboard',
   cooldown: 10,
   permission: 'all',
-  execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'farmleaderboard', async () => {
+  execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'farmleaderboard', async () => {
     await react('🏆');
     const fm = s(userDoc).farm;
 
@@ -1381,10 +1384,14 @@ commands.push({
       return;
     }
 
+    // Real Facebook names. A board that reads "Facebook User" ten times over
+    // looks finished, and nobody notices the lookup behind it failed once and
+    // wrote the failure down forever.
+    const names = await Promise.all(top.map((doc) => cards.realName(doc, api)));
     const lines = top.map((doc, i) => {
       const f = doc.farm || {};
       const mine = String(doc.uid) === String(userDoc.uid);
-      return `${i === 0 ? '\u{1F947}' : `${i + 1}.`} **${doc.name}** — \`Lv ${clamp(f.level)}\` · ${num(clamp(f.totalHarvest))} harvested`
+      return `${i === 0 ? '\u{1F947}' : `${i + 1}.`} **${names[i]}** — \`Lv ${clamp(f.level)}\` · ${num(clamp(f.totalHarvest))} harvested`
         + `${clamp(f.prestige) ? ` · \u{2B50}${clamp(f.prestige)}` : ''}${mine ? ' _← you_' : ''}`;
     });
 
@@ -1716,7 +1723,7 @@ commands.push({
   usage: '!minerank',
   cooldown: 10,
   permission: 'all',
-  execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'minerank', async () => {
+  execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'minerank', async () => {
     await react('⛏️');
     const mi = s(userDoc).mine;
 
@@ -1735,11 +1742,13 @@ commands.push({
       return;
     }
 
+    // Real Facebook names, not whatever the row happens to have stored.
+    const names = await Promise.all(top.map((doc) => cards.realName(doc, api)));
     const lines = top.map((doc, i) => {
       const m = doc.mine || {};
       const mine = String(doc.uid) === String(userDoc.uid);
       const pick = gear(PICKS, m.pick && m.pick.id);
-      return `${i === 0 ? '\u{1F947}' : `${i + 1}.`} **${doc.name}** — mining \`Lv ${clamp(m.level)}\`${pick ? ` · ${pick.label}` : ''}`
+      return `${i === 0 ? '\u{1F947}' : `${i + 1}.`} **${names[i]}** — mining \`Lv ${clamp(m.level)}\`${pick ? ` · ${pick.label}` : ''}`
         + `${mine ? ' _← you_' : ''}`;
     });
 
