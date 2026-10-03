@@ -124,6 +124,10 @@ function loadCommands(dir = COMMANDS_DIR) {
   const unknownCategories = new Set();
   let loaded = 0;
   let skipped = 0;
+  // Aliases that were refused because another command already owns the word.
+  // Collected rather than only logged, so `bot/check.js` and `!check` can turn
+  // them into a visible failure instead of a line in a log nobody reads.
+  const conflicts = [];
 
   for (let i = 1; i <= MODULE_COUNT; i += 1) {
     const file = `cmds_${i}.js`;
@@ -205,10 +209,33 @@ function loadCommands(dir = COMMANDS_DIR) {
       for (const alias of cmd.aliases) {
         if (aliases.has(alias)) {
           error(`[LOADER] Duplicate alias "${alias}" — keeping the first one`);
+          conflicts.push(`${cmd.name}: alias "${alias}" is already an alias of ${aliases.get(alias)}`);
+          continue;
+        }
+        // A NAME is not an alias, and findCommand() checks the registry first,
+        // so an alias that shadows a command name is registered and then can
+        // never be reached: `!xp` keeps running the real `xp` command while the
+        // alias is dead code that still reads like a working spelling.
+        if (registry.has(alias)) {
+          error(`[LOADER] Alias "${alias}" on ${cmd.name} is already the command name of "${alias}" — alias ignored`);
+          conflicts.push(`${cmd.name}: alias "${alias}" is already the name of a command`);
           continue;
         }
         aliases.set(alias, cmd.name);
       }
+    }
+  }
+
+  // A command declared AFTER an alias claimed its name leaves that alias
+  // unreachable, and the check above could not see it: at the time the alias
+  // was registered, that name did not exist yet. Re-check once everything is
+  // loaded, so the order of the module files cannot decide whether a spelling
+  // works.
+  for (const [alias, owner] of [...aliases.entries()]) {
+    if (registry.has(alias)) {
+      error(`[LOADER] Alias "${alias}" on ${owner} is shadowed by the command "${alias}" — alias ignored`);
+      conflicts.push(`${owner}: alias "${alias}" is shadowed by the command of the same name`);
+      aliases.delete(alias);
     }
   }
 
@@ -222,7 +249,7 @@ function loadCommands(dir = COMMANDS_DIR) {
   log(`[LOADER] Loaded ${loaded} commands from ${MODULE_COUNT} module(s), ${aliases.size} aliases, ${categories.size} categories`
     + (skipped ? `, ${skipped} skipped` : ''));
 
-  return { registry, aliases, categories, count: loaded };
+  return { registry, aliases, categories, count: loaded, conflicts };
 }
 
 /** Look up a command by name or alias. */

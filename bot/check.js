@@ -25,7 +25,7 @@ const TARGET_PER_MODULE = 35;
  * @param {Map} registry
  * @returns {{problems:string[], categories:number}}
  */
-function validate(registry) {
+function validate(registry, loaderResult) {
   const problems = [];
   const seenNames = new Set();
 
@@ -44,6 +44,14 @@ function validate(registry) {
     }
     if (seenNames.has(cmd.name)) problems.push(`duplicate command name "${cmd.name}"`);
     seenNames.add(cmd.name);
+  }
+
+  // Refused aliases. These cannot be found by walking the registry, because
+  // the registry is the world AFTER the refusal: the offending alias is simply
+  // absent, and the command that lost it looks perfectly fine. The loader keeps
+  // the list for exactly this check.
+  if (loaderResult && Array.isArray(loaderResult.conflicts)) {
+    problems.push(...loaderResult.conflicts.map((c) => `alias conflict — ${c}`));
   }
 
   return { problems, categories: new Set([...registry.values()].map((c) => c.category)).size };
@@ -74,7 +82,7 @@ module.exports = {
 /* Run as a script: node bot/check.js */
 if (require.main === module) {
   const loaded = loader.loadCommands(path.join(__dirname, '..', 'commands'));
-  const { problems, categories } = validate(loaded.registry);
+  const { problems, categories } = validate(loaded.registry, loaded);
   const modules = perModule(loaded.registry);
 
   console.log('\n=== iKON-BOT registry check ===\n');
