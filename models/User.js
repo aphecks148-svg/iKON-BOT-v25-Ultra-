@@ -11,6 +11,10 @@ const UserSchema = new mongoose.Schema(
     xp: { type: Number, default: 0, min: 0 },
 
     coins: { type: Number, default: 10000, min: 0 },
+    // Wallet seed for a brand new hunter. Kept separate from `coins` on purpose:
+    // `coins` is the live balance every command reads and spends, and the two
+    // must not be silently aliased — changing one must not retro-edit the other.
+    money: { type: Number, default: 500, min: 0 },
     bank: { type: Number, default: 0, min: 0 },
 
     // Claim timers for the boosted payouts (module 2). Dates, so a bot restart
@@ -157,6 +161,18 @@ const UserSchema = new mongoose.Schema(
         duelsLost: { type: Number, default: 0 },
         monstersSlain: { type: Number, default: 0 },
       },
+    },
+
+    // Wild spawns. The bot rolls once a minute and drops a pokemon into every
+    // group it is in; the first to run `.catch` banks it here. Kept as a bounded
+    // list of plain objects rather than a subdocument per species — nobody is
+    // meant to collect all forty-five, and a hunt for one of them is a
+    // coincidence, not a checklist.
+    pokemon: {
+      count: { type: Number, default: 0 },
+      best: { type: String, default: '' },
+      bestPower: { type: Number, default: 0 },
+      caught: { type: [Object], default: [] },
     },
 
     // moderation

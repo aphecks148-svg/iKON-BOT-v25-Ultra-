@@ -1313,10 +1313,9 @@ module.exports = [
       }
 
       const target = await cache_getUser(uid, api);
-      if (!target) {
-        await reply(`❌ Could not load a profile for \`${uid}\`.`, event.messageID);
-        return;
-      }
+      // getOrCreateUser never returns null, so the old "could not load a
+      // profile" branch is gone: it fired for exactly the people who had never
+      // used the bot, which is everyone a moderator is trying to ban.
       if (target.isBanned) {
         await reply(`⚠️ ${displayName} is already banned.`, event.messageID);
         return;
@@ -1593,9 +1592,9 @@ function maskHost(uri) {
   return m ? `${m[1]}${m[2].split('@').pop()}` : 'set';
 }
 
-/** Cache-backed profile lookup (used by ban). */
+/** Cache-backed profile lookup that never comes back empty (used by ban). */
 async function cache_getUser(uid, api) {
   // eslint-disable-next-line global-require
-  return require('../bot/cache').getUser(uid, api);
+  return require('../bot/cache').getOrCreateUser(uid, api);
 }
 

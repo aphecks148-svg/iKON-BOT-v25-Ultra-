@@ -7,8 +7,14 @@ const GroupSchema = new mongoose.Schema(
     tid: { type: String, required: true, unique: true, index: true },
 
     isEnabled: { type: Boolean, default: true },
-    isApproved: { type: Boolean, default: false },
-    pendingApproval: { type: Boolean, default: true },
+
+    // The bot being in the chat IS the approval. These two defaulted to
+    // false/true once, which meant a newly added group refused every command
+    // until an owner noticed it existed — past ten groups nobody notices, and
+    // the group looked broken. They are kept as fields because !approveGC and
+    // !disapproveGC still write them, and bot/gcs.js migrates the old rows.
+    isApproved: { type: Boolean, default: true },
+    pendingApproval: { type: Boolean, default: false },
 
     prefix: { type: String, default: null }, // null = fall back to config.PREFIX
 
@@ -41,7 +47,11 @@ const GroupSchema = new mongoose.Schema(
     // Two people replying within the same second both pass the same checks, so
     // the write is the lock, not the read that precedes it.
     pokemon: {
-      enabled: { type: Boolean, default: false },
+      // ON by default. This was false, which combined with a spawner that only
+      // queried opted-in groups to mean a wild Pokemon never appeared in any
+      // group nobody had hand-configured. An admin turns it off with
+      // `!pokemon off`.
+      enabled: { type: Boolean, default: true },
       intervalMs: { type: Number, default: 15 * 60 * 1000 },
       lastSpawnAt: { type: Date, default: null },
       current: {

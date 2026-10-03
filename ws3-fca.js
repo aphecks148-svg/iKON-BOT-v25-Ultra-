@@ -27,6 +27,7 @@ const groqClient = require('./bot/groq');
 const fcaDiag = require('./bot/fcaDiag');
 const dex = require('./bot/pokemon');
 const pokemonSpawn = require('./bot/pokemonSpawn');
+const gcs = require('./bot/gcs');
 const helpers = require('./bot/helpers');
 const profile = require('./bot/profile');
 const cards = require('./bot/cards');
@@ -155,6 +156,15 @@ function startServer() {
       // "[object Object]", so this is the only place the real code appears.
       lastFacebookResponse: fcaDiag.lastRawSummary() || null,
       lastCommands: STATE.lastCommands || [],
+      // Pokemon spawns live in global.pokemonSpawns, so this is the count a
+      // group owner asks for when they say "nothing spawned in hours".
+      // The roster size and the tier ladder, read from the modules that own
+      // them. The previous pair called helpers that only existed in the old
+      // 45-species spawner, so /health threw instead of reporting.
+      pokemonRoster: dex.POKEMON.length,
+      pokemonTiers: dex.TIERS.length,
+      pokemonCheckEvery: Math.round(pokemonSpawn.TICK_MS / 1000),
+      threadListLimit: gcs.THREAD_LIMIT,
       uptime: Math.floor((Date.now() - STATE.startedAt) / 1000),
     });
   });
@@ -386,18 +396,13 @@ async function handleMessage(api, event) {
     cooldown.set(senderID, cmd.name, cd);
 
     // ── PROFILE ─────────────────────────────────────────────
-    const userDoc = await cache.getUser(senderID, api);
-
-    // cache.getUser returns null when the lookup itself fails, not only when
-    // there is no profile: a dropped connection or a failed create lands there
-    // too. Every command reads userDoc.coins straight away, so handing them a
-    // null means either a stack trace in the chat or, worse, a command that
-    // quietly does nothing and looks broken. One honest message beats both.
-    if (!userDoc) {
-      cooldown.clear(senderID, cmd.name);
-      await say('⚠️ I could not load your profile just now. Try again in a moment.');
-      return;
-    }
+    //
+    // getOrCreateUser never returns null and never throws: a person the bot has
+    // never met gets a profile created, and a database that is asleep gets an
+    // in-memory one. That is the whole reason this no longer ends in "I could
+    // not load your profile" — that message only ever helped whoever happened
+    // to be cached.
+    const userDoc = await cache.getOrCreateUser(senderID, api);
 
     // ── MODERATION ────────────────────────────────────────────
     if (userDoc.isBanned) {
@@ -466,7 +471,7 @@ const isGroupThread = helpers.isGroupThread;
 async function recordActivity(senderID, isCommand, threadID) {
   if (!senderID) return;
   try {
-    const user = await cache.getUser(senderID, client);
+    const user = await cache.getOrCreateUser(senderID, client);
     if (!user || user.transient) return; // DB down — nothing to persist
     if (isCommand) user.stats.commandsUsed += 1;
     user.stats.messages += 1;
@@ -797,6 +802,10 @@ async function handleGroupChange(api, event) {
 // ─────────────────────────────────────────────────────────────
 function attachClient(api) {
   client = api;
+  // The spawner and the group sweep both need a live client, and the only moment
+  // we are certain we have one is the moment it is handed over.
+  pokemonSpawn.start(api, { log, error });
+  gcs.approveAll(api).catch((err) => error(`[GCS] boot approval sweep failed: ${err.message}`));
 }
 
 /**
@@ -1045,12 +1054,22 @@ async function boot() {
     log(`[BOOT] ${config.BOT_NAME} is online with ${registry.size} commands. Try \`${config.PREFIX}ping\``);
   }
 
-  // 6. HOUSEKEEPING
+  // 6. POKEMON SPAWNER — after login, because it needs a real client to post
+  // with. Started even when login failed: the timer holds the handle and the
+  // first tick after a successful retry is the first one that does anything.
+  pokemonSpawn.start(api || client, { log, error });
+
+  // 7. AUTO-APPROVE EVERY CHAT — there is no approved list any more, and a
+  // group that was added before this change would otherwise keep refusing
+  // commands on a flag nobody remembers setting.
+  if (api) await gcs.approveAll(api).catch((err) => error(`[GCS] boot approval sweep failed: ${err.message}`));
+
+  // 8. HOUSEKEEPING
   if (!housekeeping) {
     housekeeping = setInterval(() => {
       cooldown.sweep();
       cache.sweep();
-    }, 60 * 1000);
+      }, 60 * 1000);
     if (typeof housekeeping.unref === 'function') housekeeping.unref();
   }
 
@@ -1121,6 +1140,13 @@ module.exports = {
   listCommands: (category) => loader.listCommands(category, registry),
   mongo,
   canvas,
+  // `dex` is the roster (151 Pokemon, rarity tiers); `pokemon` is an alias of
+  // the same module, kept because the engine internals and several tests refer
+  // to it by that name. Two names for one module, not two rosters.
+  dex,
+  pokemon: dex,
+  pokemonSpawn,
+  gcs,
   config,
   loader,
   toggles,

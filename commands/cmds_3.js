@@ -25,6 +25,8 @@ const Inventory = require('../models/Inventory');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const cards = require('../bot/cards');
+const cache = require('../bot/cache');
+const realProfile = require('../bot/profile');
 const userTarget = require('../bot/target');
 const Group = require('../models/Group');
 const dex = require('../bot/pokemon');
@@ -335,6 +337,39 @@ async function targetOr(reply, messageID, ref, event, label, api) {
   return target;
 }
 
+/**
+ * The name to print on somebody's own card.
+ *
+ * getUserInfo first, because it is the only thing that knows what this person is
+ * actually called today. Whatever it returns is checked against the placeholder
+ * list, because ws3-fca answers "Facebook User" when it cannot resolve a profile
+ * — and an honest short id beats a fake name on your own ID card.
+ *
+ * Never throws and never returns empty: a failed lookup falls back to the stored
+ * name, then to a short id. There is no branch in here that can produce nothing,
+ * which is what makes "could not load" unnecessary rather than merely unlikely.
+ *
+ * @param {object} userDoc the profile the engine already resolved
+ * @param {string} uid whose name to look up
+ * @param {object} api ws3-fca client
+ * @returns {Promise<string>}
+ */
+async function realNameOf(userDoc, uid, api) {
+  const fallback = (userDoc && userDoc.name && !realProfile.isPlaceholderName(userDoc.name))
+    ? userDoc.name
+    : `Hunter ${String((userDoc && userDoc.uid) || uid || '').slice(-4)}`;
+
+  try {
+    if (!api || typeof api.getUserInfo !== 'function') return fallback;
+    const info = await api.getUserInfo(uid || (userDoc && userDoc.uid));
+    const live = info && (info.name || info.firstName);
+    if (!live || realProfile.isPlaceholderName(live)) return fallback;
+    return String(live).trim();
+  } catch {
+    return fallback; // Facebook is having a moment; the card still prints
+  }
+}
+
 /** Standard "you levelled up" tail shared by XP commands. */
 async function xpTail(userDoc, gained, levels, newTitles) {
   const lines = [`✨ +${num(gained)} XP (${num(userDoc.xp)}/${num(xpNeeded(userDoc.level || 1))} to Lv ${(userDoc.level || 1) + 1})`];
@@ -417,6 +452,14 @@ module.exports = [
     permission: 'all',
     execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'profile', async () => {
       await react('🧬');
+
+      // The engine handed us a profile already — cache.getOrCreateUser creates
+      // one for a first-time user and falls back to memory when Mongo is down,
+      // so there is no longer a "could not load" path to guard. All that is left
+      // is to make the name as real as Facebook can make it.
+      const name = await realNameOf(userDoc, event.senderID, api);
+      userDoc.name = name;
+
       const data = rpg(userDoc);
       refreshStamina(userDoc);
       const cls = CLASSES[data.className];
@@ -432,8 +475,10 @@ module.exports = [
         user: userDoc,
         api,
         rows: [
+          ['Name', name],
+          ['Money', kc(userDoc.coins)],
+          ['Starting allowance', kc(userDoc.money ?? cache.STARTING_MONEY)],
           ['Level', `${userDoc.level || 1} · ${num(userDoc.xp)}/${num(xpNeeded(userDoc.level || 1))} XP`],
-          ['Coins', kc(userDoc.coins)],
           ['Class', cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'],
           ['Titles', titles],
           ['Stamina', `${data.stamina}/${hasSkill(userDoc, 'swiftfoot') ? 11 : 10}`],
@@ -443,7 +488,7 @@ module.exports = [
 
       if (card) {
         await reply({
-          body: `🧬 **${userDoc.name || 'Hunter'}**\n${cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'}`,
+          body: `🧬 **${name}**\n${cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'}`,
           attachment: { type: 'image', data: { url: card } },
         }, event.messageID);
         return;
@@ -452,9 +497,10 @@ module.exports = [
       await reply(
         `🧬 **iKON ACADEMY ID CARD**\n`
         + '· · · · · · ·\n'
-        + `👤 ${userDoc.name || 'Hunter'}\n`
+        + `👤 ${name}\n`
+        + `💰 Money: ${kc(userDoc.coins)}\n`
+        + `🌱 Starting allowance: ${kc(userDoc.money ?? cache.STARTING_MONEY)}\n`
         + `📊 Level ${userDoc.level || 1} · ${num(userDoc.xp)}/${num(xpNeeded(userDoc.level || 1))} XP\n`
-        + `💰 ${kc(userDoc.coins)}\n`
         + `🎭 Class: ${cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'}\n`
         + `🏷️ Titles: ${titles}\n`
         + `⚡ Stamina: ${data.stamina}/${hasSkill(userDoc, 'swiftfoot') ? 11 : 10}\n`

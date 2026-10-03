@@ -13,6 +13,17 @@ const { log, error } = require('./helpers');
 
 const TTL = config.CACHE_TTL || 5 * 60 * 1000;
 
+/**
+ * Wallet a brand new hunter starts with.
+ *
+ * This is the value getOrCreateUser() writes when it has to invent a profile.
+ * It is deliberately small: a fallback profile means the database is unreachable
+ * or the create failed, and the right response to that is to let the command
+ * answer and be honest about the state — not to hand out a full balance that
+ * then evaporates on the next write.
+ */
+const STARTING_MONEY = 500;
+
 /** uid -> { doc, name, expires } */
 const store = new Map();
 
@@ -42,6 +53,49 @@ async function fetchName(uid, api) {
 }
 
 /**
+ * A profile that lives only in memory.
+ *
+ * Used when there is no database, and when a lookup or a create failed. It is
+ * NOT a degraded null: callers read userDoc.coins straight away and then call
+ * userDoc.save(), so a stub without those is what turned "the database blinked"
+ * into "could not load profile" in chat for everybody but the person whose
+ * profile was already cached.
+ *
+ * `transient: true` is the flag every caller checks before trusting a write.
+ * Nothing here is persisted, so a command that mutates this doc loses the
+ * change on restart — which is honest, and better than a real write against a
+ * document nobody can find.
+ *
+ * @param {string} id
+ * @param {string|null} [name] a real Facebook name, when one could be fetched
+ * @returns {object}
+ */
+function transientUser(id, name) {
+  const doc = {
+    uid: String(id),
+    name: name || `User ${String(id).slice(-4)}`,
+    level: 1,
+    xp: 0,
+    coins: STARTING_MONEY,
+    money: STARTING_MONEY,
+    bank: 0,
+    reputation: 0,
+    prestige: 0,
+    isBanned: false,
+    banReason: '',
+    stats: { messages: 0, commandsUsed: 0 },
+    gc: {},
+    transient: true,
+    // Callers adjust a resolved target and then save it without asking whether
+    // it is real. Without this the offline path throws "target.save is not a
+    // function" instead of quietly doing nothing, which is a worse failure than
+    // the one being worked around.
+    async save() { return doc; },
+  };
+  return doc;
+}
+
+/**
  * Get (and cache) a user document, creating it on first sight.
  * Refreshes the stored name when Facebook reports a change.
  *
@@ -58,18 +112,7 @@ async function getUser(uid, api) {
 
   // No database: hand back an in-memory profile so non-DB commands still work.
   if (!mongo.isReady()) {
-    const stub = {
-      uid: id,
-      name: (await fetchName(id, api)) || `User ${id.slice(-4)}`,
-      level: 1, xp: 0, coins: 1000, bank: 0, reputation: 0, prestige: 0,
-      stats: { messages: 0, commandsUsed: 0 },
-      transient: true,
-      // Callers adjust a resolved target and then save it without asking
-      // whether it is real. Without this the offline path throws
-      // "target.save is not a function" instead of quietly doing nothing, which
-      // is a worse failure than the one being worked around.
-      async save() {},
-    };
+    const stub = transientUser(id, await fetchName(id, api));
     store.set(id, { doc: stub, expires: Date.now() + TTL });
     return stub;
   }
@@ -79,7 +122,11 @@ async function getUser(uid, api) {
     const liveName = await fetchName(id, api);
 
     if (!user) {
-      user = await User.create({ uid: id, name: liveName || `User ${id.slice(-4)}` });
+      user = await User.create({
+        uid: id,
+        name: liveName || `User ${id.slice(-4)}`,
+        money: STARTING_MONEY,
+      });
       log(`[CACHE] New user ${id} (${user.name})`);
     } else if (liveName && liveName !== user.name) {
       user.name = liveName;
@@ -98,6 +145,47 @@ async function getUser(uid, api) {
     error(`[CACHE] getUser(${id}) failed: ${err.message}`);
     return null;
   }
+}
+
+/**
+ * Get a user profile, creating it when it is missing, and NEVER returning null.
+ *
+ * This replaces the bare getUser() at every call site that was going to
+ * complain if it came back empty. Three things used to be conflated into that
+ * one null and all three are now separated:
+ *
+ *   - "this person has never used the bot"   -> create a real profile
+ *   - "the database is asleep"                -> transient profile from memory
+ *   - "the lookup itself blew up"             -> transient profile from memory
+ *
+ * Only the middle and last are degraded, and neither throws. A command must
+ * answer when Mongo is having a bad minute; the alternative is a wall of
+ * "could not load your profile" for everybody except whoever was cached first.
+ *
+ * @param {string|number} uid
+ * @param {object} [api] ws3-fca client, used for the name lookup
+ * @returns {Promise<object>} a User document, or an in-memory stub. Always truthy.
+ */
+async function getOrCreateUser(uid, api) {
+  if (!uid) return transientUser('unknown', null);
+  const id = String(uid);
+
+  // Only keep a fallback once it is already cached; a failed lookup should not
+  // pin a stub in front of the real profile for the whole TTL.
+  const hit = store.get(id);
+  if (hit && Date.now() < hit.expires && hit.doc && hit.doc.transient) return hit.doc;
+
+  try {
+    const doc = await getUser(id, api);
+    if (doc) return doc;
+  } catch (err) {
+    error(`[CACHE] getOrCreateUser(${id}) failed: ${err.message}`);
+  }
+
+  error(`[CACHE] no database for ${id} — serving a temporary in-memory profile.`);
+  const stub = transientUser(id, await fetchName(id, api));
+  store.set(id, { doc: stub, expires: Date.now() + TTL });
+  return stub;
 }
 
 /** Invalidate one user (after a save from elsewhere). */
@@ -310,7 +398,7 @@ const size = () => store.size;
 const clear = () => store.clear();
 
 module.exports = {
-  getUser, invalidate, touch, sweep, size, clear, TTL,
+  getUser, getOrCreateUser, invalidate, touch, sweep, size, clear, TTL, STARTING_MONEY,
   // module 4 — pet challenges and reply-to targeting
   setPendingBattle, getPendingBattle, takePendingBattle, clearPendingBattle,
   sweepBattles, battleCount,

@@ -33,7 +33,11 @@
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "fs-extra": "^11.4.1",
     "mongoose": "^8.9.5",
     "ws3-fca": "^3.5.2"
+  },
+  "optionalDependencies": {
+    "canvas": "^3.2.3"
   }
 }

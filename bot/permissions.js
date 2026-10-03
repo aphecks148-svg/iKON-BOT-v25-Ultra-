@@ -84,12 +84,21 @@ function isPrivate(event) {
 
 /**
  * Resolve the sender's permission level.
+ *
+ * Level "all" is role 0 — the ordinary member of any group chat — and it is
+ * answered here, first, without a database or a network call. That is what lets
+ * an everyone-can-use command run in any group chat at all: it never asks which
+ * groups the bot has been approved for, because there is no such list any more.
+ * Past ten groups an approval list was never maintained, so chats that were in
+ * the group and not on the list refused commands while everybody assumed the bot
+ * was broken there.
+ *
  * @returns {Promise<'all'|'owner'|'groupAdmin'|false>} allowed level, or false when denied
  */
 async function check(event, api, level = 'all') {
   const wanted = String(level || 'all').toLowerCase();
 
-  if (wanted === 'all' || wanted === 'everyone' || wanted === '') return 'all';
+  if (wanted === 'all' || wanted === 'everyone' || wanted === '' || wanted === '0') return 'all';
 
   const senderID = String(event?.senderID || '');
   if (!senderID) return false;

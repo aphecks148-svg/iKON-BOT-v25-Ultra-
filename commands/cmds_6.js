@@ -33,6 +33,9 @@ const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
 const userTarget = require('../bot/target');
+// Group listing, the 100-chat sweep and the dead-account detector. Owns the
+// work behind !gclist and !gccleanup.
+const gcs = require('../bot/gcs');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -2262,125 +2265,86 @@ const commands = [];
 
   // ─────────────────────────────────────────────────────────
   // PRUNE INACTIVE MEMBERS
-  // ─────────────────────────────────────────────────────────
+
   commands.push({
-    name: 'gccleanup',
-    aliases: ['pruneinactive', 'gccull'],
+    name: 'gclist',
+    aliases: ['gchats', 'gclisteverything'],
     category: 'group',
-    description: '🧹 Remove members who have not been seen in weeks (bot must be admin)',
-    usage: '!gccleanup [days] [dry]',
-    hint: 'Add `dry` to see who would go without removing anyone. Members the bot has never seen are never touched.',
-    cooldown: 300,
-    permission: 'groupAdmin',
-    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'gccleanup', async () => {
-      await react('🧹');
-      if (!event.isGroup) {
-        await reply('❌ This only applies to group chats.', event.messageID);
-        return;
-      }
-      if (!canRemove(api)) {
-        await reply(NO_REMOVAL, event.messageID);
-        return;
-      }
-      if (!mongo.isReady()) {
-        await reply('💾 Profiles are sealed — database offline. Try again shortly.', event.messageID);
-        return;
-      }
-
-      // Default 30 days, clamped. "Inactive" with no bound means "everyone who
-      // has not messaged since this bot was installed", which is everyone.
-      const daysArg = args.map(String).find((a) => /^\d+$/.test(a));
-      const days = daysArg ? Math.max(1, Math.min(365, Number(daysArg))) : 30;
-      const dry = args.map(String).some((a) => a.toLowerCase() === 'dry');
-      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-
-      const info = await api.getThreadInfo(event.threadID).catch(() => null);
-      if (!info) {
-        await reply('❌ Could not read this group.', event.messageID);
-        return;
-      }
-
-      const botId = String((api && typeof api.getCurrentUserID === 'function' ? api.getCurrentUserID() : '') || '');
-      const adminIds = new Set(permissions.adminUids(info.adminIDs));
-      const members = (Array.isArray(info.participantIDs) ? info.participantIDs : []).map(String);
-
-      if (botId && !adminIds.has(botId)) {
+    description: '📡 Every group chat the bot is in, up to 100',
+    usage: '!gclist',
+    hint: 'Asks Facebook for 100 chats, not 10. Anything past the first ten used to be invisible.',
+    cooldown: 30,
+    permission: 'owner',
+    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'gclist', async () => {
+      await react('📡');
+      const threads = await gcs.listThreads(api, gcs.THREAD_LIMIT);
+      if (!threads.length) {
         await reply(
-          '🧹 The bot is not an admin of this chat, so it cannot remove anybody.\n'
-          + '📖 Make the bot an admin in the app and this will work. Nothing was changed.',
-          event.messageID,
-        );
-        return;
-      }
-
-      // Never a candidate: this chat's admins, the bot's own owners, and the bot.
-      // Removing an admin is not what this command is for, and a cleanup that
-      // could do it would eventually do it by accident.
-      const protectedIds = await exemptIds(api, event);
-      const candidates = members.filter((uid) => !adminIds.has(uid) && !protectedIds.has(uid) && uid !== botId);
-      if (!candidates.length) {
-        await reply('🧹 Nothing to prune — everyone here is an admin, or there is nobody else in this chat.', event.messageID);
-        return;
-      }
-
-      // Only members the bot holds a profile for can be judged. A member it has
-      // never seen is not "inactive", they are "unknown" — treating the two the
-      // same empties a chat of newcomers on its first run.
-      const docs = await User.find({ uid: { $in: candidates } }).lean().catch(() => []);
-      const known = new Map((docs || []).map((d) => [String(d.uid), d]));
-      const stale = candidates.filter((uid) => {
-        const d = known.get(uid);
-        if (!d || !d.lastSeen) return false;
-        return new Date(d.lastSeen).getTime() < cutoff.getTime();
-      });
-
-      if (!stale.length) {
-        await reply(
-          `🧹 Nobody is inactive past ${days} day${days === 1 ? '' : 's'}.\n`
-          + `📖 ${candidates.length - stale.length} of ${candidates.length} possible member${candidates.length === 1 ? '' : 's'} are still active.\n`
-          + '📖 Anyone the bot has never seen is left alone on purpose.',
-          event.messageID,
-        );
-        return;
-      }
-
-      const lines = stale.map((uid) => {
-        const d = known.get(uid);
-        const last = d && d.lastSeen ? Math.floor((Date.now() - new Date(d.lastSeen).getTime()) / 86400000) : null;
-        return `• ${(d && d.name) || uid}${last === null ? '' : ` — ${last}d quiet`}`;
-      });
-
-      if (dry) {
-        await reply(
-          '🧹 **DRY RUN — nobody was removed.**\n'
+          '📡 **No group chats found.**\n'
           + '· · · · · · ·\n'
-          + `Inactive past ${days}d:\n${lines.join('\n')}\n`
-          + '· · · · · · ·\n'
-          + '📖 Drop the `dry` to actually remove them.',
+          + 'Facebook returned nothing, or this account is in no group chats at all.',
           event.messageID,
         );
         return;
       }
 
-      // Sequential, not Promise.all: each call publishes an MQTT request that
-      // rewrites group membership, and firing them together is how a chat ends
-      // up rate-limited halfway through with a partial list removed.
-      const removed = [];
-      const failed = [];
-      for (const uid of stale) {
-        // eslint-disable-next-line no-await-in-loop
-        const res = await removeMember(api, uid, event.threadID).catch((err) => ({ ok: false, reason: err.message }));
-        if (res.ok) removed.push(uid);
-        else failed.push(uid);
-      }
+      const rows = threads.slice(0, gcs.THREAD_LIMIT).map((t, i) => {
+        const tid = gcs.tidOf(t);
+        const name = (t && (t.name || t.threadName)) || '—';
+        return `${i + 1}. \`${tid}\` ${String(name).slice(0, 40)}`;
+      });
 
       await reply(
-        '🧹 **CLEANUP DONE**\n'
+        `📡 **GROUP CHATS** (${threads.length})\n`
         + '· · · · · · ·\n'
-        + `📤 Removed ${removed.length} of ${stale.length}\n`
-        + (failed.length ? `⚠️ Could not remove ${failed.length}: ${failed.slice(0, 4).join(', ')}${failed.length > 4 ? '…' : ''}\n` : '')
-        + `👥 This chat had ${members.length} members.\n`
-        + '📖 No admin, and nobody without a profile, was touched.',
+        + `${rows.join('\n')}\n`
+        + '📖 More than ten is normal. All of them are served.',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'gccleanup',
+    aliases: ['gcdead', 'cleandead'],
+    category: 'group',
+    description: '🧹 Kick dead accounts out of every group',
+    usage: '!gccleanup [dry]',
+    hint: 'Dead means Facebook cannot resolve the profile: name "Facebook User" or a stock avatar. The bot and bot admins are never touched.',
+    cooldown: 60,
+    permission: 'owner',
+    execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'gccleanup', async () => {
+      await react('🧹');
+      const dryRun = /^(dry|check|list)$/i.test(String(args[0] || '').trim());
+
+      const report = await gcs.cleanup(api, { dryRun });
+
+      if (!report.dead.length) {
+        await reply(
+          `🧹 **NOTHING TO CLEAN.**\n`
+          + '· · · · · · ·\n'
+          + `📡 ${report.scanned} group chat(s) checked.\n`
+          + '🧟 Every profile resolved. Not one dead account.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // Listed whether or not the removal worked. A cleanup that silently drops
+      // half its work is a cleanup you have to run again tomorrow wondering why
+      // the count never falls.
+      const stuck = report.stuck.length ? report.stuck : [];
+      const listed = report.dead.slice(0, 20).map((d) => `• \`${d.uid}\` in \`${d.threadID}\` — ${d.name}`);
+
+      await reply(
+        `🧹 **GC CLEANUP${dryRun ? ' (dry run)' : ''}**\n`
+        + '· · · · · · ·\n'
+        + `📡 ${report.scanned} chat(s) checked\n`
+        + `🧟 Dead accounts: ${report.dead.length}\n`
+        + `${dryRun ? '🔎 Nothing was removed — that was a dry run.' : `✅ Removed: ${report.removed.length}`}\n`
+        + (stuck.length ? `⚠️ Could not remove: ${stuck.length} (Facebook refused; they are listed below)\n` : '')
+        + `\n${listed.join('\n')}${report.dead.length > listed.length ? `\n…and ${report.dead.length - listed.length} more.` : ''}\n`
+        + '📖 The bot and bot admins are never on this list.',
         event.messageID,
       );
     }),

@@ -333,6 +333,14 @@ async function fee(userDoc, cost, action) {
  * the moment it is allowed, and !ship self-shipping would let one person
  * fill the ships board alone.
  *
+ * `api` is a PARAMETER, and it has to be. It used to be referenced here as if it
+ * were in scope when it was not, so every command that calls this threw
+ * "api is not defined" on the first tagged person — hug, slap, kiss, pat,
+ * cuddle, punch, bonk, stab, kill, ship, roast, compliment, marry, divorce,
+ * besties, enemies and the rest of module 9. guard() swallowed it into
+ * "`hug` failed: api is not defined", which is why the module read as broken
+ * rather than as a crash.
+ *
  * @returns {Promise<{uid:string,name:string}|null>} null after already replying
  */
 async function pick(reply, messageID, userDoc, args, event, label, api) {
@@ -451,6 +459,30 @@ function petPower(pet) {
 // ───────────────────────────────────────────────────────────
 
 /**
+ * Attach a person's avatar URL from the chat's member list, when it has one.
+ *
+ * `userTarget.threadInfo` is cached for 20 seconds, so a card that shows two
+ * people costs at most one extra request — and usually none, because the target
+ * resolver has just read the very same thread to turn a tag into a uid.
+ *
+ * @param {{uid?:string,name?:string,thumbSrc?:string}|null} person
+ * @param {string|number} threadID
+ * @param {object} api ws3-fca client
+ * @returns {Promise<object|null>} the same person, plus `thumbSrc` when found
+ */
+async function withThumb(person, threadID, api) {
+  if (!person || !threadID) return person;
+  if (person.thumbSrc) return person;
+  try {
+    const member = await userTarget.threadMember(person.uid, { threadID }, api);
+    if (!member || !member.picture) return person;
+    return { ...person, thumbSrc: member.picture };
+  } catch {
+    return person; // no avatar is fine — the card draws a generated one
+  }
+}
+
+/**
  * Draw a social card. Returns a data URL, or null when the native canvas binary
  * is missing so the caller can fall back to text.
  *
@@ -463,11 +495,18 @@ function petPower(pet) {
  * — a generated avatar and a stored nickname are not a person. Without them it
  * falls back to the plain text card below, so no call site can break.
  *
+ * The photos come from `thumbSrc`, the avatar URL the chat's own member list
+ * already carries, so both faces cost nothing extra — bot/cards.js downloads
+ * them straight from that URL. threadInfo() only needs a threadID, so the
+ * thread is read here from the id the card already has rather than from the
+ * event, which is why no call site had to change to get real faces.
+ *
  * @param {object} opts
  * @param {object} [opts.api] ws3-fca client; enables the people card
- * @param {{uid?:string,name?:string}} [opts.left] who acted
- * @param {{uid?:string,name?:string}} [opts.right] who they acted on
- * @param {string|number} [opts.threadID] printed in the footer
+ * @param {{uid?:string,name?:string,thumbSrc?:string}} [opts.left] who acted
+ * @param {{uid?:string,name?:string,thumbSrc?:string}} [opts.right] who they acted on
+ * @param {string|number} [opts.threadID] printed in the footer, and the thread
+ *   the two thumbSrc values are read from
  */
 async function card({
   title, subtitle = '', body = '', footer = '',
@@ -476,7 +515,10 @@ async function card({
   // People card: real photos, real names, and the thread id.
   if (api && left) {
     const art2 = await cards.duoCard({
-      title, subtitle, body, footer, threadID, left, right, api,
+      title, subtitle, body, footer, threadID,
+      left: await withThumb(left, threadID, api),
+      right: await withThumb(right, threadID, api),
+      api,
     });
     if (art2) return art2;
     // duoCard only returns null when canvas is missing or a draw threw; fall
@@ -667,7 +709,12 @@ const commands = [];
         event.messageID,
       );
 
-      const art = await card({
+      // The picture is a bonus on top of the text above, never a replacement:
+      // art() swallows every canvas failure, so a missing binary or an
+      // unreachable avatar leaves the reply the user already got as the answer.
+      // (It used to be `const art = await card(...)`, which shadowed the art()
+      // helper inside this very handler.)
+      await art(reply, event.messageID, {
         title: '🤗 HUG',
         api,
         threadID: event.threadID,
@@ -679,7 +726,6 @@ const commands = [];
         footer: 'A MESSAGE AND A TRANSFER — NOT A HUG',
         accent: canvasKit.theme.gold,
       });
-      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
     }),
   });
 

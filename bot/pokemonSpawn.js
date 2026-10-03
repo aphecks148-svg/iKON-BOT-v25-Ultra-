@@ -40,6 +40,17 @@ const TICK_MS = 60 * 1000;
  */
 const MAX_PER_TICK = 5;
 
+/**
+ * Chance that an eligible group actually spawns on a given tick.
+ *
+ * 8% against a 60s tick and a 15-minute per-group interval. Without a roll, a
+ * group that came due would fire immediately and then every 15 minutes forever,
+ * which is a wall of messages in a busy chat. With it, the average wait after a
+ * group becomes due is a couple of minutes and the cadence still reads as
+ * "something is out there".
+ */
+const SPAWN_CHANCE = 0.08;
+
 /** Guards against two ticks overlapping, which a slow send can cause. */
 let ticking = false;
 
@@ -68,6 +79,11 @@ let io = { log: () => {}, error: () => {} };
 function hasLiveSpawn(group, now = Date.now()) {
   const cur = group && group.pokemon && group.pokemon.current;
   if (!cur || !cur.messageID) return false;
+  // Caught counts as gone. The announcement message is still sitting in the
+  // chat, but there is nothing left to catch, and treating it as live held the
+  // slot for the full TTL — so after somebody caught a Pokemon the group sat
+  // empty instead of getting another one.
+  if (cur.caughtBy) return false;
   const expires = cur.expiresAt ? new Date(cur.expiresAt).getTime() : 0;
   return expires > now;
 }
@@ -81,7 +97,9 @@ function hasLiveSpawn(group, now = Date.now()) {
  */
 function isDue(group, now = Date.now()) {
   const poke = group && group.pokemon;
-  if (!poke || !poke.enabled) return false;
+  // Only an explicit `false` opts out. An absent field must not, or a group
+  // whose document predates the setting would silently never spawn.
+  if (!poke || poke.enabled === false) return false;
   if (hasLiveSpawn(group, now)) return false;
   const interval = Number(poke.intervalMs) || dex.DEFAULT_INTERVAL_MS;
   const last = poke.lastSpawnAt ? new Date(poke.lastSpawnAt).getTime() : 0;
@@ -177,10 +195,19 @@ async function tick(api = client, now = Date.now()) {
   ticking = true;
   let posted = 0;
   try {
-    const groups = await Group.find({ 'pokemon.enabled': true }).catch(() => []);
+    // Every group, not only the ones that opted in. The query used to be
+    // `{'pokemon.enabled': true}` against a schema that defaults to false, so a
+    // group that had never been told to opt in was never visited and nothing
+    // ever spawned in it — the feature looked broken in every chat that had not
+    // been configured by hand. Being in a group is now enough; an admin opts
+    // OUT with `!pokemon off`.
+    const groups = await Group.find({}).catch(() => []);
     for (const group of groups) {
       if (posted >= MAX_PER_TICK) break;
       if (!isDue(group, now)) continue;
+      // One roll per eligible group per tick, so a chat does not fire the
+      // instant its interval lapses — it just becomes due, and usually wins.
+      if (Math.random() >= SPAWN_CHANCE) continue;
       // eslint-disable-next-line no-await-in-loop
       const p = await spawnOne(api, group, now);
       if (p) posted += 1;
@@ -219,7 +246,7 @@ async function attemptCatch(api, event, deps = {}) {
   if (!mongo.isReady()) return null;
 
   const group = await loadGroup({ tid: String(event.threadID) }).catch(() => null);
-  if (!group || !group.pokemon || !group.pokemon.enabled) return null;
+  if (!group || !group.pokemon || group.pokemon.enabled === false) return null;
 
   const cur = group.pokemon.current;
   if (!cur || !cur.messageID || String(cur.messageID) !== String(parent)) return null;
@@ -329,7 +356,7 @@ async function spawnNow(api, group) {
 }
 
 module.exports = {
-  TICK_MS, MAX_PER_TICK,
+  TICK_MS, MAX_PER_TICK, SPAWN_CHANCE,
   hasLiveSpawn, isDue, spawnBody, spawnOne, tick,
   attemptCatch, catchBody, start, stop, spawnNow,
 };

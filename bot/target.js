@@ -268,8 +268,10 @@ async function finish(uid, event, api) {
   // The thread already carries this person's real name and picture, so no extra
   // HTTP request is needed for either.
   const member = await threadMember(id, event, api);
-  // getUser creates the profile if it is missing and refreshes the name itself.
-  const doc = await cache.getUser(id, api);
+  // getOrCreateUser creates the profile if it is missing, falls back to memory
+  // when the database is asleep, and never returns null — so a tagged person is
+  // always actionable, which is the entire point of tagging them.
+  const doc = await cache.getOrCreateUser(id, api);
   const name = (member && member.name) || (doc && doc.name) || `Hunter ${id.slice(-4)}`;
 
   // The thread name is better than anything getUser had to work with: getUser

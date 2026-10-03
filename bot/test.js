@@ -434,8 +434,11 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
   await step('Group schema fields, defaults and indexes', () => {
     const doc = new Group({ tid: 'schema_test' });
     assert.strictEqual(doc.isEnabled, true);
-    assert.strictEqual(doc.isApproved, false);
-    assert.strictEqual(doc.pendingApproval, true);
+    // There is no approval gate any more: being in the group is the whole
+    // test. This used to default false, which left a freshly-built document
+    // claiming it was not approved while the code happily served it.
+    assert.strictEqual(doc.isApproved, true);
+    assert.strictEqual(doc.pendingApproval, false);
     assert.strictEqual(doc.prefix, null);
     assert.strictEqual(doc.settings.welcome, false);
     assert.strictEqual(doc.settings.goodbye, false);
@@ -2691,96 +2694,6 @@ const PIKACHU = dex.find('pikachu');
     return 'reply wins, and a refusal is explained';
   });
 
-  // ── 33. pruning is bounded and reversible ──────────────────
-  // Removing people from a chat is the one command here with consequences that
-  // do not come back. Three properties make it safe enough to ship: it does
-  // nothing without an explicit go, it refuses when the bot is not an admin,
-  // and it never touches an admin or a member the bot has never seen.
-  await step('gccleanup is dry by default and spares admins and strangers', async () => {
-    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
-    const cleanup = loaded.registry.get('gccleanup');
-    assert.ok(cleanup, 'gccleanup is registered');
-    assert.strictEqual(cleanup.permission, 'groupAdmin', 'only group admins may run it');
-
-    const User = require('../models/User');
-    const mongo = require('./mongo');
-    const realReady = mongo.isReady;
-    const realFind = User.find;
-    const daysAgo = (n) => new Date(Date.now() - n * 86400000);
-    const profiles = [
-      { uid: '300', name: 'Quiet One', lastSeen: daysAgo(90) },   // stale
-      { uid: '301', name: 'Quiet Two', lastSeen: daysAgo(45) },   // stale
-      { uid: '302', name: 'Still Here', lastSeen: daysAgo(1) },   // active
-      // 303 has no profile at all -> unknown, must be spared
-    ];
-    User.find = () => ({ lean: () => Promise.resolve(profiles) });
-    mongo.isReady = () => true;
-
-    const removed = [];
-    const mkApi = (botIsAdmin) => ({
-      getCurrentUserID() { return 'BOT'; }, // ws3-fca's is synchronous
-      async getThreadInfo() {
-        return {
-          threadTitle: 'G',
-          // 111 is a human admin, BOT is the bot itself when it is one
-          adminIDs: botIsAdmin ? [{ id: '111', isAdmin: true }, { id: 'BOT', isAdmin: true }] : [],
-          participantIDs: ['111', '300', '301', '302', '303', 'BOT'],
-        };
-      },
-      async gcmember(action, uid) {
-        if (uid === '301') return { type: 'error_gc', error: 'not in this group' };
-        removed.push(String(uid));
-        return { type: 'gc_member_update' };
-      },
-    });
-
-    const run = async (api, args) => {
-      const said = [];
-      await cleanup.execute({
-        api,
-        args,
-        event: { threadID: 't1', messageID: 'm', senderID: '111', isGroup: true },
-        reply: async (t) => { said.push(typeof t === 'string' ? t : t.body); },
-        react: async () => true,
-        userDoc: { uid: '111', name: 'Zee' },
-      });
-      return said.join('\n');
-    };
-
-    try {
-      // Not an admin: refuses, and changes nothing.
-      removed.length = 0;
-      const noAuth = await run(mkApi(false), []);
-      assert.ok(/not an admin/.test(noAuth), 'it refuses when the bot cannot remove anybody');
-      assert.deepStrictEqual(removed, [], 'and removes nobody');
-
-      // Dry run: lists, removes nothing.
-      removed.length = 0;
-      const dry = await run(mkApi(true), ['dry']);
-      assert.ok(/DRY RUN/.test(dry), 'a dry run says so');
-      assert.ok(/Quiet One/.test(dry), 'and names who would go');
-      assert.deepStrictEqual(removed, [], 'a dry run removes nobody');
-
-      // For real: the stale pair only.
-      removed.length = 0;
-      const real = await run(mkApi(true), []);
-      // 300 goes, 301 is rejected by Facebook. That has to read as a partial
-      // result, not a clean sweep — a report that counted 301 as removed would
-      // leave an admin believing the chat is clear when it is not.
-      assert.ok(/Removed 1 of 2/.test(real), 'the count is honest about the failure');
-      assert.ok(/Could not remove 1/.test(real) && /301/.test(real), 'and it names who stayed');
-      assert.ok(!/Still Here/.test(real), 'the active member is not in the removal list');
-      assert.deepStrictEqual(removed, ['300'], 'only 300 was actually removed');
-
-      // The unknown member (303) is never a candidate at all.
-      assert.ok(!removed.includes('303'), 'a member with no profile is never removed');
-    } finally {
-      User.find = realFind;
-      mongo.isReady = realReady;
-    }
-    return 'refuses, previews, and spares everyone it cannot judge';
-  });
-
   // ── 34. calling the admins reaches them ────────────────────
   await step('calladmin tags real admins and neither the caller nor the bot', async () => {
     const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
@@ -3057,7 +2970,227 @@ const PIKACHU = dex.find('pikachu');
     return 'the uid is tagged, and the tag is in the body';
   });
 
-  // ── summary ───────────────────────────────────────────────
+  // ── from fix: all core bugs (the six items) ─────────────────
+  await step('a profile is always available, even with no database', async () => {
+    const uid = `orc_${Date.now()}`;
+    const doc = await cache.getOrCreateUser(uid, null);
+    assert.ok(doc, 'getOrCreateUser must never return null — that was the whole bug');
+    assert.strictEqual(doc.money, cache.STARTING_MONEY, 'a new profile starts on money: 500');
+    assert.strictEqual(typeof doc.save, 'function', 'callers mutate a target then save it');
+    assert.ok(Number.isFinite(doc.coins), 'commands read coins without guarding');
+    cache.clear();
+    return `money ${cache.STARTING_MONEY}, save() works, never null`;
+  });
+
+  await step('no group is gated behind an approval list', async () => {
+    // Ten groups were manually approved and the eleventh was never going to be.
+    // Being in the chat is the whole test now.
+    const gate = await toggles.isCommandDisabled('t_some_group', 'ping', 'system');
+    assert.strictEqual(gate.allowed, true, 'a role-0 command must run in any group');
+    assert.strictEqual(await permissions.check({ senderID: '1', threadID: 't' }, null, 'all'), 'all');
+    const fresh = new Group({ tid: 'fresh_group' });
+    assert.strictEqual(fresh.isApproved, true, 'a new group is approved on creation');
+    assert.strictEqual(fresh.pendingApproval, false, 'and is not left pending');
+    return 'role 0 runs anywhere; new groups are approved by default';
+  });
+
+  await step('the thread list asks for 100 chats, not 10', async () => {
+    const gcs = require('./gcs');
+    assert.strictEqual(gcs.THREAD_LIMIT, 100, 'ten chats is fewer groups than the bot is in');
+    let askedLimit = null;
+    const api = { async getThreadList(type, limit) { askedLimit = limit; return [{ threadID: 't_1' }]; } };
+    const listed = await gcs.listThreads(api);
+    assert.strictEqual(askedLimit, 100, 'getThreadList was called with the wrong limit');
+    assert.strictEqual(listed.length, 1);
+    return `getThreadList('gchat', ${askedLimit})`;
+  });
+
+  await step('a dead account is recognised, and a live one is not', async () => {
+    const gcs = require('./gcs');
+    // ws3-fca's placeholder name, and a stock avatar, are the two signals.
+    assert.strictEqual(gcs.isDeadAccount({ id: '1', name: 'Facebook User', thumbSrc: 'https://cdn/a.jpg' }), true);
+    assert.strictEqual(gcs.isDeadAccount({ id: '1', name: '', thumbSrc: '' }), true);
+    assert.strictEqual(gcs.isDeadAccount({ id: '1', name: 'Alice', thumbSrc: 'https://cdn/default_profile_pic.png' }), true);
+    // A live person with no photo has a real name — they must survive.
+    assert.strictEqual(gcs.isDeadAccount({ id: '1', name: 'Alice Oko', thumbSrc: '' }), false);
+    assert.strictEqual(gcs.isDeadAccount({ id: '1', name: 'Bob Men', thumbSrc: 'https://cdn/b.jpg' }), false);
+    // membersOf() normalises rows to `uid`, and only checking `id` here would
+    // have reported zero dead accounts forever.
+    assert.strictEqual(gcs.isDeadAccount({ uid: '1', name: 'Facebook User', thumbSrc: 'x' }), true);
+    return 'placeholder name or stock avatar only — a real name is never removed';
+  });
+
+  await step('cleanup never touches the bot, bot admins or chat admins', async () => {
+    const gcs = require('./gcs');
+    const removed = [];
+    const api = {
+      async getThreadList() { return [{ threadID: 't_1' }]; },
+      async getThreadInfo() {
+        return {
+          adminIDs: ['chat_admin'],
+          userInfo: [
+            { id: 'chat_admin', name: 'Admin', thumbSrc: 'https://cdn/a.jpg' },
+            { id: '99999', name: 'Bot Owner', thumbSrc: 'https://cdn/o.jpg' },
+            { id: 'dead_one', name: 'Facebook User', thumbSrc: 'https://cdn/d.jpg' },
+          ],
+        };
+      },
+      getCurrentUserID() { return 'bot_self'; },
+      async gcmember(action, uid) { removed.push(uid); return true; },
+    };
+    const report = await gcs.cleanup(api);
+    assert.deepStrictEqual(report.dead.map((d) => d.uid), ['dead_one']);
+    assert.deepStrictEqual(removed, ['dead_one'], 'the bot, bot admins and chat admins are spared');
+    return 'one dead account removed, everybody else spared';
+  });
+
+  await step('a doubtful member is re-asked about before being removed', async () => {
+    const gcs = require('./gcs');
+    // getThreadInfo answered "Facebook User" with no avatar for one member and
+    // nothing at all for another. getUserInfo is a different endpoint, and it is
+    // the only thing that can tell a placeholder from a real person.
+    const asked = [];
+    const api = {
+      async getThreadInfo() {
+        return {
+          adminIDs: [],
+          userInfo: [
+            { id: 'placeholder', name: 'Facebook User', thumbSrc: '' },
+            { id: 'nameless', name: '', thumbSrc: '' },
+            { id: 'fine', name: 'Alice Oko', thumbSrc: 'https://cdn/a.jpg' },
+          ],
+        };
+      },
+      async getUserInfo(id) {
+        asked.push(id);
+        if (id === 'nameless') return { id, name: 'Bob Men', thumbSrc: 'https://cdn/b.jpg' };
+        return { id, name: 'Facebook User', thumbSrc: '' }; // still dead
+      },
+    };
+    const members = await gcs.membersOf(api, 't_1');
+    const byId = Object.fromEntries(members.map((m) => [m.uid, m]));
+    assert.deepStrictEqual(asked.sort(), ['nameless', 'placeholder'], 'only the doubtful two are re-asked');
+    assert.ok(!asked.includes('fine'), 'a member with a name and an avatar is never re-asked');
+    assert.strictEqual(byId.placeholder.name, 'Facebook User', 'a second "Facebook User" is still dead');
+    assert.strictEqual(byId.nameless.name, 'Bob Men', 'a nameless member is rescued by getUserInfo');
+    assert.strictEqual(gcs.isDeadAccount(byId.placeholder), true);
+    assert.strictEqual(gcs.isDeadAccount(byId.nameless), false);
+    return 'getUserInfo confirms the doubtful two, one request each';
+  });
+
+  await step('a refused removal is reported, not swallowed', async () => {
+    const gcs = require('./gcs');
+    const api = {
+      async getThreadList() { return [{ threadID: 't_1' }]; },
+      async getThreadInfo() { return { adminIDs: [], userInfo: [{ id: 'd', name: 'Facebook User', thumbSrc: 'x' }] }; },
+      async gcmember() { throw new Error('not allowed'); },
+    };
+    const report = await gcs.cleanup(api);
+    assert.strictEqual(report.dead.length, 1);
+    assert.strictEqual(report.removed.length, 0);
+    assert.strictEqual(report.stuck.length, 1, 'a cleanup that drops half its work has to be re-run every day');
+    return 'refused removals are listed';
+  });
+
+  await step('a wild pokemon spawns, and the first .catch takes it', async () => {
+    const pokemonSpawn = require('./pokemonSpawn');
+    const dex = require('./pokemon');
+
+    // Once a minute, with an 8% roll per group that has come due.
+    assert.strictEqual(pokemonSpawn.TICK_MS, 60 * 1000, 'the roll is once a minute');
+    assert.strictEqual(pokemonSpawn.SPAWN_CHANCE, 0.08, 'and an 8% chance');
+
+    // The roster is the 151-entry Gen 1 list with rarity tiers, not a flat
+    // species table, so a spawn always has a tier and a type to announce.
+    assert.strictEqual(dex.POKEMON.length, 151, 'the roster is 151 Pokemon');
+    assert.ok(dex.TIERS.length >= 4, 'and rarity tiers');
+
+    // Every group is eligible. This is the bug: the scheduler used to query
+    // `{'pokemon.enabled': true}` against a schema that defaults to false, so a
+    // group nobody had hand-configured was never visited and nothing ever
+    // spawned in it.
+    const mk = (over = {}) => ({
+      tid: 't1',
+      pokemon: { enabled: true, intervalMs: 15 * 60 * 1000, lastSpawnAt: null, current: { id: 0, messageID: '', spawnedAt: null, expiresAt: null, caughtBy: '' }, ...over },
+      async save() { return this; },
+    });
+    assert.strictEqual(pokemonSpawn.isDue(mk(), Date.now()), true, 'a fresh group is due');
+    assert.strictEqual(pokemonSpawn.isDue(mk({ enabled: false }), Date.now()), false, 'an opt-out is not due');
+    // A document with no `enabled` field at all must still spawn, or every group
+    // saved before the setting existed stays silent forever.
+    assert.strictEqual(pokemonSpawn.isDue(mk({ enabled: undefined }), Date.now()), true, 'an absent flag does not opt out');
+
+    // First catch wins: the spawn records who took it and refuses the next.
+    const g = mk();
+    const spawned = await pokemonSpawn.spawnOne({
+      async sendMessage() { return { messageID: 'M1' }; },
+    }, g, Date.now());
+    assert.ok(spawned && spawned.name, 'a forced spawn produces a creature');
+    assert.ok(pokemonSpawn.hasLiveSpawn(g), 'and it is live until caught or expired');
+    assert.strictEqual(g.pokemon.current.messageID, 'M1', 'the message id is recorded, so a reply can be matched to it');
+
+    g.pokemon.current.caughtBy = 'u1';
+    assert.strictEqual(pokemonSpawn.hasLiveSpawn(g), false, 'a caught spawn is no longer live');
+    return `${dex.POKEMON.length} in the roster, one spawn per group, first catch wins`;
+  });
+
+  await step('.catch answers whatever the prefix is', () => {
+    // The spawner prints `.catch`, so `.catch` has to work for a `!` bot.
+    assert.deepStrictEqual(router.parse('.catch', '!').name, 'catch');
+    assert.deepStrictEqual(router.parse('!catch', '!').name, 'catch');
+    assert.deepStrictEqual(router.parse('.pokemon now', '!').args, ['now']);
+    // ...without turning every URL and ellipsis in chat into a command.
+    assert.strictEqual(router.parse('.https://example.com', '!'), null);
+    assert.strictEqual(router.parse('...', '!'), null);
+    assert.strictEqual(router.parse('hello everyone', '!'), null);
+    return 'dot form works; URLs, ellipses and chat are not commands';
+  });
+
+  await step('the pokemon roster exists on disk', () => {
+    const fs2 = require('fs');
+    const path2 = require('path');
+    const file = path2.join(__dirname, '..', 'json', 'pokemon.json');
+    assert.ok(fs2.existsSync(file), 'json/pokemon.json is missing — .catch would have nothing to spawn');
+    const roster = JSON.parse(fs2.readFileSync(file, 'utf8'));
+    assert.ok(Array.isArray(roster) && roster.length >= 10, `roster has ${roster.length} entries`);
+    for (const p of roster) {
+      assert.ok(p.name && p.emoji && p.type && p.rarity, `bad entry: ${JSON.stringify(p)}`);
+      assert.ok(Number.isFinite(p.power) && Number.isFinite(p.reward), `${p.name} needs a power and a reward`);
+    }
+    return `${roster.length} species, all well formed`;
+  });
+
+  await step('every social command passes api into the target resolver', () => {
+    // pick() referenced `api` without it being a parameter, so hug, slap, kiss
+    // and two dozen others threw "api is not defined" on the first tagged
+    // person — and guard() turned that into "`hug` failed: api is not defined".
+    const fs2 = require('fs');
+    const path2 = require('path');
+    const src = fs2.readFileSync(path2.join(__dirname, '..', 'commands', 'cmds_9.js'), 'utf8');
+    const sig = src.split('\n').find((l) => l.startsWith('async function pick'));
+    assert.ok(sig, 'pick() is gone');
+    assert.ok(/\bapi\b/.test(sig), `pick() must take api — got: ${sig}`);
+
+    const calls = src.split('\n').filter((l) => /await pick\(reply/.test(l));
+    assert.ok(calls.length >= 25, `expected the whole module to call pick(), found ${calls.length}`);
+    const missing = calls.filter((l) => !/\bpick\([^)]*,\s*api\)/.test(l));
+    assert.strictEqual(missing.length, 0, `pick() called without api:\n${missing.join('\n')}`);
+    return `${calls.length} call sites, all pass api`;
+  });
+
+  await step('a social card loads both faces from thumbSrc', () => {
+    const cards = require('./cards');
+    // duoCard must prefer the avatar URL the chat already carries. Downloading it
+    // here is the whole point: getUserInfo is a second request for a picture the
+    // thread had all along.
+    const src = require('fs').readFileSync(path.join(__dirname, 'cards.js'), 'utf8');
+    assert.ok(src.includes('thumbBuffer'), 'cards.js must download thumbSrc itself');
+    assert.ok(src.includes('p.thumbSrc'), 'duoCard must prefer thumbSrc over a lookup');
+    assert.strictEqual(typeof cards.thumbBuffer, 'function');
+    return 'both avatars come from the thread member list';
+  });
+
+// ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;
   console.log(`  ${passed}/${results.length} checks passed`);

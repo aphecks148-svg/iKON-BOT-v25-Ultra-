@@ -50,6 +50,7 @@ const Economy = require('../models/Economy');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
+const pokemon = require('../bot/pokemon');
 const { isGroupThread } = require('../bot/helpers');
 const userTarget = require('../bot/target');
 const { k, ...rarity } = require('../bot/content');
@@ -2624,5 +2625,27 @@ async function duelCatch(userDoc, event, animal) {
     ? `\u{1F3C6} **You win ${kc(pot)}** for the **${won.label}** — beating ${other.name}'s ${loser.label}.`
     : `\u{1F3C6} ${other.name} wins ${kc(pot)} for the **${won.label}**. Your best was ${loser.label}.`;
 }
+
+// ───────────────────────────────────────────────────────────
+// WILD POKEMON
+//
+// The bot rolls once a minute (bot/pokemon.js) and, 8 rolls in 100, drops one
+// wild pokemon into every group chat it is in. The first person to run `.catch`
+// banks it. The spawn state is global.pokemonSpawns, not here — this is only the
+// two commands that read it.
+// ───────────────────────────────────────────────────────────
+
+/** The pokemon block, backfilled. Callers mutate and save. */
+function pokeOf(doc) {
+  if (!doc.pokemon || typeof doc.pokemon !== 'object') doc.pokemon = {};
+  if (!Array.isArray(doc.pokemon.caught)) doc.pokemon.caught = [];
+  if (!Number.isFinite(doc.pokemon.count)) doc.pokemon.count = 0;
+  if (!Number.isFinite(doc.pokemon.bestPower)) doc.pokemon.bestPower = 0;
+  return doc.pokemon;
+}
+
+
+
+
 
 module.exports = commands;

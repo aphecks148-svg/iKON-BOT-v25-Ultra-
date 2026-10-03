@@ -17,8 +17,11 @@ function transientGroup(tid) {
   const doc = {
     tid: String(tid),
     isEnabled: true,
-    isApproved: false,
-    pendingApproval: true,
+    // Every chat the bot is in is a chat it serves. There is no approved list:
+    // a group used to sit here refusing every command until an owner noticed it
+    // existed, which does not scale past the first two groups.
+    isApproved: true,
+    pendingApproval: false,
     prefix: null,
     autoAddLeavers: false,
     adminsOnly: false,
@@ -42,9 +45,18 @@ async function getGroup(tid) {
     group = await Group.create({
       tid: tidStr,
       isEnabled: true,
-      isApproved: false,
-      pendingApproval: true,
+      // Approved on creation. The bot is in this chat, which is the whole test.
+      isApproved: true,
+      pendingApproval: false,
     });
+  }
+  // Groups created before this change are still sitting on pendingApproval:true
+  // in Mongo. Migrate them the first time they are touched rather than leaving
+  // the old flag to decide whether commands run.
+  if (group.pendingApproval === true) {
+    group.pendingApproval = false;
+    group.isApproved = true;
+    await group.save().catch(() => {});
   }
   return group;
 }
@@ -65,6 +77,16 @@ function findGroup(tid) {
  * Fails OPEN when the database is unreachable so a DB outage never takes the
  * whole bot down — maintenance is enforced from config.MAINTENANCE_MODE, which
  * needs no database at all.
+ *
+ * THERE IS NO APPROVAL CHECK HERE, and that is deliberate. There used to be an
+ * approved list, and past ten groups it was never maintained, so a chat added
+ * weeks earlier sat there refusing every command on a flag nobody remembered
+ * setting. Being in the group is the whole test — see getGroup(), which creates
+ * threads already approved, and bot/gcs.js, which approves every existing
+ * thread on boot.
+ *
+ * @returns {Promise<{allowed:boolean, reason:string, adminsOnly:boolean}>}
+ fedbbb0 (fix: all core bugs)
  *
  * @returns {Promise<{allowed:boolean, reason:string, adminsOnly:boolean, adminBypass:boolean}>}
  *   `adminBypass` says whether an admin of the thread may run the command anyway.

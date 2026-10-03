@@ -82,6 +82,45 @@ async function loadImage(buf) {
 }
 
 /**
+ * Download a Facebook avatar and decode it.
+ *
+ * Why the bytes are fetched here instead of handing the URL straight to
+ * loadImage(): `thumbSrc` is a plain CDN URL that arrives with the thread's
+ * member list, which is the fastest and only always-present source of a
+ * picture. But @napi-rs/canvas accepts a URL string and node-canvas does not,
+ * and this bot may be running either. Buffer works in both, so the bytes are
+ * downloaded first and the loader never sees a string.
+ *
+ * Facebook's avatar endpoint answers with a redirect to the CDN; axios follows
+ * it in Node. Anything under 128 bytes is a 1x1 placeholder or a stub error body,
+ * and drawing that would put a blank square where a face should be. The floor is
+ * deliberately low: a small solid-colour PNG is a few hundred bytes and is a
+ * perfectly valid image, so a higher bar would throw away real avatars on the
+ * strength of how well they compress.
+ *
+ * @param {string} url
+ * @returns {Promise<Buffer|null>}
+ */
+async function thumbBuffer(url) {
+  const u = String(url || '').trim();
+  if (!u) return null;
+  try {
+    const axios = require('axios');
+    const res = await axios.get(u, {
+      responseType: 'arraybuffer',
+      timeout: 8000,
+      maxRedirects: 5,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+    const buf = Buffer.isBuffer(res.data) ? res.data : Buffer.from(res.data || []);
+    return buf.length >= 128 ? buf : null;
+  } catch (err) {
+    error(`[CARD] avatar download failed for ${u.slice(0, 80)}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Draw a circular avatar.
  *
  * @param {object} ctx
@@ -167,6 +206,10 @@ async function realName(row, api) {
  * @param {string|number} [opts.threadID] shown in the footer
  * @param {{uid?:string,name?:string}} opts.left the person who acted
  * @param {{uid?:string,name?:string}|null} [opts.right] the person acted upon
+ *        Both may carry a `thumbSrc` — the avatar URL that came with the chat's
+ *        member list. It is preferred over a getUserInfo lookup: the thread
+ *        already has it, so the card costs one request instead of two, and it
+ *        is the only source that works for somebody who has no cached profile.
  * @param {string} [opts.body] one or two lines of context
  * @param {string} [opts.footer] the disclaimer line
  * @param {object} opts.api ws3-fca client
@@ -195,8 +238,13 @@ async function duoCard({ title, emoji = '', subtitle = '', threadID, left, right
       const name = live
         || (p.name && !profile.isPlaceholderName(p.name) ? p.name : '')
         || (uid ? `Hunter ${uid.slice(-4)}` : 'Someone');
-      const pic = uid ? await profile.picture(uid, api) : null;
-      return { name, pic, uid };
+
+      // thumbSrc first. It came with the chat, so it is free; getUserInfo is
+      // the fallback for a caller that has no thread to read it from.
+      const thumb = String(p.thumbSrc || '').trim();
+      const pic = thumb ? (await thumbBuffer(thumb)) : null;
+      if (pic) return { name, pic, uid };
+      return { name, pic: uid ? await profile.picture(uid, api) : null, uid };
     };
 
     const [a, b] = await Promise.all([person(left), person(right)]);
@@ -597,6 +645,7 @@ module.exports = {
   pairCard,
   drawAvatar,
   loadImage,
+  thumbBuffer,
   realName,
   fit,
   roundRect,

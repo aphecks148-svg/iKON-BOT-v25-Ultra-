@@ -1,11 +1,22 @@
 'use strict';
 
 /**
- * Thin, lazy wrapper around @napi-rs/canvas.
- * @napi-rs/canvas ships prebuilt native binaries — there is no node-gyp build step,
- * so it works on Render and Android out of the box.
+ * Thin, lazy wrapper around the canvas implementation.
  *
- * Used later for profile cards, leaderboards and welcome images.
+ * Two of them, tried in order:
+ *
+ *   1. @napi-rs/canvas — ships prebuilt native binaries, so it works on Render
+ *      and Android with no build step. This is the one we expect to use.
+ *   2. canvas (node-canvas) — a source build needing cairo. It is an OPTIONAL
+ *      dependency precisely so that a host without the cairo headers still
+ *      deploys: npm skips the build and the bot comes up with images disabled
+ *      rather than the deploy failing outright.
+ *
+ * The two expose the same createCanvas/getContext/toBuffer surface, so only the
+ * require and the buffer call differ. loadImage is checked for separately
+ * because it is the one method an older node-canvas build may not expose.
+ *
+ * Used for profile cards, leaderboards, welcome images and the social cards.
  */
 
 const fs = require('fs');
@@ -19,12 +30,16 @@ let loadError = null;
 /** Load the library on first use so a missing binary never breaks startup. */
 function lib() {
   if (canvas || loadError) return canvas;
-  try {
-    // eslint-disable-next-line global-require
-    canvas = require('@napi-rs/canvas');
-  } catch (err) {
-    loadError = err;
-    console.warn(`[CANVAS] unavailable: ${err.message}`);
+
+  for (const id of ['@napi-rs/canvas', 'canvas']) {
+    try {
+      // eslint-disable-next-line global-require, import/no-dynamic-require
+      canvas = require(id);
+      return canvas;
+    } catch (err) {
+      loadError = err;
+      console.warn(`[CANVAS] ${id} unavailable: ${err.message}`);
+    }
   }
   return canvas;
 }
@@ -56,9 +71,15 @@ async function toBuffer(canvasObj) {
   if (!canvasObj) return null;
   try {
     // @napi-rs/canvas exposes Canvas#toBuffer(); there is no encode() helper.
-    const buf = canvasObj.toBuffer('image/png');
+    // node-canvas has encode(); it has no toBuffer(). Try both.
+    let buf = null;
+    if (typeof canvasObj.toBuffer === 'function') buf = canvasObj.toBuffer('image/png');
+    else if (typeof canvasObj.toDataURL === 'function') {
+      const url = canvasObj.toDataURL('image/png');
+      return Buffer.from(String(url).split(',')[1] || '', 'base64');
+    } else if (typeof canvasObj.encode === 'function') buf = canvasObj.encode('png');
     if (Buffer.isBuffer(buf)) return buf;
-    return Buffer.from(buf);
+    return buf ? Buffer.from(buf) : null;
   } catch (err) {
     console.warn(`[CANVAS] toBuffer failed: ${err.message}`);
     return null;
