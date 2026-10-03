@@ -3548,44 +3548,93 @@ const PIKACHU = dex.find('pikachu');
     return '!sing attaches a voice note; !lyrics write composes';
   });
 
-  await step('every one of the fifty pets is listed, with its price', async () => {
+  await step('the bestiary is two parts, and all fifty pets are in one of them', async () => {
     const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
     const petlist = loaded.registry.get('petlist');
-    const pages = [];
-    await petlist.execute({
-      api: {}, args: [], event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
-      config, reply: async (t) => { pages.push(t); }, react: async () => true,
-      userDoc: { uid: '9', name: 'Owner', coins: 100000 },
-    });
+    const say = async (argList) => {
+      const out = [];
+      await petlist.execute({
+        api: {}, args: argList, event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
+        config, reply: async (t) => { out.push(t); }, react: async () => true,
+        userDoc: { uid: '9', name: 'Owner', coins: 100000 },
+      });
+      return out;
+    };
+    const adopted = (pages) => [...pages.join('\n').matchAll(/`!adopt ([a-z0-9]+)`/g)].map((m) => m[1]);
 
-    const all = pages.join('\n');
-    // The roster itself, straight off disk, so the test cannot pass by agreeing
+    const part1 = await say([]);
+    const part2 = await say(['2']);
+    const one = adopted(part1);
+    const two = adopted(part2);
+
+    // THE ROSTER ITSELF, straight off disk, so the test cannot pass by agreeing
     // with a hardcoded number.
     const src = require('fs').readFileSync(path.join(__dirname, '..', 'commands', 'cmds_4.js'), 'utf8');
     const block = src.slice(src.indexOf('const DANGEROUS_PETS = ['));
     const ids = [...block.slice(0, block.indexOf('\n];')).matchAll(/id:\s*'([^']+)'/g)].map((m) => m[1]);
-
     assert.strictEqual(ids.length, 50, 'the roster is fifty pets');
-    const missing = ids.filter((id) => !all.includes(`!adopt ${id}`));
+
+    // `!petlist` opens part 1 and STOPS. A catalogue that arrives in one breath
+    // is the thing this replaced: part 2 exists because Messenger truncates a
+    // long body, not because paging is a nice demo.
+    const both = [...new Set([...one, ...two])].filter((id) => id !== 'starter');
+    assert.strictEqual(both.length, 50, `both parts together list all fifty, got ${both.length}`);
+    const missing = ids.filter((id) => !both.includes(id));
     assert.strictEqual(missing.length, 0, `pets missing from the bestiary: ${missing.join(', ')}`);
+    // `starter` is the egg in the footer, not a bestiary pet, so it is the one
+    // id allowed to appear in both.
+    const overlap = one.filter((id) => two.includes(id) && id !== 'starter');
+    assert.strictEqual(overlap.length, 0, `a pet is not in both parts: ${overlap.join(', ')}`);
+    assert.ok(one.filter((id) => id !== 'starter').length < ids.length, `part 1 alone is not the whole list, got ${one.length}`);
+    assert.ok(part1.length >= 2, `part 1 is paginated per rarity, got ${part1.length} messages`);
+
+    // A part that ends without saying how to get the rest is a dead end. The
+    // footer must name the next part, and the command that asks for it.
+    assert.ok(/!petlist 2/.test(part1[part1.length - 1]), 'part 1 says how to ask for part 2');
+    assert.ok(/!petlist 1/.test(part2[part2.length - 1]), 'part 2 says how to go back');
 
     // Ids alone are not a catalogue: a player cannot see what a pet costs or how
     // strong it is without a second command.
-    const prices = (all.match(/K-Cash/g) || []).length;
-    assert.ok(prices >= 50, `every pet shows its price — found ${prices}`);
+    const prices = (part1.join('\n') + part2.join('\n')).match(/K-Cash/g) || [];
+    assert.ok(prices.length >= 50, `every pet shows its price — found ${prices.length}`);
 
-    // `all` is the catalogue spelled out, so it must behave like no argument.
-    const viaAll = [];
-    await petlist.execute({
-      api: {}, args: ['all'], event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
-      config, reply: async (t) => { viaAll.push(t); }, react: async () => true,
-      userDoc: { uid: '9', name: 'Owner', coins: 100000 },
-    });
+    // Every rung of the ladder is reachable, and reachable by name. The failure
+    // this guards is silent: a rarity that falls out of the split is not an
+    // error anywhere, it is just a tier that no longer exists as far as a player
+    // can tell. So each rung is checked against the table itself, not a number.
+    const ladder = require('./content').LADDER;
+    const rows = [...block.slice(0, block.indexOf('\n];')).matchAll(/id:\s*'([^']+)'[^}]*?rarity:\s*'([^']+)'/g)]
+      .map((m) => ({ id: m[1], rarity: m[2] }));
+    assert.strictEqual(rows.length, 50, 'every roster row states the rarity it belongs to');
+    for (const r of ladder) {
+      const mine = rows.filter((x) => x.rarity === r.key).map((x) => x.id);
+      assert.ok(mine.length > 0, `${r.key} is not empty`);
+      // In the catalogue: every one of its pets is in part 1 or part 2.
+      const nowhere = mine.filter((id) => !both.includes(id));
+      assert.strictEqual(nowhere.length, 0, `${r.key} pets missing from the catalogue: ${nowhere.join(', ')}`);
+      // And askable by name, returning that tier and nothing else.
+      const short = adopted(await say([r.key]));
+      const wrong = short.filter((id) => !mine.includes(id));
+      assert.strictEqual(wrong.length, 0, `\`!petlist ${r.key}\` leaked ${wrong.join(', ')}`);
+      assert.strictEqual(short.length, mine.length, `\`!petlist ${r.key}\` listed ${short.length} of ${mine.length}`);
+    }
+
+    // `all` is the catalogue spelled out, so it must answer with both parts.
+    const viaAll = await say(['all']);
     assert.ok(viaAll.join('\n').includes('BESTIARY'), '`!petlist all` is the whole ladder, not an unknown rarity');
+    assert.ok(adopted(viaAll).length >= 50, `\`!petlist all\` lists everything, got ${adopted(viaAll).length}`);
 
-    // One page per rarity, so Messenger cannot truncate the bottom of the list.
-    assert.ok(pages.length >= 3, `the list is paginated, got ${pages.length} messages`);
-    return `all ${ids.length} pets, priced and paginated`;
+    // A digit that is not a part is an honest refusal, not a mystery.
+    const bad = await say(['7']);
+    assert.ok(/no part/i.test(bad.join('\n')), 'part 7 is refused, not treated as a rarity');
+
+    // THE COOLDOWN. Both parts come out of one command name, so a shared bucket
+    // would answer the follow-up the footer asks for with "wait 15 seconds".
+    const key = (a) => petlist.cooldownKey(a);
+    assert.notStrictEqual(key([]), key(['2']), 'part 1 and part 2 do not share a cooldown bucket');
+    assert.ok(String(key(['2'])).length > 0, 'a part request still has its own bucket to abuse');
+
+    return `50 pets in 2 parts (${one.length}/${two.length}), every rarity reachable`;
   });
 
 // ── summary ───────────────────────────────────────────────

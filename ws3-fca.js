@@ -381,8 +381,16 @@ async function handleMessage(api, event) {
     // path; between it and here another message from this person may have taken
     // the cooldown, and checking once outside the lock is a check that can be
     // stale the instant it returns.
+    //
+    // The bucket is keyed by `cooldownKey(args)` when a command provides one, so
+    // a command that answers in parts throttles each answer separately. Keyed
+    // by name alone, `!petlist` and then the `!petlist 2` its own footer asks
+    // for collide — and the bot refuses the request it just made.
     const cd = Number.isFinite(Number(cmd.cooldown)) ? Number(cmd.cooldown) : config.DEFAULT_COOLDOWN;
-    const left = cooldown.check(senderID, cmd.name, cd);
+    const cdKey = typeof cmd.cooldownKey === 'function'
+      ? String(cmd.cooldownKey(parsed.args) || cmd.name)
+      : cmd.name;
+    const left = cooldown.check(senderID, cdKey, cd);
     if (left > 0) {
       await say(`⏳ Cooldown: wait ${helpers.fmt.dur(left)}.`);
       return;
@@ -393,7 +401,7 @@ async function handleMessage(api, event) {
     // two replies and writes the ledger — spends a second or two in here, and
     // if the bucket were only written at the end the whole execution window
     // would be cooldown-free. That is how one cooldown paid out twice.
-    cooldown.set(senderID, cmd.name, cd);
+    cooldown.set(senderID, cdKey, cd);
 
     // ── PROFILE ─────────────────────────────────────────────
     //
@@ -406,7 +414,7 @@ async function handleMessage(api, event) {
 
     // ── MODERATION ────────────────────────────────────────────
     if (userDoc.isBanned) {
-      cooldown.clear(senderID, cmd.name);
+      cooldown.clear(senderID, cdKey);
       await say(`🚫 You are banned from using the bot${userDoc.banReason ? `: ${userDoc.banReason}` : '.'}`);
       return;
     }
@@ -433,7 +441,7 @@ async function handleMessage(api, event) {
       // Hand the cooldown back. A database blip or a failed upload is not the
       // person's fault, and burning the cooldown on it means they wait out a
       // command that never actually ran.
-      cooldown.clear(senderID, cmd.name);
+      cooldown.clear(senderID, cdKey);
       STATE.errors += 1;
       error(`[COMMAND] ${cmd.name} threw: ${err.message}`);
       if (err && err.stack) console.error(err.stack);

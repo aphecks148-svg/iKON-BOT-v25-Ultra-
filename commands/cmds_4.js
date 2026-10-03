@@ -118,6 +118,70 @@ const PETS_BY_RARITY = rarity.LADDER.map((r) => ({
 }));
 
 /**
+ * The bestiary in two parts, cut on a rarity boundary.
+ *
+ * Messenger truncates a long body, and a player who asked for the bestiary
+ * wants the cheap half first — nobody scrolls to divine. So `!petlist` opens
+ * part 1 and part 2 arrives only when it is asked for.
+ *
+ * The cut is chosen, not hardcoded: walk the ladder and take the prefix whose
+ * pet count is closest to half the roster (28/22 today, not 25/25 by chopping a
+ * tier in half). Every rung therefore lands whole in exactly one part, and
+ * adding a rarity later re-balances the halves on its own instead of silently
+ * dropping one out of the list.
+ *
+ * @returns {Array<{n:number, of:number, rungs:object[], pets:object[]}>}
+ */
+function bestiaryParts() {
+  const filled = PETS_BY_RARITY.filter((g) => g.pets.length);
+  const half = DANGEROUS_PETS.length / 2;
+  let cut = 1;
+  let best = Infinity;
+  let run = 0;
+  for (let i = 0; i < filled.length - 1; i += 1) {
+    run += filled[i].pets.length;
+    const off = Math.abs(half - run);
+    if (off < best) {
+      best = off;
+      cut = i + 1;
+    }
+  }
+  const halves = [filled.slice(0, cut), filled.slice(cut)].filter((rungs) => rungs.length);
+  return halves.map((rungs, i) => ({
+    n: i + 1,
+    of: halves.length,
+    rungs,
+    pets: rungs.flatMap((g) => g.pets),
+  }));
+}
+
+/**
+ * What `!petlist <arg>` is asking for.
+ *
+ * Three readings of one argument, and the order matters: a digit is a part, a
+ * word is a rarity. Returning a kind instead of a bare string keeps
+ * "part 3 of 2" from silently falling through to the "no rarity called 3" path.
+ *
+ * @param {string} arg raw first argument, already lowercased by the caller
+ * @param {number} total how many parts the bestiary was cut into
+ * @returns {{kind:'part'|'all'|'rarity'|'bad', n?:number, key?:string}}
+ */
+function bestiaryAsk(arg, total) {
+  const a = String(arg || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!a) return { kind: 'part', n: 1 };
+  // `all` is the catalogue spelled out loud, so it means the whole ladder.
+  if (/^(all|every|full)$/.test(a)) return { kind: 'all' };
+  // The obvious follow-up to a page that ended in "there is more".
+  if (/^(next|more|rest)$/.test(a)) return { kind: 'part', n: Math.min(2, total) };
+  const digits = a.match(/^(?:part|page|pg|no|number)?\s*(\d{1,2})$/);
+  if (digits) {
+    const n = Number(digits[1]);
+    return n >= 1 && n <= total ? { kind: 'part', n } : { kind: 'bad' };
+  }
+  return { kind: 'rarity', key: a };
+}
+
+/**
  * The level gate on a pet, phrased as something worth reading.
  *
  * Returns null when the hunter is allowed to buy it. The wording matters: this
@@ -1704,83 +1768,122 @@ module.exports = [
     aliases: [],
     category: 'pets',
     description: '🐉 The bestiary — all fifty buyable pets, by rarity',
-    usage: '!petlist [rarity | all]',
-    hint: 'Fifty pets, from Common to Divine. `!petlist all` shows every price; `!petlist divine` is the shortlist.',
+    usage: '!petlist [1 | 2 | rarity | all]',
+    hint: 'Opens on part 1. `!petlist 2` for legendary, mythic and divine; `!petlist divine` is the shortlist.',
     cooldown: 15,
+    // Part 1 and part 2 are two different answers to two different questions, so
+    // they get a bucket each. A single shared bucket meant the follow-up the
+    // footer literally asks for — "send !petlist 2" — came back as "Cooldown:
+    // wait 15s", which is the bot refusing the request it just made. Asking for
+    // a rarity is its own bucket for the same reason.
+    cooldownKey: (args) => {
+      const ask = bestiaryAsk(args && args[0], bestiaryParts().length);
+      if (ask.kind === 'part') return `petlist:part${ask.n}`;
+      if (ask.kind === 'all') return 'petlist:all';
+      if (ask.kind === 'rarity') return `petlist:${ask.key}`;
+      return 'petlist:unknown';
+    },
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petlist', async () => {
       await react('🐉');
-      const typed = String(args[0] || '').toLowerCase().trim();
-      // `all` is the catalogue spelled out loud, so it means the whole ladder.
-      const want = /^(all|every|full)$/.test(typed) ? '' : typed;
+      const parts = bestiaryParts();
+      const ask = bestiaryAsk(args[0], parts.length);
 
-      if (want) {
+      if (ask.kind === 'bad') {
+        await reply(
+          `❓ There is no part \`${String(args[0]).trim().toLowerCase()}\` — the bestiary is ${parts.length} parts.\n`
+          + `Try \`${config.PREFIX}petlist\` for part 1 or \`${config.PREFIX}petlist 2\` for the rest.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (ask.kind === 'rarity') {
         // A shortlist beats a wall of 50 lines, so asking for a rarity gives
         // the pets that are actually in it rather than everything else too.
         // BY_KEY is the Map, not `get` — get() deliberately falls back to the
         // bottom rung for anything it does not recognise, so it can never
         // report an unknown rarity and the guard below would never fire.
-        if (!rarity.BY_KEY.has(want)) {
-          await reply(`❓ No rarity called \`${want}\`. Try: \`${rarity.LADDER.map((r) => `\`${r.key}\``).join(', ')}\`, or \`all\``, event.messageID);
+        if (!rarity.BY_KEY.has(ask.key)) {
+          await reply(`❓ No rarity called \`${ask.key}\`. Try: ${rarity.LADDER.map((r) => `\`${r.key}\``).join(', ')}, or \`all\``, event.messageID);
           return;
         }
-        const picked = DANGEROUS_PETS.filter((p) => p.rarity === want);
+        const picked = DANGEROUS_PETS.filter((p) => p.rarity === ask.key);
         if (!picked.length) {
-          await reply(`📭 Nothing in ${want} yet.`, event.messageID);
+          await reply(`📭 Nothing in ${ask.key} yet.`, event.messageID);
           return;
         }
         const lines = picked.map((p) => (
           `${p.emoji} **${p.name}** ⚡${num(p.power)} · ${kc(p.price)} · 🔒Lv${p.level}\n   \`!adopt ${p.id}\``
         ));
         await reply(
-          `${rarity.symbol(want)} **${rarity.get(want).label} — ${picked.length} of ${DANGEROUS_PETS.length}**\n`
+          `${rarity.symbol(ask.key)} **${rarity.get(ask.key).label} — ${picked.length} of ${DANGEROUS_PETS.length}**\n`
           + '· · · · · · ·\n'
           + `${lines.join('\n')}\n`
-          + `↩️ \`${config.PREFIX}petlist\` — every rarity`,
+          + `↩️ \`${config.PREFIX}petlist\` — back to part 1`,
           event.messageID,
         );
         return;
       }
 
-      // The full page. Ids alone are not a catalogue — a player cannot tell what
+      // The catalogue. Ids alone are not a catalogue — a player cannot tell what
       // `ratking` costs or how strong it is without a second command — so every
       // pet gets its name, emoji, power, price and the exact command that buys
-      // it. It runs long, so it is paginated per rarity rather than dropped in
-      // one message and truncated by Messenger.
-      const pages = [];
-      for (const r of rarity.LADDER) {
-        const group = DANGEROUS_PETS.filter((p) => p.rarity === r.key);
-        if (!group.length) continue;
-        const lines = group.map((p) => (
-          `${p.emoji} **${p.name}** ⚡${num(p.power)} · ${kc(p.price)} · 🔒Lv${p.level}\n   \`!adopt ${p.id}\``
-        ));
-        pages.push([
-          `${r.symbol} **${r.label.toUpperCase()}** · ${group.length} of ${DANGEROUS_PETS.length}`,
-          '· · · · · · ·',
-          ...lines,
-        ].join('\n'));
-      }
+      // it. It runs long, so it goes out one rarity per message rather than in
+      // one body that Messenger truncates.
+      const shown = ask.kind === 'all' ? parts : [parts[ask.n - 1]].filter(Boolean);
 
-      // Messenger truncates a long body, so a 50-pet list is sent one rarity at
-      // a time. Players see all fifty and nothing gets cut off the bottom.
-      for (let i = 0; i < pages.length; i += 1) {
-        const head = i === 0
-          ? `🐉 **iKON BESTIARY — ${DANGEROUS_PETS.length} DANGEROUS PETS**\n`
-            + `📖 ${pages.length} pages · every one is buyable with \`!adopt <id>\`\n`
-          : `🐉 **BESTIARY ${i + 1}/${pages.length}**\n`;
-        // eslint-disable-next-line no-await-in-loop
-        await reply(`${head}${pages[i]}`, event.messageID);
-        // eslint-disable-next-line no-await-in-loop
-        if (i < pages.length - 1) await wait(400);
-      }
+      /**
+       * One part of the ladder: a page per rarity, then a footer that says
+       * exactly how to get whatever was left out.
+       *
+       * @param {object} part an entry from bestiaryParts()
+       * @param {boolean} opening true for the first message of the run
+       */
+      const sendPart = async (part, opening) => {
+        const span = part.rungs.map((r) => r.label.toLowerCase()).join(' → ');
+        for (let i = 0; i < part.rungs.length; i += 1) {
+          const g = part.rungs[i];
+          const lines = g.pets.map((p) => (
+            `${p.emoji} **${p.name}** ⚡${num(p.power)} · ${kc(p.price)} · 🔒Lv${p.level}\n   \`!adopt ${p.id}\``
+          ));
+          const head = opening && i === 0
+            ? `🐉 **iKON BESTIARY — ${DANGEROUS_PETS.length} DANGEROUS PETS**\n`
+              + `📖 ${parts.length} parts · part ${part.n} of ${part.of} · ${span} · every one is buyable with \`!adopt <id>\`\n`
+            : `🐉 **BESTIARY ${part.n}/${part.of}** · ${g.symbol} ${g.label.toUpperCase()} · ${g.pets.length} of ${DANGEROUS_PETS.length}\n`;
+          // eslint-disable-next-line no-await-in-loop
+          await reply(`${head}· · · · · · ·\n${lines.join('\n')}`, event.messageID);
+          // eslint-disable-next-line no-await-in-loop
+          if (i < part.rungs.length - 1) await wait(400);
+        }
 
-      await reply(
-        `· · · · · · ·\n`
-        + `🔎 \`${config.PREFIX}petlist <rarity>\` — one rarity at a time\n`
-        + `🥚 Starter dragon: \`${config.PREFIX}adopt starter\` (1,000)\n`
-        + `💡 Divine pets are one of one — price is the smallest part of getting one.`,
-        event.messageID,
-      );
+        // The other half, named. "There is more" is an insult; `!petlist 2` and
+        // the three rarities it holds are instructions. `next` only ever means
+        // part 2, so it is offered from part 1 and nowhere else.
+        const other = parts.find((p) => p.n !== part.n);
+        const rest = other
+          ? `➡️ **Part ${other.n} of ${other.of}** — ${other.pets.length} more: `
+            + `${other.rungs.map((r) => `\`${config.PREFIX}petlist ${r.key}\``).join(', ')}\n`
+            + `　 ask for it with \`${config.PREFIX}petlist ${other.n}\``
+            + `${ask.kind === 'all' || other.n !== 2 ? '' : ' or `!petlist next`'}\n`
+          : '';
+        await reply(
+          `· · · · · · ·\n`
+          + `🐉 Part ${part.n}: ${part.pets.length} of ${DANGEROUS_PETS.length} pets.\n`
+          + (rest ? `${rest}` : `✅ That is all ${DANGEROUS_PETS.length} of them.\n`)
+          + `🔎 \`${config.PREFIX}petlist <rarity>\` — one rarity at a time\n`
+          + `🥚 Starter dragon: \`${config.PREFIX}adopt starter\` (1,000)\n`
+          + `💡 Divine pets are one of one — price is the smallest part of getting one.`,
+          event.messageID,
+        );
+      };
+
+      for (let i = 0; i < shown.length; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendPart(shown[i], i === 0);
+        // eslint-disable-next-line no-await-in-loop
+        if (i < shown.length - 1) await wait(400);
+      }
     }),
   },
 
