@@ -44,8 +44,11 @@ const OWNER = 'Aphecks iKon Klerk';
 // CONTENT
 // ───────────────────────────────────────────────────────────
 
-const DEFAULT_WELCOME = 'Welcome {user} to the iKON arcade. The house is already watching.';
-const DEFAULT_GOODBYE = '{user} left. The vault counts one fewer.';
+// The lines a chat gets when it has not written its own. `{mention}` rather
+// than `{user}` on the welcome, because that is what actually pings the arrival
+// in their notification tray — a welcome they never see is not a welcome.
+const DEFAULT_WELCOME = 'Hello {mention} 👋 Welcome to {group} 💚';
+const DEFAULT_GOODBYE = '{user} left {group} 😢 We will miss you.';
 
 const TRUTHS = [
   'What is the worst thing you have ever done for money?',

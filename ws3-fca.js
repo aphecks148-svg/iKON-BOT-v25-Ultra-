@@ -601,28 +601,92 @@ function notMe(people, selfId) {
 }
 
 /**
+ * Per-thread join/leave facts, cached for a few seconds.
+ *
+ * Short TTL on purpose: it only has to survive a burst of simultaneous join
+ * events for one import, and a chat's member list going stale is the thing that
+ * would put yesterday's face on today's welcome card.
+ */
+const THREAD_INFO_TTL_MS = 20 * 1000;
+const threadInfoCache = new Map();
+
+/** Forget every cached thread. Exposed for tests. */
+function clearThreadInfo() {
+  threadInfoCache.clear();
+}
+
+/**
+ * The chat's own facts: its name, how many people are in it, and each member's
+ * id/name/thumbSrc.
+ *
+ * ONE lookup, cached briefly, because a join burst in a busy chat fires this
+ * event several times a second and getThreadInfo is not free. The cache exists
+ * for the picture and the count: `thumbSrc` arrives here and nowhere else, and
+ * it is a direct CDN url — no access token, no redirect — which makes it both the
+ * cheapest and the most reliable avatar source there is.
+ *
+ * The previous code called getThreadInfo on every single announcement and threw
+ * everything away but the title, while its own comment claimed the result was
+ * cached.
+ *
+ * @param {string} threadID
+ * @param {object} api
+ * @returns {Promise<{name:string, count:number, users:Map<string,{name:string, thumbSrc:string}>}>}
+ */
+async function threadInfo(threadID, api) {
+  const fallback = {
+    name: String(threadID || ''),
+    count: 0,
+    users: new Map(),
+  };
+  if (!threadID || !api || typeof api.getThreadInfo !== 'function') return fallback;
+
+  const key = String(threadID);
+  const hit = threadInfoCache.get(key);
+  if (hit && Date.now() < hit.expires) return hit.value;
+
+  try {
+    const info = await api.getThreadInfo(key);
+    const name = info && (info.threadTitle || info.threadName || info.name || info.title);
+    const users = new Map();
+    for (const u of (info && info.userInfo) || []) {
+      if (!u || !u.id) continue;
+      users.set(String(u.id), {
+        name: u.name || u.firstName || '',
+        thumbSrc: u.thumbSrc || u.profileUrl || '',
+      });
+    }
+    // participantIDs is the count ws3-fca exposes. A chat larger than the
+    // GraphQL page it fetches reports the page size rather than the true total,
+    // which is the same number the bot shows everywhere else, so the card agrees
+    // with the group instead of contradicting it.
+    const count = Number(info && info.participantIDs && info.participantIDs.length) || 0;
+    const value = {
+      name: name ? String(name) : fallback.name,
+      count,
+      users,
+    };
+    threadInfoCache.set(key, { value, expires: Date.now() + THREAD_INFO_TTL_MS });
+    return value;
+  } catch (err) {
+    error(`[GROUP] getThreadInfo(${threadID}) failed: ${err.message}`);
+    return fallback;
+  }
+}
+
+/**
  * The display name of a chat, for `{group}`.
  *
  * A join/leave event carries only a thread id, and the id used to be what
  * `{group}` was replaced with — so "Welcome {user} to {group}" announced a
- * fifteen-digit number. getThreadInfo is cached per thread because a busy chat
- * fires a join event every few seconds.
+ * fifteen-digit number.
  *
  * @param {string} threadID
  * @param {object} api
  * @returns {Promise<string>}
  */
 async function chatName(threadID, api) {
-  const fallback = String(threadID || '');
-  if (!threadID || !api || typeof api.getThreadInfo !== 'function') return fallback;
-  try {
-    const info = await api.getThreadInfo(String(threadID));
-    const name = info && (info.threadTitle || info.name || info.title);
-    return name ? String(name) : fallback;
-  } catch (err) {
-    error(`[GROUP] getThreadInfo(${threadID}) failed: ${err.message}`);
-    return fallback;
-  }
+  return (await threadInfo(threadID, api)).name;
 }
 
 /**
@@ -651,22 +715,33 @@ function fillPlaceholders(template, who, ctx, mention) {
 }
 
 /**
- * Announce one arrival or departure: canvas card first, then the text line.
+ * Announce one arrival or departure: ONE message, carrying the card and the line.
  *
- * The card is best-effort. Without the native canvas binary `arrivalCard`
- * returns null and only the text goes out — a platform that cannot render must
+ * THE DOUBLE SEND, and why it was there.
+ * This used to call sendMessage twice: once with the admin's text, then again
+ * with the card. Every single join dropped two messages into a chat — the text
+ * above, then a picture with no caption — and every goodbye did the same. The
+ * card and the sentence belong to each other; a member who saw the text scroll
+ * past had already missed the picture by the time it landed. There is one send
+ * here now, with both in the payload, and there is one implementation of this
+ * handler, so there is nothing left to delete to stop a second copy arriving.
+ *
+ * The card is best-effort. Without the native canvas binary — or if drawing
+ * throws, or the download of the avatar fails — `arrivalCard` returns null and
+ * the same message goes out as text alone. A platform that cannot render must
  * still say the name.
  *
  * @param {object} api
  * @param {string} threadID
  * @param {'welcome'|'goodbye'} kind
  * @param {object} who
- * @param {string} threadName
- * @param {string} template
+ * @param {object} info `{name, count, users}` from threadInfo()
+ * @param {string} template the admin's line, or '' for the built-in one
  * @param {boolean} isGroup
  */
-async function announce(api, threadID, kind, who, threadName, template, isGroup) {
+async function announce(api, threadID, kind, who, info, template, isGroup) {
   const leaving = kind === 'goodbye';
+  const threadName = info && info.name ? info.name : String(threadID || '');
 
   // A tag needs the name to already be resolved, so the live lookup happens
   // here rather than inside the template filler.
@@ -677,60 +752,62 @@ async function announce(api, threadID, kind, who, threadName, template, isGroup)
   const realName = live || fromEvent || '';
   const display = realName || (who.uid ? `Hunter ${who.uid.slice(-4)}` : 'Someone');
 
-  // No body at all means the admin has not written one; the card carries the
-  // message and an empty text line would just be noise.
-  if (template) {
-    const text = fillPlaceholders(
+  // The body. An admin who wrote their own line keeps it; the built-in one is
+  // what a chat that never customised anything gets.
+  const body = template
+    ? fillPlaceholders(
       template,
       { uid: who.uid, name: display },
       { threadName, threadID },
       realName ? `@${realName}` : display,
-    );
-    if (text.trim()) {
-      // A mention is only a mention when Facebook is told which uid the tag
-      // belongs to. Writing "@Ada" into the body on its own produces an ordinary
-      // message that happens to contain an @ — the arrival is never pinged,
-      // which is the most visible thing a welcome can get wrong. The tag text
-      // has to appear verbatim in the body for Facebook to accept the link, and
-      // fillPlaceholders has just put it there.
-      //
-      // With no real name, plain text: a `mentions` entry whose tag does not
-      // match the member's actual name is refused by Facebook, which would cost
-      // the whole welcome message rather than just its ping.
-      const payload = who.uid && realName && template.includes('{mention}')
-        ? { body: text, mentions: [{ id: String(who.uid), tag: `@${realName}` }] }
-        : text;
-      await reply(api, threadID, payload, null, isGroup);
-    }
+    )
+    : leaving
+      ? `${display} left ${threadName} 😢`
+      : `Hello ${realName ? `@${realName}` : display} 👋 Welcome to ${threadName} 💚`;
+
+  const payload = { body };
+
+  // A mention is only a mention when Facebook is told which uid the tag
+  // belongs to. Writing "@Ada" into the body on its own produces an ordinary
+  // message that happens to contain an @ — the arrival is never pinged,
+  // which is the most visible thing a welcome can get wrong. The tag text
+  // has to appear verbatim in the body for Facebook to accept the link.
+  //
+  // With no real name, plain text: a `mentions` entry whose tag does not
+  // match the member's actual name is refused by Facebook, which would cost
+  // the whole welcome message rather than just its ping.
+  if (who.uid && realName && String(template || '').includes('{mention}')) {
+    payload.mentions = [{ id: String(who.uid), tag: `@${realName}` }];
   }
 
+  // The picture, in the same send. `thumbSrc` off the thread member list is
+  // preferred over the getUserInfo endpoint: it is already in hand, it is a
+  // direct CDN url, and it does not go through the graph redirect.
+  const known = (info && info.users && info.users.get(String(who.uid))) || null;
   try {
-    const url = await cards.arrivalCard({
+    const png = await cards.arrivalCard({
       kind,
       uid: who.uid,
       name: display,
       threadName,
       threadID,
-      body: leaving ? `${display} left ${threadName}` : `${display} joined ${threadName}`,
+      picUrl: (known && known.thumbSrc) || '',
+      count: (info && info.count) || 0,
       api,
     });
-    if (url) {
+    if (png) {
       // A stream, not a descriptor. ws3-fca 3.5.2 throws on
-      // `{ type, data: { url } }`, and this catch turned that into a silent
-      // no-op — the group still got its join/leave card, just without the art.
-      const card = await require('./bot/media').attachment(url, { type: 'image' });
-      if (card) {
-        await api.sendMessage(
-          { attachment: card },
-          threadID,
-          null,
-          !isGroupThread(threadID, isGroup),
-        );
-      }
+      // `{ type, data: { url } }`, and this used to turn that into a silent
+      // no-op — the group got its join line, just never the art.
+      const card = await require('./bot/media').attachment(png, { type: 'image' });
+      if (card) payload.attachment = card;
     }
   } catch (err) {
     error(`[GROUP] ${kind} card failed: ${err.message}`);
   }
+
+  if (!String(payload.body || '').trim() && !payload.attachment) return;
+  await reply(api, threadID, payload, null, isGroup);
 }
 
 async function handleGroupChange(api, event) {
@@ -752,19 +829,24 @@ async function handleGroupChange(api, event) {
     // New member joined
     if (action === 'log:subscribe') {
       const group = await toggles.getGroup(threadID);
-      if (group.settings?.welcome && group.settings.welcomeMsg) {
+      // The toggle alone, not the toggle AND a configured line. A chat that ran
+      // `!welcome on` and never touched `!setwelcome` used to get silence,
+      // because the gate also asked for a message that only the second command
+      // writes — so "welcome is on" and "nothing is ever announced" were both
+      // true at once.
+      if (group.settings?.welcome) {
         // notMe, not the caller: Facebook reports the bot's own join through
         // the same log:subscribe as everybody else, so without this the chat is
         // told "welcome, iKON BOT to the group" the moment it starts up.
         const people = notMe(changeParticipants(data), selfId);
         if (people.length) {
-          const threadName = await chatName(threadID, api);
+          const info = await threadInfo(threadID, api);
           // Facebook can report several people at once — an admin import adds
           // twenty. One message each is correct: a single line naming everybody
           // reads as a list, not a welcome.
           for (const who of people) {
             // eslint-disable-next-line no-await-in-loop
-            await announce(api, threadID, 'welcome', who, threadName, group.settings.welcomeMsg, isGroup);
+            await announce(api, threadID, 'welcome', who, info, group.settings.welcomeMsg, isGroup);
           }
         }
       }
@@ -798,11 +880,17 @@ async function handleGroupChange(api, event) {
         }
       }
 
-      if (group?.settings?.goodbye && group.settings.goodbyeMsg) {
+      if (group?.settings?.goodbye) {
         const people = notMe(changeParticipants(data), selfId);
-        if (people.length) {
-          const threadName = await chatName(threadID, api);
-          await announce(api, threadID, 'goodbye', people[0], threadName, group.settings.goodbyeMsg, isGroup);
+        // A dead account this bot just cleared out of the roster is not a loss.
+        // It comes back as the same log:unsubscribe a person leaving does, with
+        // nothing in the payload to tell the two apart — so `!gccleanup` was
+        // posting a goodbye card for every account it removed, in every chat it
+        // ran in. gcs records what it removed; this is where that is read back.
+        const human = people.filter((p) => !gcs.wasKicked(threadID, p.uid));
+        if (human.length) {
+          const info = await threadInfo(threadID, api);
+          await announce(api, threadID, 'goodbye', human[0], info, group.settings.goodbyeMsg, isGroup);
         }
       }
     }
@@ -1143,6 +1231,8 @@ module.exports = {
   changeParticipants,
   notMe,
   chatName,
+  threadInfo,
+  clearThreadInfo,
   fillPlaceholders,
   attachClient,
   attachEvents,

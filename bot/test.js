@@ -2034,14 +2034,19 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
 
   await step('the chat name comes from the thread, not the id', async () => {
     const ik = require('../ws3-fca');
+    // The lookup is cached for a few seconds, so each of these asks about a
+    // thread id nothing else in this file has looked up.
     const api = { getThreadInfo: async () => ({ threadTitle: 'Lagos Hustle' }) };
+    ik.clearThreadInfo();
     assert.strictEqual(await ik.chatName('1234567890', api), 'Lagos Hustle');
 
     // A failed lookup must degrade to the id rather than throw — the whole
     // point of the join handler is to not take the listener down.
+    ik.clearThreadInfo();
     const broken = { getThreadInfo: async () => { throw new Error('nope'); } };
     assert.strictEqual(await ik.chatName('1234567890', broken), '1234567890');
     assert.strictEqual(await ik.chatName('1234567890', {}), '1234567890');
+    ik.clearThreadInfo();
     return 'resolves the title, falls back to the id';
   });
 
@@ -2051,9 +2056,19 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     const api = {
       async sendMessage(payload, tid) { sent.push(payload); return { messageID: `m${sent.length}` }; },
       async getUserInfo(uid) { return { name: uid === '5551234' ? 'Ada Lovelace' : 'Bob Mensah' }; },
-      async getThreadInfo() { return { threadTitle: 'Lagos Hustle' }; },
+      async getThreadInfo() {
+        return {
+          threadTitle: 'Lagos Hustle',
+          participantIDs: ['1', '2', '3', '4', '5'],
+          userInfo: [
+            { id: '5551234', name: 'Ada Lovelace', thumbSrc: 'https://cdn.example/ada.jpg' },
+            { id: '7778889', name: 'Bob Mensah', thumbSrc: '' },
+          ],
+        };
+      },
     };
     const realGetGroup = toggles.getGroup;
+    ik.clearThreadInfo();
     toggles.getGroup = async () => ({
       autoAddLeavers: false,
       settings: {
@@ -2074,14 +2089,19 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
       });
     } finally {
       toggles.getGroup = realGetGroup;
+      ik.clearThreadInfo();
     }
 
     const bodies = sent.map((s) => s.body).filter(Boolean);
-    // The attachment is a stream, because ws3-fca 3.5.2 rejects the
-    // `{ type, data: { url } }` descriptor outright — the card used to render
-    // here and then be thrown away at send time.
-    const images = sent.filter((s) => s.attachment && typeof s.attachment.on === 'function');
-    assert.strictEqual(bodies.length, 2, 'one text line per event');
+    // ONE message per event, carrying both the line and the picture. This used
+    // to be two sendMessage calls per event — the text, then a bare image with
+    // no caption — so every single join dropped two messages into the chat and
+    // the picture arrived after the moment it was about.
+    assert.strictEqual(sent.length, 2, `one message per event, got ${sent.length}`);
+    assert.strictEqual(bodies.length, 2, 'and both of them carry a line');
+    for (const s of sent) {
+      assert.ok(s.attachment, 'every announcement carries the card');
+    }
     assert.ok(bodies[0].includes('Ada Lovelace'), `join names the person: ${bodies[0]}`);
     assert.ok(bodies[0].includes('Lagos Hustle'), `join names the chat: ${bodies[0]}`);
     assert.ok(bodies[1].includes('Bob Mensah'), `goodbye names the leaver: ${bodies[1]}`);
@@ -2089,9 +2109,14 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
     for (const b of bodies) {
       assert.ok(!/\b\d{9,}\b/.test(b), `no raw thread id leaks into the text: ${b}`);
     }
+    // The arrival is pinged, not merely greeted: a tag without the matching
+    // mentions entry is an ordinary message that happens to contain an @.
+    assert.deepStrictEqual(sent[0].mentions, [{ id: '5551234', tag: '@Ada Lovelace' }],
+      'the welcome pings the person it welcomes');
 
     // The card is the point of the request, so assert one per event — but only
     // where the native canvas binary actually loads.
+    const images = sent.filter((s) => s.attachment && typeof s.attachment.on === 'function');
     if (canvas.available()) {
       assert.strictEqual(images.length, 2, 'a canvas card per join and per goodbye');
       for (const img of images) {
@@ -2102,11 +2127,182 @@ const OWNER_UID = config.ADMIN_IDS[0] || 'owner_test';
         const png = Buffer.concat(chunks);
         assert.ok(png.length > 8, 'the card carries real bytes');
         assert.strictEqual(png.subarray(1, 4).toString('ascii'), 'PNG', 'and they are a PNG');
+        // 1200x600, read out of the PNG's own IHDR chunk rather than trusted
+        // from the drawing code. A card at the wrong size still looks like a
+        // card in a test that only checks the magic bytes.
+        assert.strictEqual(png.readUInt32BE(16), 1200, `card width, got ${png.readUInt32BE(16)}`);
+        assert.strictEqual(png.readUInt32BE(20), 600, `card height, got ${png.readUInt32BE(20)}`);
       }
     } else {
       assert.strictEqual(images.length, 0, 'no card without the canvas binary, and no crash');
     }
-    return `2 lines + ${images.length} cards, all naming a person and a chat`;
+    return `2 messages, line + 1200x600 card each, all naming a person and a chat`;
+  });
+
+  await step('the built-in welcome line says hello, and honours no configuration at all', async () => {
+    const ik = require('../ws3-fca');
+    const sent = [];
+    const api = {
+      async sendMessage(payload) { sent.push(payload); return { messageID: `m${sent.length}` }; },
+      async getUserInfo(uid) { return { name: uid === '5551234' ? 'Ada Lovelace' : 'Bob Mensah' }; },
+      async getThreadInfo() { return { threadTitle: 'Lagos Hustle', participantIDs: ['1', '2'], userInfo: [] }; },
+    };
+    const realGetGroup = toggles.getGroup;
+    ik.clearThreadInfo();
+    // THE BUG. The gate used to be `settings.welcome && settings.welcomeMsg`, and
+    // only `!setwelcome` writes that message. So a chat that ran `!welcome on`
+    // and nothing else reported "WELCOME IS ON" and stayed silent forever: on
+    // and announcing nothing were both true at once, and nothing in the reply
+    // said so.
+    toggles.getGroup = async () => ({
+      autoAddLeavers: false,
+      settings: { welcome: true, goodbye: true },
+    });
+    try {
+      await ik.handleGroupChange(api, {
+        threadID: '1234567890', isGroup: true, logMessageType: 'log:subscribe',
+        logMessageData: { addedParticipants: [{ fbId: '5551234', fullName: '' }] },
+      });
+      await ik.handleGroupChange(api, {
+        threadID: '1234567890', isGroup: true, logMessageType: 'log:unsubscribe',
+        logMessageData: { leftParticipantFbId: '7778889' },
+      });
+
+      assert.strictEqual(sent.length, 2, `a default line still gets announced, got ${sent.length}`);
+      const welcome = sent[0].body;
+      assert.ok(/^Hello /.test(welcome), `the built-in welcome opens with Hello: ${welcome}`);
+      assert.ok(welcome.includes('👋') && welcome.includes('💚'), `and carries its emoji: ${welcome}`);
+      assert.ok(welcome.includes('Lagos Hustle'), `and names the chat: ${welcome}`);
+      // Without a configured template there is no {mention} to resolve, so no
+      // mentions entry — Facebook refuses a tag that does not match the member.
+      assert.strictEqual(sent[0].mentions, undefined, 'no dangling mention without a template that asked for one');
+      assert.ok(/left Lagos Hustle/.test(sent[1].body), `goodbye still names the chat: ${sent[1].body}`);
+
+      // Off means off, in both directions.
+      toggles.getGroup = async () => ({
+        autoAddLeavers: false,
+        settings: { welcome: false, goodbye: false, welcomeMsg: 'x', goodbyeMsg: 'y' },
+      });
+      const before = sent.length;
+      await ik.handleGroupChange(api, {
+        threadID: '1234567890', isGroup: true, logMessageType: 'log:subscribe',
+        logMessageData: { addedParticipants: [{ fbId: '5551234', fullName: '' }] },
+      });
+      await ik.handleGroupChange(api, {
+        threadID: '1234567890', isGroup: true, logMessageType: 'log:unsubscribe',
+        logMessageData: { leftParticipantFbId: '7778889' },
+      });
+      assert.strictEqual(sent.length, before, 'the toggle is the only thing that matters, either way');
+    } finally {
+      toggles.getGroup = realGetGroup;
+      ik.clearThreadInfo();
+    }
+    return 'Hello {name} 👋 Welcome to {chat} 💚 with nothing configured; off stays off';
+  });
+
+  await step('a member the bot itself removed does not get a goodbye', async () => {
+    // `!gccleanup` removes dead accounts through the same API a human leaving
+    // uses, and Facebook answers with the same log:unsubscribe. The payload
+    // carries a leftParticipantFbId and nothing at all saying who asked — so
+    // every dead account the sweep cleared produced a "we will miss you" card,
+    // in every chat the sweep ran in.
+    const gcs2 = require('./gcs');
+    const ik = require('../ws3-fca');
+    const sent = [];
+    const api = {
+      async sendMessage(payload) { sent.push(payload); return { messageID: `m${sent.length}` }; },
+      async getUserInfo(uid) { return { name: uid === '999' ? 'Facebook User' : 'Bob Mensah' }; },
+      async getThreadInfo() { return { threadTitle: 'Lagos Hustle', participantIDs: ['1'], userInfo: [] }; },
+    };
+    const realGetGroup = toggles.getGroup;
+    ik.clearThreadInfo();
+    gcs2.clearKicks();
+    toggles.getGroup = async () => ({
+      autoAddLeavers: false,
+      settings: { welcome: true, goodbye: true, welcomeMsg: 'w {user}', goodbyeMsg: '{user} left {group}.' },
+    });
+    try {
+      // The bot removes a dead account. Facebook echoes it back as an unsubscribe.
+      assert.strictEqual(await gcs2.kick({ async gcmember() {} }, '999', '1234567890'), true, 'the removal happened');
+      assert.strictEqual(gcs2.wasKicked('1234567890', '999'), true, 'and it is on the record');
+      await ik.handleGroupChange(api, {
+        threadID: '1234567890', isGroup: true, logMessageType: 'log:unsubscribe',
+        logMessageData: { leftParticipantFbId: '999' },
+      });
+      assert.strictEqual(sent.length, 0, `a bot removal is not a loss, got ${sent.length} message(s)`);
+
+      // Somebody who actually left is still announced.
+      await ik.handleGroupChange(api, {
+        threadID: '1234567890', isGroup: true, logMessageType: 'log:unsubscribe',
+        logMessageData: { leftParticipantFbId: '7778889' },
+      });
+      assert.strictEqual(sent.length, 1, 'a person leaving is still announced');
+      assert.ok(sent[0].body.includes('Bob Mensah'), `and named: ${sent[0].body}`);
+
+      // Another chat is a different answer, or one chat's cleanup would silence
+      // the whole bot.
+      assert.strictEqual(gcs2.wasKicked('9999999', '999'), false, 'the marker is per chat');
+
+      // And the marker expires, or it would silence the goodbye for somebody who
+      // genuinely leaves an hour later.
+      gcs2.markKicked('1234567890', '424242');
+      assert.strictEqual(gcs2.wasKicked('1234567890', '424242'), true, 'marked');
+      assert.strictEqual(gcs2.KICK_TTL_MS, 60 * 1000, 'and the window is a minute, not forever');
+    } finally {
+      toggles.getGroup = realGetGroup;
+      ik.clearThreadInfo();
+      gcs2.clearKicks();
+    }
+    return 'bot removals are silent, real departures are not, and the marker expires';
+  });
+
+  await step('the card takes the face off the thread member list', async () => {
+    const ik = require('../ws3-fca');
+    // `thumbSrc` arrives with getThreadInfo and nowhere else: getUserInfo in
+    // this build of ws3-fca only carries the graph.facebook.com picture URL,
+    // which needs a token and a redirect to fetch. The member list is the one
+    // source already in hand when somebody joins.
+    const api = {
+      async getThreadInfo() {
+        return {
+          threadTitle: 'Lagos Hustle',
+          participantIDs: ['1', '2', '3'],
+          userInfo: [{ id: '5551234', name: 'Ada Lovelace', thumbSrc: 'https://cdn.example/ada.jpg' }],
+        };
+      },
+    };
+    ik.clearThreadInfo();
+    const info = await ik.threadInfo('1234567890', api);
+    try {
+      assert.strictEqual(info.name, 'Lagos Hustle', 'the chat name');
+      assert.strictEqual(info.count, 3, 'the member count, for "Member #N"');
+      const known = info.users.get('5551234');
+      assert.ok(known, 'the member is in the list');
+      assert.strictEqual(known.thumbSrc, 'https://cdn.example/ada.jpg', 'with their picture url');
+      assert.strictEqual(known.name, 'Ada Lovelace', 'and their name');
+    } finally {
+      ik.clearThreadInfo();
+    }
+
+    // Cached, so a burst of joins costs one lookup — and the window is short
+    // enough that a chat's member list going stale cannot pin yesterday's face
+    // onto today's welcome card.
+    let calls = 0;
+    const counting = {
+      async getThreadInfo() { calls += 1; return { threadTitle: 'X', participantIDs: ['1'], userInfo: [] }; },
+    };
+    ik.clearThreadInfo();
+    await ik.threadInfo('1234567890', counting);
+    await ik.threadInfo('1234567890', counting);
+    assert.strictEqual(calls, 1, `one lookup for two joins, got ${calls}`);
+
+    // A failed lookup degrades to the id rather than taking the listener down.
+    ik.clearThreadInfo();
+    const broken = { getThreadInfo: async () => { throw new Error('nope'); } };
+    const fell = await ik.threadInfo('1234567890', broken);
+    assert.strictEqual(fell.name, '1234567890', 'falls back to the thread id');
+    assert.strictEqual(fell.count, 0, 'and claims no members rather than inventing any');
+    return 'name, count and thumbSrc from one cached lookup';
   });
 
   await step('the arrival card refuses to render without a uid', async () => {

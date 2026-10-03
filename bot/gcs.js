@@ -28,6 +28,66 @@ const permissions = require('./permissions');
 const { log, error } = require('./helpers');
 
 /**
+ * Removals this bot performed, waiting for Facebook to echo them back.
+ *
+ * A `gcmember('remove')` arrives at the event listener as the same
+ * log:unsubscribe a person leaving produces, and the listener cannot tell them
+ * apart from the payload alone: both carry a `leftParticipantFbId` and nothing
+ * saying who asked. So the decision is recorded here, at the only place the bot
+ * knows it, and read back by the goodbye path.
+ *
+ * Short-lived on purpose. The event lands in seconds, and a marker that outlived
+ * it would silence the goodbye for somebody who genuinely left later.
+ */
+const kicked = new Map();
+
+/** How long a bot removal is remembered, in milliseconds. */
+const KICK_TTL_MS = 60 * 1000;
+
+/**
+ * Record that this bot removed somebody from this chat.
+ *
+ * @param {string|number} threadID
+ * @param {string|number} uid
+ */
+function markKicked(threadID, uid) {
+  const t = String(threadID || '');
+  const u = String(uid || '');
+  if (!t || !u) return;
+  pruneKicks();
+  kicked.set(`${t}::${u}`, Date.now() + KICK_TTL_MS);
+}
+
+/**
+ * Did this bot just remove that person from that chat?
+ *
+ * @param {string|number} threadID
+ * @param {string|number} uid
+ * @returns {boolean}
+ */
+function wasKicked(threadID, uid) {
+  const key = `${String(threadID || '')}::${String(uid || '')}`;
+  const expiry = kicked.get(key);
+  if (!expiry) return false;
+  if (Date.now() >= expiry) {
+    kicked.delete(key);
+    return false;
+  }
+  return true;
+}
+
+/** Drop expired markers so the Map cannot grow forever. */
+function pruneKicks() {
+  const now = Date.now();
+  for (const [key, expiry] of kicked) if (now >= expiry) kicked.delete(key);
+}
+
+/** Forget every marker. Exposed for tests. */
+function clearKicks() {
+  kicked.clear();
+}
+
+/**
  * How many chats to ask Facebook for.
  *
  * 100, not 10. The old call asked for ten and the bot was in more than ten, so
@@ -180,6 +240,11 @@ async function kick(api, uid, threadID) {
   if (!api || typeof api.gcmember !== 'function') return false;
   try {
     await api.gcmember('remove', String(uid), String(threadID));
+    // Facebook answers this with the same log:unsubscribe event a human leaving
+    // produces, moments later. Marked here so the goodbye card knows the
+    // difference between somebody who walked out and a dead account the bot
+    // cleared out of the roster — the second is not a loss to mourn.
+    markKicked(threadID, uid);
     return true;
   } catch (err) {
     error(`[GCS] gcmember remove ${uid} from ${threadID} failed: ${err.message}`);
@@ -270,12 +335,16 @@ async function approveAll(api) {
 
 module.exports = {
   THREAD_LIMIT,
+  KICK_TTL_MS,
   isDeadAccount,
   listThreads,
   tidOf,
   membersOf,
   exemptIds,
   kick,
+  markKicked,
+  wasKicked,
+  clearKicks,
   cleanup,
   approveAll,
 };

@@ -20,6 +20,14 @@ const { error } = require('./helpers');
 
 const W = 900;
 
+/**
+ * The join/leave card is a different shape from the boards on purpose: 1200x600
+ * is what Facebook serves unrescaled in a chat, and this is the one image in the
+ * bot that gets screenshotted and sent somewhere else.
+ */
+const ARRIVAL_W = 1200;
+const ARRIVAL_H = 600;
+
 /** Rounded rectangle path. */
 function roundRect(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
@@ -557,13 +565,18 @@ async function pairCard({ title, emoji, subtitle, pairs, api, value, limit = 8 }
  * A single-person card for a chat arrival or departure.
  *
  * The thread NAME is on this card, not just the id, because "Welcome to the
- * arcade" is a lie in a chat called something else entirely — and because a
- * welcome is per-chat state (it lives on the Group document), so a screenshot
- * of one is otherwise unattributable. The id sits beside it so a wrong-thread
- * bug is obvious at a glance.
+ * arcade" is a lie in a chat called something else entirely.
  *
- * Returns a PNG data URL, or null when the native canvas binary is missing —
- * the caller must fall back to its text reply.
+ * 1200x600, because that is the size Facebook does not rescale on the way into
+ * a chat, and this is the one image in the bot people screenshot. Layout, top to
+ * bottom: the house gradient, a dark overlay so the type stays legible over any
+ * avatar, the person's actual Facebook photo in a circle in the middle, then the
+ * line the chat is about.
+ *
+ * Returns PNG bytes, not a data URL: this card is uploaded straight to
+ * Messenger rather than handed to a template, and base64 costs a third again
+ * the memory on every single join. Null when it cannot be drawn — the caller
+ * falls back to its text line.
  *
  * @param {object} opts
  * @param {'welcome'|'goodbye'} opts.kind
@@ -571,66 +584,84 @@ async function pairCard({ title, emoji, subtitle, pairs, api, value, limit = 8 }
  * @param {string} [opts.name] name from the join event, used if Facebook is slow
  * @param {string} [opts.threadName]
  * @param {string|number} [opts.threadID]
- * @param {string} [opts.body]
+ * @param {string} [opts.picUrl] a `thumbSrc` straight off the thread member list
+ * @param {number} [opts.count] how many members the chat has
  * @param {object} opts.api ws3-fca client
- * @returns {Promise<string|null>}
+ * @returns {Promise<Buffer|null>}
  */
-async function arrivalCard({ kind, uid, name, threadName, threadID, body = '', api }) {
+async function arrivalCard({ kind, uid, name, threadName, threadID, picUrl = '', count = 0, api }) {
   if (!canvasKit.available()) return null;
   if (!uid) return null;
 
   const leaving = kind === 'goodbye';
-  const H = 500;
 
   try {
-    const cv = canvasKit.create(W, H);
+    const cv = canvasKit.create(ARRIVAL_W, ARRIVAL_H);
     const ctx = cv.ctx;
 
-    paintBackground(ctx, H);
-    paintHeader(
-      ctx,
-      leaving ? '🚪' : '👋',
-      leaving ? 'GOODBYE' : 'WELCOME',
-      threadName || `Thread ${threadID == null ? '' : threadID}`,
+    // House gradient, then the dark overlay. Two passes rather than one: the
+    // gradient is the brand and the overlay is what makes white type readable
+    // on top of a bright profile photo.
+    const grad = ctx.createLinearGradient(0, 0, ARRIVAL_W, ARRIVAL_H);
+    grad.addColorStop(0, '#0f0f1a');
+    grad.addColorStop(1, '#1a1030');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, ARRIVAL_W, ARRIVAL_H);
+    ctx.fillStyle = 'rgba(6,6,14,0.46)';
+    ctx.fillRect(0, 0, ARRIVAL_W, ARRIVAL_H);
+
+    // A band of brand colour behind the headline, so the words are not floating
+    // in a photo-less middle.
+    ctx.fillStyle = 'rgba(0,212,255,0.10)';
+    roundRect(ctx, 60, 56, ARRIVAL_W - 120, 104, 28);
+    ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillStyle = '#7fe6ff';
+    ctx.fillText(
+      leaving ? '🚪  GOODBYE' : '👋  WELCOME',
+      ARRIVAL_W / 2,
+      108,
     );
 
-    // The event may already carry the name; a live lookup is preferred because
-    // a join payload frequently has an empty one, and "Hunter 4821" is a poor
-    // welcome. Both run in parallel — one round trip, not two.
+    // The face. `thumbSrc` off the thread member list is the fastest source and
+    // the only one already in hand; getUserInfo's own picture URL is the
+    // fallback for a member who had not appeared in that list yet.
     const id = String(uid);
-    const [liveName, pic] = await Promise.all([
-      profile.fetchRealName(id, api),
-      profile.picture(id, api),
-    ]);
+    const buf = picUrl
+      ? await thumbBuffer(picUrl)
+      : await profile.picture(id, api);
+    await drawAvatar(ctx, buf || await profile.fallbackAvatar(id, 256), ARRIVAL_W / 2, 312, 212);
+
+    // The name, from the same lookup the caption uses, so the two cannot
+    // disagree — a card saying WELCOME while the body says something else is
+    // worse than no card.
+    const liveName = await profile.fetchRealName(id, api);
     const shown = liveName
       || (name && !profile.isPlaceholderName(name) ? String(name) : '')
       || `Hunter ${id.slice(-4)}`;
 
-    await drawAvatar(ctx, pic, W / 2, 286, 150);
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 40px sans-serif';
+    // "WELCOME Ada Lovelace" — the two words the chat is about, as one line.
+    ctx.font = 'bold 46px sans-serif';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(fit(ctx, shown, W - 120), W / 2, 398);
-
-    if (body) {
-      ctx.font = '23px sans-serif';
-      ctx.fillStyle = '#9aa0b5';
-      ctx.fillText(fit(ctx, String(body).replace(/\n+/g, ' '), W - 120), W / 2, 442);
-    }
-
-    // The thread id is the debugging aid: a card from the wrong chat is the
-    // fastest failure mode to notice when the id is on the image.
-    ctx.font = '19px sans-serif';
-    ctx.fillStyle = 'rgba(154,160,181,0.7)';
     ctx.fillText(
-      fit(ctx, threadID == null ? 'iKON-BOT v2 Ultra' : `thread ${threadID} · iKON-BOT v2 Ultra`, W - 90),
-      W / 2,
-      H - 26,
+      fit(ctx, `${leaving ? 'GOODBYE' : 'WELCOME'} ${shown}`, ARRIVAL_W - 160),
+      ARRIVAL_W / 2,
+      478,
     );
 
-    return cv.canvas.toDataURL('image/png');
+    ctx.font = '26px sans-serif';
+    ctx.fillStyle = leaving ? '#ffb4c8' : '#9fe8c8';
+    ctx.fillText(
+      leaving
+        ? '😢 We will miss you'
+        : fit(ctx, `${threadName || `Thread ${threadID == null ? '' : threadID}`} | Member #${Number(count) || '—'}`, ARRIVAL_W - 160),
+      ARRIVAL_W / 2,
+      526,
+    );
+
+    return await canvasKit.toBuffer(cv.canvas);
   } catch (err) {
     error(`[CARD] arrivalCard failed: ${err.message}`);
     return null;

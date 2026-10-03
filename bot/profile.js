@@ -97,6 +97,13 @@ async function fetchRealName(uid, api, opts = {}) {
 /**
  * The picture URL for a uid, or null.
  *
+ * `thumbSrc` first: it is the direct CDN url Facebook hands over with a thread's
+ * member list — no access token, no redirect to follow — and `getThreadInfo`
+ * already carries it. `profilePicUrl` is the graph.facebook.com endpoint this
+ * build of ws3-fca builds by hand, and is the fallback for a member who had not
+ * shown up in that list yet. Both shapes are accepted because callers hold
+ * either one: the thread list gives the first, getUserInfo gives the second.
+ *
  * @param {string|number} uid
  * @param {object} api ws3-fca client
  * @returns {Promise<string|null>}
@@ -105,7 +112,7 @@ async function fetchPictureUrl(uid, api) {
   if (!uid || !api || typeof api.getUserInfo !== 'function') return null;
   try {
     const info = await api.getUserInfo(uid);
-    const url = info && info.profilePicUrl;
+    const url = info && (info.thumbSrc || info.profilePicUrl);
     return url ? String(url) : null;
   } catch {
     return null;
