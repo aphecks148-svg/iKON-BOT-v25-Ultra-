@@ -340,7 +340,8 @@ async function duoCard({ title, emoji = '', subtitle = '', threadID, left, right
 }
 
 /**
- * A single-user card: the ID card for !profile and !xp.
+ * A single-user card: the ID card for !profile (and anything else that wants
+ * a labelled table for one person).
  *
  * @param {object} opts
  * @param {string} opts.title

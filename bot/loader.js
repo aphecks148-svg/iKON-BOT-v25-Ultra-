@@ -214,8 +214,9 @@ function loadCommands(dir = COMMANDS_DIR) {
         }
         // A NAME is not an alias, and findCommand() checks the registry first,
         // so an alias that shadows a command name is registered and then can
-        // never be reached: `!xp` keeps running the real `xp` command while the
-        // alias is dead code that still reads like a working spelling.
+        // never be reached: the real command keeps answering to its own name
+        // while the alias is dead code that still reads like a working
+        // spelling.
         if (registry.has(alias)) {
           error(`[LOADER] Alias "${alias}" on ${cmd.name} is already the command name of "${alias}" — alias ignored`);
           conflicts.push(`${cmd.name}: alias "${alias}" is already the name of a command`);

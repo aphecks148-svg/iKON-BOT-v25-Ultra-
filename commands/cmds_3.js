@@ -40,6 +40,74 @@ const CASH = 'K-Cash';
 // ───────────────────────────────────────────────────────────
 const xpNeeded = (level) => Math.max(1, level) * 100;
 
+/**
+ * XP still owed for the next level.
+ *
+ * The remaining amount, never the whole bar. `!xp` used to print the full
+ * `xpNeeded(level)` as "need to rank up", so a hunter halfway to level 5 was
+ * told they needed the entire level again — double what was left, and the one
+ * number on the card that is actionable.
+ */
+const xpToNext = (level, xp) => Math.max(0, xpNeeded(level) - clamp(xp));
+
+/**
+ * Every XP point this hunter has earned, ever.
+ *
+ * Spending XP on levels destroys it, so "banked XP" alone goes *down* on a level
+ * up: a hunter at level 5 holding 200 XP looks like a beginner next to someone
+ * at level 4 holding 350, and `!topxp` duly ranked the beginner first. Lifetime
+ * is what the leaderboard and the card both mean by "how much XP".
+ *
+ * The curve is `xpNeeded(L) = L * 100`, so the points already spent reaching
+ * `level` are the sum of 100+200+…+100*(level-1), which is `50 * L * (L-1)`.
+ * The old figure was `xpNeeded(level) * (level - 1)` — a rectangle where the
+ * curve is a triangle — so every hunter past level 1 was credited with roughly
+ * twice the XP they had actually earned.
+ *
+ * @param {{level?:number,xp?:number}} userDoc
+ * @returns {number}
+ */
+function lifetimeXp(userDoc) {
+  const level = Math.max(1, Number(userDoc && userDoc.level) || 1);
+  return Math.round(50 * level * (level - 1) + clamp(userDoc && userDoc.xp));
+}
+
+/**
+ * The academy rank for a level: the highest title the ladder has handed out.
+ *
+ * TITLES is the rank ladder and `grantXp` awards its entries as levels are
+ * crossed, so "what rank is this hunter" and "what is the next title" are both
+ * questions about this one ascending list, asked from opposite ends.
+ *
+ * @param {{level?:number}} userDoc
+ * @returns {{level:number,title:string}} the rung reached, or Rookie at level 1
+ */
+function academyRank(userDoc) {
+  const level = Math.max(1, Number(userDoc && userDoc.level) || 1);
+  let reached = { level: 1, title: 'Rookie' };
+  for (const t of TITLES) {
+    if (level >= t.level) reached = t;
+    else break;
+  }
+  return reached;
+}
+
+/**
+ * A progress bar for a percentage.
+ *
+ * Twenty cells, matching the one `!level` drew. The glyphs are data and are the
+ * only heavy characters allowed in a reply.
+ *
+ * @param {number} pct 0-100
+ * @param {number} [cells]
+ * @returns {string}
+ */
+function progressBar(pct, cells = 20) {
+  const p = Math.max(0, Math.min(100, Number(pct) || 0));
+  const filled = Math.round((p / 100) * cells);
+  return `${'█'.repeat(filled)}${'░'.repeat(Math.max(0, cells - filled))}`;
+}
+
 // ───────────────────────────────────────────────────────────
 // CLASSES — each grants a passive bonus used by battle/adventure
 // ───────────────────────────────────────────────────────────
@@ -458,11 +526,17 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'profile',
-    aliases: ['prof'],
+    // `!level` and `!xp` were two more cards showing two of the four numbers
+    // already on this one, each answering "how far to the next level" with a
+    // different and sometimes wrong figure. They are aliases here so one card is
+    // the answer and there is nothing left to disagree with itself.
+    // `!rank` stays separate: that is the server's hall of fame, not a stat
+    // about the person asking.
+    aliases: ['prof', 'level', 'xp'],
     category: 'rpg',
-    description: '🧬 Your hunter ID card - Level, XP, coins, rank in iKON Academy',
+    description: '🧬 Your hunter ID card - Level, XP, rank in iKON Academy',
     usage: '!profile',
-    hint: 'Your hunter card, with the real Facebook name and profile picture.',
+    hint: 'Your hunter card: rank, level bar, XP banked and lifetime. Also answers to `!level` and `!xp`.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'profile', async () => {
@@ -480,20 +554,36 @@ module.exports = [
       const cls = CLASSES[data.className];
       const titles = data.titles.length ? data.titles.join(', ') : 'None yet';
 
+      // Level, rank and XP, computed once and printed the same way on both
+      // paths below. Every figure on this card comes from here, so the canvas
+      // and the text fallback cannot drift apart.
+      const level = Math.max(1, Number(userDoc.level) || 1);
+      const needed = xpNeeded(level);
+      const xp = clamp(userDoc.xp);
+      const remaining = xpToNext(level, xp);
+      const pct = Math.min(100, Math.floor((xp / needed) * 100));
+      const lifetime = lifetimeXp(userDoc);
+      const rank = academyRank(userDoc);
+      const nextTitle = TITLES.find((t) => t.level > level);
+
       // Real name and real Facebook photo, drawn on canvas. Falls back to the
       // text card when the native binary is missing, so the command always
       // answers something.
       const card = await cards.userCard({
         emoji: '🧬',
         title: 'iKON ACADEMY ID CARD',
-        subtitle: `Level ${userDoc.level || 1} · ${cls ? cls.name : 'Unchosen'}`,
+        subtitle: `${rank.title} · Level ${level}`,
         user: userDoc,
         api,
         rows: [
           ['Name', name],
+          ['Rank', `${rank.title} (${num(rank.level)})`],
+          ['Level', `${level} · ${pct}%`],
+          ['XP', `${num(xp)}/${num(needed)}`],
+          ['Lifetime XP', `${num(lifetime)} XP`],
+          ['To level up', `${num(remaining)} XP`],
           ['Money', kc(userDoc.coins)],
           ['Starting allowance', kc(userDoc.money ?? cache.STARTING_MONEY)],
-          ['Level', `${userDoc.level || 1} · ${num(userDoc.xp)}/${num(xpNeeded(userDoc.level || 1))} XP`],
           ['Class', cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'],
           ['Titles', titles],
           ['Stamina', `${data.stamina}/${hasSkill(userDoc, 'swiftfoot') ? 11 : 10}`],
@@ -503,7 +593,7 @@ module.exports = [
 
       if (card) {
         await reply({
-          body: `🧬 **${name}**\n${cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'}`,
+          body: `🧬 **${name}**\n${rank.title} · Level ${level} · ${num(xp)}/${num(needed)} XP`,
           attachment: { type: 'image', data: { url: card } },
         }, event.messageID);
         return;
@@ -513,9 +603,14 @@ module.exports = [
         `🧬 **iKON ACADEMY ID CARD**\n`
         + '· · · · · · ·\n'
         + `👤 ${name}\n`
+        + `🏅 Rank: ${rank.title} (${num(rank.level)})\n`
+        + `📊 Level ${level} · ${progressBar(pct)} ${pct}%\n`
+        + `✨ XP: ${num(xp)}/${num(needed)} banked\n`
+        + `📈 Lifetime XP: ${num(lifetime)}\n`
+        + `🎯 ${num(remaining)} XP to Level ${level + 1}\n`
+        + (nextTitle ? `🏷️ Next title: ${nextTitle.title} at Lv ${nextTitle.level}\n` : '👑 You have every title.\n')
         + `💰 Money: ${kc(userDoc.coins)}\n`
         + `🌱 Starting allowance: ${kc(userDoc.money ?? cache.STARTING_MONEY)}\n`
-        + `📊 Level ${userDoc.level || 1} · ${num(userDoc.xp)}/${num(xpNeeded(userDoc.level || 1))} XP\n`
         + `🎭 Class: ${cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'}\n`
         + `🏷️ Titles: ${titles}\n`
         + `⚡ Stamina: ${data.stamina}/${hasSkill(userDoc, 'swiftfoot') ? 11 : 10}\n`
@@ -529,41 +624,6 @@ module.exports = [
 
   // ─────────────────────────────────────────────────────────
   // 2
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'level',
-    aliases: [],
-    category: 'rpg',
-    description: '📊 Check your level progress - How close to next rank?',
-    usage: '!level',
-    hint: 'Progress toward the next rank. XP comes from chatting, quests and work — not from duels.',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'level', async () => {
-      await react('📊');
-      const level = userDoc.level || 1;
-      const needed = xpNeeded(level);
-      const xp = clamp(userDoc.xp);
-      const pct = Math.min(100, Math.floor((xp / needed) * 100));
-      const filled = Math.round((pct / 100) * 20);
-      const bar = `${'█'.repeat(filled)}${'░'.repeat(20 - filled)}`;
-      const nextTitle = TITLES.find((t) => t.level > level);
-
-      await reply(
-        `📊 **LEVEL ${level}**\n`
-        + '· · · · · · ·\n'
-        + `${bar} ${pct}%\n`
-        + `✨ ${num(xp)}/${num(needed)} XP\n`
-        + `🎯 ${num(needed - xp)} XP to Level ${level + 1}\n`
-        + (nextTitle ? `🏷️ Next title: ${nextTitle.title} at Lv ${nextTitle.level}\n` : '👑 You have every title.\n')
-        + `📖 ${story()}`,
-        event.messageID,
-      );
-    }),
-  },
-
-  // ─────────────────────────────────────────────────────────
-  // 3
   // ─────────────────────────────────────────────────────────
   {
     name: 'rank',
@@ -628,59 +688,6 @@ module.exports = [
   // 4
   // ─────────────────────────────────────────────────────────
   {
-    name: 'xp',
-    aliases: [],
-    category: 'rpg',
-    description: '✨ Your experience points - Lvl up by chatting and quests',
-    usage: '!xp',
-    hint: 'Chatting is the cheapest XP there is. Dueling is the most expensive per point.',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'xp', async () => {
-      await react('✨');
-      const level = userDoc.level || 1;
-      const needed = xpNeeded(level);
-      const lifetime = num(needed * (level - 1) + clamp(userDoc.xp));
-
-      const card = await cards.userCard({
-        emoji: '✨',
-        title: 'EXPERIENCE',
-        subtitle: `Level ${level} · ${num(userDoc.xp)} XP banked`,
-        user: userDoc,
-        api,
-        rows: [
-          ['Level', String(level)],
-          ['Progress', `${num(userDoc.xp)} / ${num(needed)} XP`],
-          ['Lifetime', `${lifetime} XP total`],
-          ['To rank up', `${num(needed)} XP`],
-        ],
-      });
-
-      if (card) {
-        await reply({
-          body: `✨ **${userDoc.name || 'Hunter'}** — ${num(userDoc.xp)}/${num(needed)} XP to level ${level + 1}`,
-          attachment: { type: 'image', data: { url: card } },
-        }, event.messageID);
-        return;
-      }
-
-      await reply(
-        `✨ **${userDoc.name || 'Hunter'}'s EXPERIENCE**\n`
-        + '· · · · · · ·\n'
-        + `📊 Level ${level}\n`
-        + `✨ ${num(userDoc.xp)} / ${num(needed)} XP\n`
-        + `📈 Lifetime: ${lifetime} XP total\n`
-        + `🔮 Need ${num(needed)} XP to rank up. Try \`!train\`, \`!quest\` or \`!battle\`.\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
-    }),
-  },
-
-  // ─────────────────────────────────────────────────────────
-  // 5
-  // ─────────────────────────────────────────────────────────
-  {
     name: 'prestige',
     aliases: [],
     category: 'rpg',
@@ -694,7 +701,7 @@ module.exports = [
       if (level < 10) {
         await reply(
           `👑 The academy refuses. Reach **Level 10** first.\n`
-          + `📊 You are Level ${level} — ${num(xpNeeded(level) - clamp(userDoc.xp))} XP short.\n`
+          + `📊 You are Level ${level} — ${num(xpToNext(level, userDoc.xp))} XP short.\n`
           + `📖 ${story()}`,
           event.messageID,
         );
@@ -1895,7 +1902,7 @@ module.exports = [
       if (level < 10) {
         await reply(
           `🔄 Too early to be reborn. The academy wants **Level 10+**; you are Level ${level}.\n`
-          + `🎯 ${num(xpNeeded(level) - clamp(userDoc.xp))} XP to go.\n`
+          + `🎯 ${num(xpToNext(level, userDoc.xp))} XP to go.\n`
           + `📖 ${story()}`,
           event.messageID,
         );
@@ -1997,13 +2004,29 @@ module.exports = [
         await reply('💾 Academy records are sealed — database offline.', event.messageID);
         return;
       }
-      // uid is projected so the card can fetch each hunter's real photo.
+// uid is projected so the card can fetch each hunter's real photo.
+      //
+      // Lifetime XP, not banked XP. Spending XP on a level destroys it, so
+      // banked XP *falls* when a hunter levels up: this board used to sort on
+      // `level * 0 + xp`, which is xp and nothing else, and put the hunter with
+      // the most grinding last. 50 * L * (L-1) is the sum of the curve
+      // xpNeeded(1..L-1) = 100, 200, … 100*(L-1) — the same figure `!profile`
+      // prints, computed here in the database so the board can be sorted on it.
       const board = await User.aggregate([
         { $match: { $or: [{ xp: { $gt: 0 } }, { level: { $gt: 1 } }] } },
-        { $addFields: { lifetimeXp: { $add: [{ $multiply: [{ $ifNull: ['$level', 1] }, 0] }, '$xp'] } } },
+        {
+          $addFields: {
+            lifetimeXp: {
+              $add: [
+                { $multiply: [{ $ifNull: ['$level', 1] }, { $subtract: [{ $ifNull: ['$level', 1] }, 1] }, 50] },
+                { $ifNull: ['$xp', 0] },
+              ],
+            },
+          },
+        },
         { $sort: { lifetimeXp: -1, xp: -1 } },
         { $limit: 10 },
-        { $project: { uid: 1, name: 1, level: 1, xp: 1, _id: 0 } },
+        { $project: { uid: 1, name: 1, level: 1, xp: 1, lifetimeXp: 1, _id: 0 } },
       ]);
       if (!board.length) {
         await reply('🌟 Nobody has ground XP yet. Try `!train`.', event.messageID);
@@ -2016,7 +2039,7 @@ module.exports = [
         subtitle: 'Hardest working hunters on the server',
         rows: board,
         api,
-        value: (u) => `Lv ${u.level || 1} · ${num(u.xp)} XP banked`,
+        value: (u) => `Lv ${u.level || 1} · ${num(u.lifetimeXp)} XP`,
       });
       if (card) {
         await reply({
@@ -2028,7 +2051,7 @@ module.exports = [
 
       const medals = ['🥇', '🥈', '🥉'];
       const lines = board.map((u, i) => (
-        `${medals[i] || `${i + 1}.`} ${u.name} — Lv ${u.level || 1}, ${num(u.xp)} XP banked`
+        `${medals[i] || `${i + 1}.`} ${u.name} — Lv ${u.level || 1}, ${num(u.lifetimeXp)} XP`
       ));
 
       await reply(

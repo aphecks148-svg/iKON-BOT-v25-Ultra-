@@ -2879,6 +2879,133 @@ const PIKACHU = dex.find('pikachu');
     return `aliases: ${rank.aliases.join(', ')}`;
   });
 
+  await step('level, rank and XP are one card, spelled three ways', () => {
+    // `!level` and `!xp` were two more cards showing two of the four numbers
+    // already on !profile, and they did not agree with each other: !xp printed
+    // the whole bar as "XP to rank up" where !level printed what was left of it.
+    // One card, three spellings, no second copy to drift.
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const prof = loaded.registry.get('profile');
+    assert.ok(prof, 'profile exists');
+    for (const alias of ['prof', 'level', 'xp']) {
+      assert.ok(prof.aliases.includes(alias), `profile must keep the alias ${alias}`);
+      assert.strictEqual(
+        loader.findCommand(alias, loaded.registry, loaded.aliases).name, 'profile',
+        `!${alias} must run the profile card`,
+      );
+    }
+    // All three land on the SAME object, not on three cards that happen to print
+    // similar numbers.
+    const ids = new Set(['profile', 'prof', 'level', 'xp']
+      .map((n) => loader.findCommand(n, loaded.registry, loaded.aliases)));
+    assert.strictEqual(ids.size, 1, 'one card, one command object');
+    // And the standalone commands are gone rather than left shadowed by aliases.
+    assert.strictEqual(loaded.registry.get('level'), undefined, '!level is an alias now, not a second command');
+    assert.strictEqual(loaded.registry.get('xp'), undefined, '!xp is an alias now, not a second command');
+    // !rank stays: that is the server's hall of fame, not a stat about the asker.
+    const rank = loaded.registry.get('rank');
+    assert.ok(rank, '!rank is still its own command');
+    assert.notStrictEqual(rank, prof, 'and it is not the profile card');
+    return 'profile/level/xp are one command; rank is still the board';
+  });
+
+  await step('the profile card shows rank, level, banked XP and lifetime', async () => {
+    const cmds3 = require('../commands/cmds_3');
+    const prof = cmds3.find((c) => c.name === 'profile');
+    // Canvas off, so this is the text a chat actually gets on a machine with no
+    // native binary — the fallback has to carry every number, not just the card.
+    const realCard = cards.userCard;
+    cards.userCard = async () => null;
+    const userDoc = {
+      uid: '999000111', name: 'Ada Lovelace', level: 5, xp: 240, coins: 12345, money: 500, prestige: 2,
+      rpg: {
+        className: 'mage', titles: ['New Face', 'Busker', 'Slayer'], stamina: 7,
+        lastStamina: new Date(), bio: '',
+      },
+      async save() { return this; }, markModified() {},
+    };
+    const out = [];
+    const api = {
+      async sendMessage() { return { messageID: 'x' }; },
+      async react() { return true; },
+      async getUserInfo() { return { name: 'Ada Lovelace' }; },
+      async getThreadInfo() { return { threadTitle: 'Ops', adminIDs: ['1'] }; },
+    };
+    try {
+      await prof.execute({
+        api, args: [], event: { threadID: 't1', messageID: 'm1', senderID: '999000111' },
+        userDoc, reply: async (m) => out.push(String(m)), react: async () => true,
+      });
+    } finally {
+      cards.userCard = realCard;
+    }
+    const said = out.join('\n');
+    assert.ok(/Ada Lovelace/.test(said), `the real name must be on the card, got: ${said}`);
+    // Rank: level 5 has passed the level-5 rung and not the level-7 one.
+    assert.ok(/Slayer/.test(said), `the rank from the title ladder must be shown, got: ${said}`);
+    assert.ok(!/Rookie/.test(said), 'a level 5 hunter is not a Rookie');
+    // Level and its bar.
+    assert.ok(/Level 5/.test(said), `the level must be shown, got: ${said}`);
+    assert.ok(/█/.test(said) && /░/.test(said), `a progress bar must be drawn, got: ${said}`);
+    // 240 of 500 is 48%, and the bar must be filled to match.
+    assert.ok(/48%/.test(said), `the percentage must match the XP, got: ${said}`);
+    // XP banked, lifetime, and what is still owed.
+    assert.ok(/240\/500/.test(said), `banked XP must be shown, got: ${said}`);
+    assert.ok(/1,240/.test(said), `lifetime XP must be shown, got: ${said}`);
+    assert.ok(/260 XP to Level 6/.test(said), `the XP still owed must be shown, got: ${said}`);
+    return 'rank Slayer, level 5 at 48%, 240/500 banked, 1,240 lifetime, 260 to go';
+  });
+
+  await step('lifetime XP counts the whole curve, not a rectangle', () => {
+    // Two wrong answers lived here. "To rank up" printed the full xpNeeded(level)
+    // instead of what was left, so a hunter halfway to level 5 was told they
+    // needed the level again. And lifetime XP was xpNeeded(level) * (level - 1):
+    // a rectangle where the curve is a triangle, crediting about twice the XP
+    // actually earned.
+    const cmds3src = require('fs').readFileSync(
+      path.join(path.resolve(__dirname, '..'), 'commands', 'cmds_3.js'), 'utf8',
+    );
+    assert.ok(/50 \* level \* \(level - 1\)/.test(cmds3src),
+      'lifetime must be the sum of the curve: 50 * L * (L-1)');
+
+    // The real sum, from the curve itself, for the levels that matter.
+    const xpNeeded = (l) => Math.max(1, l) * 100;
+    const trueLifetime = (level, xp) => {
+      let spent = 0;
+      for (let l = 1; l < level; l += 1) spent += xpNeeded(l);
+      return spent + xp;
+    };
+    // 100 + 200 + 300 + 400 = 1000, plus 240 banked.
+    assert.strictEqual(trueLifetime(5, 240), 1240, 'the curve sums to 1,240 at level 5 with 240 banked');
+    // The old rectangle said 500*4 + 240 = 2,240 — nearly double.
+    assert.strictEqual(50 * 5 * (5 - 1) + 240, 1240, 'and the fix agrees with the real sum');
+    assert.strictEqual(50 * 1 * 0 + 0, 0, 'a level 1 hunter with no XP has earned nothing');
+    assert.strictEqual(50 * 100 * 99 + 5000, 500000, 'level 100 is 495,000 spent plus what is banked');
+    return '1,240 not 2,240 at level 5 — the triangle, not the rectangle';
+  });
+
+  await step('the XP board ranks by lifetime, not by what is left in the bank', () => {
+    // `$addFields: { lifetimeXp: { $add: [{ $multiply: [level, 0] }, xp] } }` is
+    // `xp` with decoration: it multiplied the level by zero and so ranked by
+    // banked XP alone. Banked XP FALLS when a hunter levels up, so the board put
+    // the least experienced hunter at the top.
+    const src = require('fs').readFileSync(
+      path.join(path.resolve(__dirname, '..'), 'commands', 'cmds_3.js'), 'utf8',
+    );
+    const start = src.indexOf("name: 'topxp'");
+    const end = src.indexOf("name: 'setbio'");
+    const block = src.slice(start, end);
+    assert.ok(start > 0 && end > start, 'the topxp command block must be locatable');
+    assert.ok(!/\$multiply: \[\{ \$ifNull: \['\$level', 1\]\}, 0\]/.test(block),
+      'the level * 0 that made lifetimeXp equal banked XP must be gone');
+    assert.ok(/\$multiply/.test(block) && /lifetimeXp/.test(block),
+      'lifetime XP must be computed in the pipeline so the board can sort on it');
+    // And the board has to show the figure it sorted on.
+    assert.ok((block.match(/num\(u\.lifetimeXp\)/g) || []).length >= 2,
+      'both the card and the text list must print lifetime XP');
+    return 'sorted and printed on 50 * L * (L-1) + xp';
+  });
+
   // ── 31. admin ids survive their real shape ─────────────────
   // getThreadInfo copies thread_admins straight off Facebook, which is an array
   // of { id, isAdmin } OBJECTS. Every consumer used .map(String) on it, which
