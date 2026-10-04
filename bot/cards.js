@@ -414,11 +414,13 @@ async function userCard({ title, emoji, subtitle, rows, api, user }) {
  * @param {string} opts.subtitle
  * @param {Array<object>} opts.rows lean user documents
  * @param {(row:object, i:number) => string} opts.value renders the right-hand text
+ * @param {(row:object, i:number) => string} [opts.detail] the small second line,
+ *   for the caller who has a second number worth drawing
  * @param {object} opts.api ws3-fca client
  * @param {number} [opts.limit] how many rows to draw
  * @returns {Promise<string|null>} PNG data URL, or null without the canvas binary
  */
-async function boardCard({ title, emoji, subtitle, rows, value, api, limit = 10 }) {
+async function boardCard({ title, emoji, subtitle, rows, value, detail, api, limit = 10 }) {
   if (!canvasKit.available()) return null;
   const shown = (rows || []).slice(0, limit);
   if (!shown.length) return null;
@@ -466,11 +468,21 @@ async function boardCard({ title, emoji, subtitle, rows, value, api, limit = 10 
       ctx.textAlign = 'right';
       ctx.fillText(fit(ctx, value(row, i), 300), W - 44, y - 13);
 
-      // Numeric detail line under the value.
-      ctx.textAlign = 'right';
-      ctx.font = '19px sans-serif';
-      ctx.fillStyle = 'rgba(0,212,255,0.8)';
-      ctx.fillText(fit(ctx, row.uid ? `uid ${row.uid}` : '', 300), W - 44, y + 17);
+      // The caller's second number, under the value.
+      //
+      // This line used to read `uid <id>` on every board in the bot. That is the
+      // one thing a leaderboard must not put under a person's photo: the row
+      // already carries their real name and their real picture, and then the
+      // row finished with an internal identifier — which is also why
+      // `!gcmembers` and `!gtacartel` were audited for uid leaks while the
+      // canvas quietly printed one on all five of these boards.
+      const foot = detail ? String(detail(row, i) || '') : '';
+      if (foot) {
+        ctx.textAlign = 'right';
+        ctx.font = '19px sans-serif';
+        ctx.fillStyle = 'rgba(0,212,255,0.8)';
+        ctx.fillText(fit(ctx, foot, 300), W - 44, y + 17);
+      }
 
       y += rowH;
     }

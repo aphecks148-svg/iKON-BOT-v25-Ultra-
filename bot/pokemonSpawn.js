@@ -32,6 +32,7 @@ const media = require('./media');
 const toggles = require('./toggles');
 const pending = require('./pending');
 const config = require('../config');
+const profile = require('./profile');
 
 /** How often the scheduler wakes up to ask "is anything due?". */
 const TICK_MS = 60 * 1000;
@@ -359,17 +360,34 @@ async function attemptCatch(api, event, deps = {}) {
 /**
  * The message that confirms a catch.
  *
+ * The catcher's name is asked of Facebook rather than read off the profile.
+ * ws3-fca's createDefaultUser() stores the literal string "Facebook User", so a
+ * catch announcement — which goes to a whole chat, not to the catcher — read
+ * "Facebook User caught Nidoran!" for anybody whose very first lookup had
+ * failed. `fetchRealName` rejects the placeholder, so the fallback is a short id.
+ *
  * @param {object} p
  * @param {object} userDoc
  * @param {boolean} isNew
  * @param {object} reward
- * @returns {string}
+ * @param {object} [api] ws3-fca client, for the live name
+ * @returns {Promise<string>}
  */
-function catchBody(p, userDoc, isNew, reward) {
+async function catchBody(p, userDoc, isNew, reward, api) {
   const t = dex.tier(p);
   const seen = Array.isArray(userDoc.dex) ? userDoc.dex.length : 0;
+  let who = '';
+  try {
+    who = (await profile.fetchRealName(String(userDoc.uid || ''), api)) || '';
+  } catch { /* the short id below */ }
+  if (!who) {
+    const stored = userDoc.name ? String(userDoc.name) : '';
+    who = stored && !profile.isPlaceholderName(stored)
+      ? stored
+      : `Hunter ${String(userDoc.uid || '????').slice(-4)}`;
+  }
   return (
-    `🎉 **${userDoc.name} caught ${p.name}!**\n`
+    `🎉 **${who} caught ${p.name}!**\n`
     + '· · · · · · ·\n'
     + `${t.symbol} ${t.label} · ${dex.typeLabel(p)}\n`
     + `💰 ${reward.coins.toLocaleString('en-US')} K-Cash · ✨ ${reward.xp.toLocaleString('en-US')} XP\n`

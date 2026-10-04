@@ -765,7 +765,7 @@ module.exports = [
     category: 'economy',
     description: '🏆 Who runs iKON City? Top 10 richest hunters',
     usage: '!leaderboard',
-    hint: 'Top 10 by bank balance. Money sitting in `!bank` counts — not just pocket coins.',
+    hint: 'Top 10 by TOTAL wealth — wallet plus vault. `!richest` is the vault alone.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'leaderboard', async () => {
@@ -774,44 +774,71 @@ module.exports = [
         await reply('💾 Database offline — the ledger of the city is unavailable.', event.messageID);
         return;
       }
-      const top = await User.find({ coins: { $gt: 0 } }).sort({ coins: -1 }).limit(10).select('uid name coins level').lean();
+
+      // Total wealth, wallet PLUS vault.
+      //
+      // The query was `find({ coins: { $gt: 0 } }).sort({ coins: -1 })` while
+      // the hint under it promised "money sitting in `!bank` counts": it did not
+      // count. A hunter with 8,000 in their pocket and 900,000 in the vault
+      // ranked below somebody carrying 200,000 loose, on the one board whose job
+      // is to say who runs the city.
+      //
+      // It has to be an aggregation, not a sort. `{ coins: -1 }` cannot sort by
+      // a sum, and the `{ coins: { $gt: 0 } }` filter dropped everybody who had
+      // spent their last coin — the ones a vault board exists to find.
+      const top = await User.aggregate([
+        { $addFields: { total: { $add: [{ $ifNull: ['$coins', 0] }, { $ifNull: ['$bank', 0] }] } } },
+        { $match: { total: { $gt: 0 } } },
+        { $sort: { total: -1, coins: -1 } },
+        { $limit: 10 },
+        { $project: { uid: 1, name: 1, coins: 1, bank: 1, total: 1, level: 1, _id: 0 } },
+      ]);
       if (!top.length) {
         await reply('🏆 Nobody has any K-Cash yet. Be the first.', event.messageID);
         return;
       }
 
+      // A stored name is not a name: createDefaultUser() writes "Facebook User",
+      // so ten rows of that still look ranked. Facebook is asked, once per row,
+      // and the photo comes off the same uid.
+      const names = await Promise.all(top.map((u) => cards.realName(u, api)));
+      const total = top.reduce((s, u) => s + (u.total || 0), 0);
+
       const card = await cards.boardCard({
         emoji: '🏆',
         title: 'RICHEST HUNTERS',
-        subtitle: 'Top spenders in iKON City',
+        subtitle: 'Top 10 by total wealth in iKON City',
         rows: top,
         api,
-        value: (u) => `${kc(u.coins)} · Lv ${u.level || 1}`,
+        value: (u) => `${kc(u.total)} · Lv ${u.level || 1}`,
+        // The split behind the total, which is the number people actually argue
+        // about. Not a uid.
+        detail: (u) => `wallet ${kc(u.coins)} · vault ${kc(u.bank)}`,
       });
       if (card) {
         await reply({
-          body: `🏆 **RICHEST HUNTERS**\n💵 ${kc(top.reduce((s, u) => s + (u.coins || 0), 0))} on the books.`,
+          body: `🏆 **RICHEST HUNTERS**\n💵 ${kc(total)} on the books.`,
           attachment: { type: 'image', data: { url: card } },
         }, event.messageID);
         return;
       }
 
       const medals = ['🥇', '🥈', '🥉'];
-      const lines = top.map((u, i) => `${medals[i] || `${i + 1}.`} ${u.name} — ${kc(u.coins)} (Lv ${u.level || 1})`);
+      const lines = top.map((u, i) => (
+        `${medals[i] || `${i + 1}.`} ${names[i]} — ${kc(u.total)} (Lv ${u.level || 1})\n`
+        + `   👛 ${kc(u.coins)} · 🏦 ${kc(u.bank)}`
+      ));
       await reply(
         `🏆 **iKON CITY — RICHEST HUNTERS**\n`
         + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
-        + `💵 Total on display: ${kc(top.reduce((s, u) => s + (u.coins || 0), 0))}\n`
+        + `💵 Total on display: ${kc(total)}\n`
         + `📖 ${story()}`,
         event.messageID,
       );
     }),
   },
 
-  // ─────────────────────────────────────────────────────────
-  // 14
-  // ─────────────────────────────────────────────────────────
   {
     name: 'richest',
     aliases: [],
@@ -828,12 +855,16 @@ module.exports = [
       }
       // uid is selected explicitly: the canvas card needs it to fetch the real
       // Facebook photo, and the old select() omitted it.
-      const top = await User.find({ bank: { $gt: 0 } }).sort({ bank: -1 }).limit(10).select('uid name bank level').lean();
+      const top = await User.find({ bank: { $gt: 0 } }).sort({ bank: -1 }).limit(10).select('uid name bank coins level').lean();
       if (!top.length) {
         await reply('🏦 Nobody has deposited yet. The vault is empty and slightly embarrassed.', event.messageID);
         return;
       }
       const total = top.reduce((s, u) => s + (u.bank || 0), 0);
+
+      // Same reason as !leaderboard: a stored "Facebook User" is not a name, and
+      // this fallback is the path every machine without the canvas binary takes.
+      const names = await Promise.all(top.map((u) => cards.realName(u, api)));
 
       const card = await cards.boardCard({
         emoji: '🏦',
@@ -842,6 +873,8 @@ module.exports = [
         rows: top,
         api,
         value: (u) => `${kc(u.bank)} · Lv ${u.level || 1}`,
+        // What they are carrying in their pocket, for contrast — and never a uid.
+        detail: (u) => `wallet ${kc(u.coins)}`,
       });
       if (card) {
         await reply({
@@ -852,7 +885,7 @@ module.exports = [
       }
 
       const medals = ['🥇', '🥈', '🥉'];
-      const lines = top.map((u, i) => `${medals[i] || `${i + 1}.`} ${u.name} — ${kc(u.bank)} (Lv ${u.level || 1})`);
+      const lines = top.map((u, i) => `${medals[i] || `${i + 1}.`} ${names[i]} — ${kc(u.bank)} (Lv ${u.level || 1})`);
       await reply(
         `🏦 **VAULT KINGS**\n`
         + '· · · · · · ·\n'

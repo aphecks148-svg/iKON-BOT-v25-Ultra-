@@ -660,6 +660,7 @@ module.exports = [
         rows: board,
         api,
         value: (u) => `Lv ${u.level || 1} · ${num(u.xp)} XP${u.prestige ? ` 👑${u.prestige}` : ''}`,
+        detail: (u) => `${num(xpToNext(u.level || 1, u.xp))} XP to the next level`,
       });
       if (card) {
         await reply({
@@ -669,9 +670,12 @@ module.exports = [
         return;
       }
 
+      // Facebook is asked for the name; a stored "Facebook User" is not a name,
+      // and a board of ten of them still looks like a ranking.
+      const names = await Promise.all(board.map((u) => cards.realName(u, api)));
       const lines = board.map((u, i) => {
         const crown = u.prestige ? ` 👑x${u.prestige}` : '';
-        return `${medals[i] || `${i + 1}.`} ${u.name} — Lv ${u.level || 1}${crown} (${num(u.xp)} XP)`;
+        return `${medals[i] || `${i + 1}.`} ${names[i]} — Lv ${u.level || 1}${crown} (${num(u.xp)} XP)`;
       });
 
       await reply(
@@ -1965,6 +1969,7 @@ module.exports = [
         rows: board,
         api,
         value: (u) => `${num(winsOf(u))} wins · Lv ${u.level || 1}`,
+        detail: (u) => `${num(winsOf(u) ? (u.rpg && u.rpg.stats && u.rpg.stats.losses) || 0 : 0)} losses`,
       });
       if (card) {
         await reply({
@@ -1975,7 +1980,8 @@ module.exports = [
       }
 
       const medals = ['🥇', '🥈', '🥉'];
-      const lines = board.map((u, i) => `${medals[i] || `${i + 1}.`} ${u.name} — ${num(winsOf(u))} wins (Lv ${u.level || 1})`);
+      const names = await Promise.all(board.map((u) => cards.realName(u, api)));
+      const lines = board.map((u, i) => `${medals[i] || `${i + 1}.`} ${names[i]} — ${num(winsOf(u))} wins (Lv ${u.level || 1})`);
 
       await reply(
         `🥇 **MOST WINS**\n`
@@ -2040,6 +2046,7 @@ module.exports = [
         rows: board,
         api,
         value: (u) => `Lv ${u.level || 1} · ${num(u.lifetimeXp)} XP`,
+        detail: (u) => `${num(u.xp)} XP in the bank`,
       });
       if (card) {
         await reply({
@@ -2050,8 +2057,9 @@ module.exports = [
       }
 
       const medals = ['🥇', '🥈', '🥉'];
+      const names = await Promise.all(board.map((u) => cards.realName(u, api)));
       const lines = board.map((u, i) => (
-        `${medals[i] || `${i + 1}.`} ${u.name} — Lv ${u.level || 1}, ${num(u.lifetimeXp)} XP`
+        `${medals[i] || `${i + 1}.`} ${names[i]} — Lv ${u.level || 1}, ${num(u.lifetimeXp)} XP`
       ));
 
       await reply(

@@ -4864,23 +4864,58 @@ const PIKACHU = dex.find('pikachu');
     // has to present them with a database.
     const realReady = mongo.isReady;
     mongo.isReady = () => true;
-    const rows = ['11', '22', '33', '44'].map((tail) => ({
+    const rows = ['11', '22', '33', '44'].map((tail, i) => ({
       uid: `9870001${tail}`,
       name: 'Facebook User',
+      // The economy boards filter on these, so a row with neither reads as an
+      // empty vault and the command answers "nobody has any money yet".
+      coins: 1000 * (i + 1),
+      bank: 500 * (i + 1),
+      xp: 10 * (i + 1),
+      rpg: { stats: { wins: i, losses: i } },
+      // !quotebomb reads this chat's own hunters.
+      gc: { lastGroup: 't_board' },
       farm: { level: 3, totalHarvest: 9 },
       mine: { level: 2 },
       gta: { started: true, level: 4, money: 500, wanted: 0 },
     }));
-    User.find = () => ({
-      sort: () => ({ limit: () => Promise.resolve(rows) }),
-      limit: () => ({ lean: () => Promise.resolve(rows) }),
-    });
+    // One chainable stand-in for a mongoose query, because the five boards reach
+    // for it in five different orders: find().sort().limit().select().lean(),
+    // find().sort().limit().lean(), and the aggregation !leaderboard needs now
+    // that it ranks on a sum it cannot sort on a field.
+    const mem = (list) => {
+      const q = {
+        sort: () => q, select: () => q, lean: () => q,
+        limit: (k) => { q._n = k; return q; },
+        then: (res, rej) => Promise.resolve(q._n ? list.slice(0, q._n) : list.slice()).then(res, rej),
+        catch: (rej) => Promise.resolve(list).catch(rej),
+      };
+      return q;
+    };
+    // Dotted paths too: !topwins filters on 'rpg.stats.wins', and a mock that
+    // only read top-level keys sees undefined and answers "nobody has won a
+    // fight yet" — which reads as a passing test for a broken command.
+    const dig = (row, key) => key.split('.').reduce((o2, part) => (o2 == null ? undefined : o2[part]), row);
+    const matchRows = (cond) => rows.filter((r) => Object.entries(cond || {}).every(([k, c]) => (
+      c && c.$gt !== undefined ? dig(r, k) > c.$gt : dig(r, k) === c
+    )));
+    User.find = (cond) => mem(matchRows(cond));
+    // !leaderboard sums coins and bank in the pipeline.
+    User.aggregate = () => Promise.resolve(rows.map((r) => ({
+      ...r, coins: r.coins || 0, bank: r.bank || 0, total: (r.coins || 0) + (r.bank || 0),
+    })));
     User.findOne = () => ({ lean: () => Promise.resolve(rows[0]), exec: () => Promise.resolve(rows[0]) });
     // !quotebomb reads the chat's own document before it reads anybody's name.
     Group.findOne = () => Promise.resolve({
       tid: 't_board', gc: { msgs: 0, level: 1 }, fun: {}, async save() {},
     });
 
+    // Canvas off, so this audits the TEXT fallback. The card resolves names
+    // itself and prints a body that never contained a row, which is why all five
+    // boards could pass their canvas test and still hand a machine with no
+    // canvas binary a board of "Facebook User".
+    const realBoardCard = cards.boardCard;
+    cards.boardCard = async () => null;
     const say = async (name) => {
       const cmd = loaded.registry.get(name);
       assert.ok(cmd, `${name} is registered`);
@@ -4897,7 +4932,16 @@ const PIKACHU = dex.find('pikachu');
     };
 
     try {
-      for (const name of ['farmleaderboard', 'minerank', 'gtaleaderboard', 'quotebomb']) {
+      // The five canvas boards are in this list too, and they were the ones left
+      // behind: every other board had been through this and their text
+      // fallbacks all went and asked Facebook, while these five printed the
+      // stored `u.name` — so a machine without the canvas binary got a
+      // leaderboard of "Facebook User" that still looked ranked.
+      const boards = [
+        'leaderboard', 'richest', 'rank', 'topwins', 'topxp',
+        'farmleaderboard', 'minerank', 'gtaleaderboard', 'quotebomb',
+      ];
+      for (const name of boards) {
         const text = await say(name);
         assert.ok(!/Facebook User/.test(text), `${name} printed the stored placeholder`);
         assert.ok(/Rosa Real/.test(text), `${name} resolved the real Facebook name`);
@@ -4906,10 +4950,149 @@ const PIKACHU = dex.find('pikachu');
       User.find = realFind;
       User.findOne = realFindOne;
       Group.findOne = realGroupFindOne;
+      cards.boardCard = realBoardCard;
       mongo.isReady = realReady;
     }
 
-    return 'farmleaderboard, minerank, gtaleaderboard, quotebomb name people';
+    return 'nine boards name people, canvas or no canvas';
+  });
+
+  await step('the money board ranks by total wealth, vault included', async () => {
+    // `!leaderboard` ran find({ coins: { $gt: 0 } }).sort({ coins: -1 }) under a
+    // hint that promised "money sitting in `!bank` counts — not just pocket
+    // coins". It did not count, and the filter dropped anybody who had spent
+    // their last coin: a hunter with 8,000 loose and 900,000 in the vault was
+    // invisible, and one with 8,000 loose and 0 in the vault outranked them.
+    const cmds2 = require('../commands/cmds_2');
+    const lb = cmds2.find((c) => c.name === 'leaderboard');
+    const realAggregate = User.aggregate;
+    const realBoardCard = cards.boardCard;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+
+    const people = [];
+    for (let i = 1; i <= 12; i += 1) {
+      people.push({ uid: `u${i}`, name: 'Facebook User', coins: i * 1000, bank: 0, level: i });
+    }
+    // The hunter the old query threw away: nothing loose, everything in the vault.
+    people.push({ uid: 'u_vault', name: 'Facebook User', coins: 0, bank: 900000, level: 4 });
+
+    // Enough of $addFields/$match/$sort/$limit/$project to run the real pipeline.
+    const dig = (r, path) => path.replace(/^\$/, '').split('.').reduce((o, k) => (o == null ? undefined : o[k]), r);
+    User.aggregate = async (pipe) => {
+      let rows = people.map((p) => ({ ...p }));
+      for (const st of pipe) {
+        if (st.$addFields) {
+          for (const [k, expr] of Object.entries(st.$addFields)) {
+            rows = rows.map((r) => ({ ...r, [k]: expr.$add.reduce((sum, e) => sum + (dig(r, e.$ifNull[0]) ?? e.$ifNull[1]), 0) }));
+          }
+        } else if (st.$match) {
+          rows = rows.filter((r) => Object.entries(st.$match).every(([k, c]) => (
+            c && c.$gt !== undefined ? dig(r, k) > c.$gt : dig(r, k) === c
+          )));
+        } else if (st.$sort) {
+          rows = rows.sort((a, b) => {
+            for (const [k, dir] of Object.entries(st.$sort)) {
+              if (a[k] < b[k]) return -dir;
+              if (a[k] > b[k]) return dir;
+            }
+            return 0;
+          });
+        } else if (st.$limit) rows = rows.slice(0, st.$limit);
+        else if (st.$project) {
+          const keys = Object.keys(st.$project).filter((k) => st.$project[k] && k !== '_id');
+          rows = rows.map((r) => Object.fromEntries(keys.map((k) => [k, r[k]])));
+        }
+      }
+      return rows;
+    };
+    let cardRows = null;
+    cards.boardCard = async (o) => { cardRows = o; return null; };
+    profile.clear();
+    const out = [];
+    const api = { async getUserInfo(uid) { return { name: `Rosa Real ${uid}` }; } };
+    try {
+      await lb.execute({
+        api, event: { threadID: 't1', messageID: 'm', senderID: '999000111', isGroup: true },
+        reply: async (m) => out.push(String(m)), react: async () => true,
+      });
+    } finally {
+      User.aggregate = realAggregate;
+      cards.boardCard = realBoardCard;
+      mongo.isReady = realReady;
+      profile.clear();
+    }
+    const said = out.join('\n');
+    // Top ten out of thirteen people. Counted off the rendered lines rather than
+    // a count in the header: the text fallback never had one, which is also why
+    // thirteen rows used to look like ten.
+    const rowLines = said.split('\n').filter((l) => /^(🥇|🥈|🥉|\d+\.)\s/.test(l));
+    assert.strictEqual(rowLines.length, 10, `exactly ten rows are shown, got ${rowLines.length}: ${said}`);
+    assert.strictEqual(cardRows.rows.length, 10, 'and the card gets ten rows too');
+    // The vault holder is FIRST, and was invisible before.
+    assert.ok(/Rosa Real u_vault/.test(said), `the vault holder must be on the board, got: ${said}`);
+    assert.ok(/900,000/.test(said), `and their money must be shown, got: ${said}`);
+    // Money is split so the number is arguable.
+    assert.ok(/👛/.test(said) && /🏦/.test(said), `wallet and vault must both be shown, got: ${said}`);
+    // Real names, not the stored placeholder.
+    assert.ok(!/Facebook User/.test(said), `the stored placeholder must never be printed, got: ${said}`);
+    // The card is handed a detail line of real numbers, not an identifier.
+    const detail = cardRows.detail(cardRows.rows[0]);
+    assert.ok(detail && /wallet/.test(detail) && /vault/.test(detail),
+      `the card detail must be the money split, got: ${detail}`);
+    // The uid stays on the row: the card needs it to fetch the photo. What is
+    // asserted is what gets DRAWN, which is the boardCard test below.
+    return '13 hunters, top 10, vault money counts, names and wallet/vault shown';
+  });
+
+  await step('a board card never prints a uid under anybody\'s photo', () => {
+    // boardCard drew `uid ${row.uid}` on every row of every board in the bot, so
+    // the one command family that had been audited for uid leaks was quietly
+    // printing one per hunter — on !lb, !richest, !rank, !topwins and !topxp.
+    // The line is now the caller's own second number, and there is none by
+    // default.
+    const src = require('fs').readFileSync(
+      path.join(path.resolve(__dirname, '..'), 'bot', 'cards.js'), 'utf8',
+    );
+    const start = src.indexOf('async function boardCard');
+    const end = src.indexOf('async function pairCard');
+    const block = src.slice(start, end);
+    assert.ok(start > 0 && end > start, 'boardCard must be locatable');
+    assert.ok(!/uid \$\{/.test(block), 'boardCard must not draw a uid');
+    assert.ok(!/row\.uid \?/.test(block), 'boardCard must not branch on uid for display');
+    // And the parameter is there for callers who have a second number.
+    assert.ok(/detail/.test(block), 'boardCard must accept a caller-supplied detail line');
+    return 'the uid line is gone, replaced by the caller\'s own number';
+  });
+
+  await step('a catch announcement names the catcher, not the placeholder', async () => {
+    // The confirmation goes to a whole chat, and it read the name straight off
+    // the profile — so a hunter whose first Facebook lookup had failed saw
+    // "Facebook User caught Nidoran!" posted about themselves.
+    const spawn = require('./pokemonSpawn');
+    const poke = require('./pokemon').POKEMON[0];
+    const reward = { coins: 120, xp: 8 };
+    const stored = { uid: 'u_catch1', name: 'Facebook User', dex: [] };
+
+    profile.clear();
+    const dead = await spawn.catchBody(poke, stored, true, reward, {
+      async getUserInfo() { return { name: 'Facebook User' }; },
+    });
+    assert.ok(!/Facebook User/.test(dead),
+      `a failed lookup must not announce the placeholder, got: ${dead}`);
+    assert.ok(/Hunter/.test(dead), `and falls back to a short id, got: ${dead}`);
+
+    // The cache cleared between the two on purpose: a failed lookup is cached as
+    // a negative result so Facebook is not asked again for the TTL, which is
+    // right in production and would otherwise make the second half of this test
+    // read the first half's failure.
+    profile.clear();
+    const live = await spawn.catchBody(poke, stored, true, reward, {
+      async getUserInfo() { return { name: 'Ash Ketchum' }; },
+    });
+    assert.ok(/Ash Ketchum/.test(live), `a live name is preferred, got: ${live}`);
+    profile.clear();
+    return 'live name when Facebook answers, short id when it does not';
   });
 
   // The rule the audit exists to enforce, checked against the source: a fallback
