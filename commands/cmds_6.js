@@ -37,6 +37,8 @@ const { fmt } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
 const userTarget = require('../bot/target');
 const pending = require('../bot/pending');
+const profile = require('../bot/profile');
+const { isPlaceholderName } = profile;
 // Group listing, the 100-chat sweep and the dead-account detector. Owns the
 // work behind !gclist and !gccleanup.
 const gcs = require('../bot/gcs');
@@ -1202,23 +1204,99 @@ const commands = [];
   /**
    * Everyone currently in the thread, as uid strings.
    *
-   * Returns an empty list when the running build cannot enumerate members. That
-   * makes a bulk action a no-op rather than a gamble: muting "everybody" from
-   * an empty roster must not silently fall through to muting nobody while
-   * reporting a success.
+   * Three sources, tried in order, because this build of ws3-fca does not
+   * implement the first two: getThreadMembers and getParticipantInfo are not on
+   * the client, so the roster came back empty and `!gcmembers` reported a chat
+   * of zero people while it was standing in one. getThreadInfo is the endpoint
+   * that does exist and it carries participantIDs, so that is where the roster
+   * comes from — and the two dead endpoints are only worth asking when they are
+   * actually there.
+   *
+   * Returns an empty list when nothing can enumerate members. That makes a bulk
+   * action a no-op rather than a gamble: muting "everybody" from an empty
+   * roster must not silently fall through to muting nobody while reporting a
+   * success.
+   *
+   * @param {object} api ws3-fca client
+   * @param {{threadID:string|number}} event
+   * @returns {Promise<string[]>}
    */
   async function safeMembers(api, event) {
-    try {
-      if (typeof api.getThreadMembers === 'function') {
-        const members = await api.getThreadMembers({ threadID: event.threadID });
-        return (members || []).map((m) => String(m && (m.userID || m.id || m))).filter(Boolean);
-      }
-      if (typeof api.getParticipantInfo === 'function') {
-        const info = await api.getParticipantInfo({ threadID: event.threadID });
-        return ((info && info.participantIDs) || []).map(String);
-      }
-    } catch { /* fall through to the empty roster */ }
+    const tid = event && event.threadID;
+    if (!tid || !api) return [];
+
+    if (typeof api.getThreadInfo === 'function') {
+      try {
+        const info = await api.getThreadInfo(tid);
+        const roster = ((info && info.participantIDs) || []).map(String).filter(Boolean);
+        if (roster.length) return roster;
+      } catch { /* try the next source */ }
+    }
+    if (typeof api.getThreadMembers === 'function') {
+      try {
+        const members = await api.getThreadMembers({ threadID: tid });
+        const roster = (members || []).map((m) => String(m && (m.userID || m.id || m))).filter(Boolean);
+        if (roster.length) return roster;
+      } catch { /* fall through */ }
+    }
+    if (typeof api.getParticipantInfo === 'function') {
+      try {
+        const info = await api.getParticipantInfo({ threadID: tid });
+        const roster = ((info && info.participantIDs) || []).map(String).filter(Boolean);
+        if (roster.length) return roster;
+      } catch { /* fall through to the empty roster */ }
+    }
     return [];
+  }
+
+  /**
+   * The names behind a member list, for the commands that print people.
+   *
+   * `getThreadInfo` hands back a `userInfo` array next to participantIDs, and
+   * that is a name per member out of the request the roster already paid for.
+   * Only the uids it did not name are resolved individually, through the cached
+   * real-name resolver, so a chat of three hundred costs a lookup for the ones
+   * Facebook actually named rather than three hundred lookups.
+   *
+   * @param {string[]} uids
+   * @param {object} api ws3-fca client
+   * @param {string|number} [threadID] the thread to read names from
+   * @param {number} [limit] most rows to resolve a live name for
+   * @returns {Promise<Array<{uid:string,name:string}>>}
+   */
+  async function namedMembers(uids, api, threadID, limit = 50) {
+    const list = (uids || []).map(String).filter(Boolean);
+    const out = list.map((uid) => ({ uid, name: '' }));
+    if (!list.length) return out;
+
+    const inline = new Map();
+    if (api && typeof api.getThreadInfo === 'function' && threadID) {
+      try {
+        const info = await api.getThreadInfo(threadID);
+        for (const u of (info && info.userInfo) || []) {
+          if (!u || !u.id || !u.name) continue;
+          inline.set(String(u.id), String(u.name));
+        }
+      } catch { /* names are a nicety, the ids are the answer */ }
+    }
+
+    const cap = Math.max(0, Number(limit) || 0);
+    await Promise.all(out.map(async (row, i) => {
+      const hit = inline.get(row.uid);
+      if (hit && !isPlaceholderName(hit)) {
+        row.name = hit;
+        return;
+      }
+      // Past the cap the uid is printed as-is rather than spent on a lookup that
+      // would only serve a row the chat is too big to show anyway.
+      if (cap && i >= cap) return;
+      try {
+        row.name = (await profile.fetchRealName(row.uid, api)) || '';
+      } catch {
+        row.name = '';
+      }
+    }));
+    return out;
   }
 
   commands.push({
@@ -1793,15 +1871,21 @@ const commands = [];
     execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'groupinfo', async () => {
       await react('📋');
       const group = await liveGroup(event);
-      const members = (await safeMembers(api, event)).length;
+      const roster = await safeMembers(api, event);
+      const members = roster.length;
       const admins = (await threadAdmins(api, event)).length;
       const tid = String(event.threadID || 'private chat');
+      // "0 members" in a chat that has people in it is a lie the database did
+      // not tell, so the line says which of the two happened.
+      const memberLine = members
+        ? `👥 ${num(members)} members · 🛡️ ${num(admins)} admins`
+        : `👥 not readable on this build · 🛡️ ${num(admins)} admins`;
 
       if (!group) {
         await reply(
           `📋 **CHAT RECORD**\n━━━━━━━━━━━━━━━\n`
           + `🆔 ${tid}\n`
-          + `👥 ${num(members)} members · 🛡️ ${num(admins)} admins\n`
+          + `${memberLine}\n`
           + '❌ No database record, and the city grid is offline.',
           event.messageID,
         );
@@ -1813,7 +1897,7 @@ const commands = [];
         `📋 **CHAT RECORD**\n`
         + '· · · · · · ·\n'
         + `🆔 ${tid}\n`
-        + `👥 ${num(members)} members · 🛡️ ${num(admins)} admins\n`
+        + `${memberLine}\n`
         + `📈 Level ${cfg.level} · 💬 ${num(cfg.msgs)} messages\n`
         + `✅ Enabled: ${yesNo(!!group.isEnabled)}\n`
         + `🎖️ Approved: ${yesNo(!!group.isApproved)}\n`
@@ -1857,12 +1941,25 @@ const commands = [];
         ? busiest.map((e, i) => `${i + 1}. ${names[i]} — ${num(val(e, 'gc.msgs'))} msgs`).join('\n')
         : 'No hunter activity recorded yet.';
 
+      // The roster itself, with names. A count on its own is a number nobody can
+      // do anything with, and printing "0 members" in a chat full of people is
+      // the claim this command exists to stop making.
+      const people = members.length
+        ? await namedMembers(members, api, event.threadID, 50)
+        : [];
+      const shown = people.slice(0, 20);
+      const roster = shown.length
+        ? shown.map((p, i) => `${i + 1}. ${p.name || `\`${p.uid}\``}`).join('\n')
+        : 'This build cannot read the member list for this chat.';
+      const more = people.length > shown.length ? `\n…and ${people.length - shown.length} more.` : '';
+
       await reply(
         `👥 **THE ROSTER**\n`
         + '· · · · · · ·\n'
-        + `👤 ${num(members.length)} members${members.length ? ' (this build can count them)' : ' (this build cannot list them)'}\n`
+        + `👤 ${num(members.length)} members\n`
         + `🛡️ ${num(admins.length)} admins\n`
         + `📈 Level ${cfg ? cfg.level : '?'} · 💬 ${cfg ? num(cfg.msgs) : '?'} messages\n\n`
+        + `📋 **Members here**\n${roster}${more}\n\n`
         + `📢 **Busiest here**\n${board}\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -2382,6 +2479,43 @@ const commands = [];
   // who has not used this bot before.
   const pendingAge = (ms) => fmt.dur(Math.max(0, Math.round((Date.now() - ms) / 1000)));
 
+  /**
+   * The label `!pending` prints for a row, with every gap filled in.
+   *
+   * The stored name is only a label — it can be blank, or "Unknown", or left
+   * over from a client that reported the thread under a different title. The
+   * chat is asked once more, right here, so the list reads as chats rather than
+   * as bookkeeping placeholders.
+   *
+   * @param {{tid:string,name:string,addedBy:string,addedByName:string}} row
+   * @param {object} api ws3-fca client
+   * @returns {Promise<{name:string,addedBy:string}>}
+   */
+  async function realPendingLabel(row, api) {
+    let name = row.name && row.name !== 'Unknown' ? row.name : '';
+    if (!name && api && typeof api.getThreadInfo === 'function') {
+      try {
+        const info = await api.getThreadInfo(row.tid);
+        const live = info && (info.threadTitle || info.threadName || info.name || info.title);
+        if (live) name = String(live);
+      } catch {
+        // A failed lookup leaves whatever was stored, which is what the row
+        // already had.
+      }
+    }
+    let addedBy = row.addedByName || '';
+    if (!addedBy && row.addedBy && api && typeof api.getUserInfo === 'function') {
+      try {
+        const info = await api.getUserInfo(row.addedBy);
+        const live = info && (info.name || info.firstName || info.first_name);
+        if (live && !isPlaceholderName(String(live))) addedBy = String(live);
+      } catch {
+        // Same: the uid is still better than nothing.
+      }
+    }
+    return { name: name || 'Unknown', addedBy: addedBy || (row.addedBy ? `\`${row.addedBy}\`` : 'unknown') };
+  }
+
   commands.push(
     {
       name: 'pending',
@@ -2394,21 +2528,35 @@ const commands = [];
       execute: async ({ event, reply, react, api, config }) => guard(reply, event.messageID, 'pending', async () => {
         await react('⏳');
         const rows = pending.snapshot();
+        // A record on disk whose lock has not been hydrated into the cache is
+        // still pending, and hiding it is the one thing `!pending` must never do.
+        for (const [tid, rec] of Object.entries(pending.readFile())) {
+          if (rows.some((r) => r.tid === tid)) continue;
+          rows.push({
+            tid,
+            name: rec.threadName || 'Unknown',
+            addedBy: rec.addedByID || '',
+            addedByName: rec.addedByName || '',
+            requestedAt: rec.time ? new Date(rec.time) : null,
+            age: rec.time ? Date.now() - new Date(rec.time).getTime() : 0,
+          });
+        }
         if (!rows.length) {
           await reply('⏳ **NO PENDING CHATS**\n· · · · · · ·\nNothing is waiting for a decision.', event.messageID);
           return;
         }
-        const lines = rows.slice(0, 20).map((row, i) => {
+        const lines = await Promise.all(rows.slice(0, 20).map(async (row, i) => {
           const here = String(row.tid) === String(event.threadID) ? ' ← this chat' : '';
-          const who = row.addedBy ? `added by \`${row.addedBy}\`` : 'added by unknown';
-          return `${i + 1}. **${row.name}**\n   \`${row.tid}\` · ${who} · ${row.requestedAt ? `${pendingAge(row.age)} ago` : 'unknown time'}${here}`;
-        });
+          const live = await realPendingLabel(row, api);
+          const who = `added by \`${live.addedBy}\``;
+          return `${i + 1}. **${live.name}**\n   \`${row.tid}\` · ${who} · ${row.requestedAt ? `${pendingAge(row.age)} ago` : 'time unknown'}${here}`;
+        }));
         await reply(
           `⏳ **PENDING APPROVAL** (${rows.length})\n`
           + '· · · · · · ·\n'
           + `${lines.join('\n')}\n`
           + (rows.length > 20 ? `…and ${rows.length - 20} more.\n` : '')
-          + `Approve with ${config.PREFIX}approve · ${config.PREFIX}approve <tid>`,
+          + `Approve with ${config.PREFIX}approve <tid> · ${config.PREFIX}approve all`,
           event.messageID,
         );
       }),
@@ -2418,37 +2566,112 @@ const commands = [];
       name: 'approve',
       aliases: ['approvecg', 'approvethread'],
       category: 'group',
-      description: '✅ Approve this chat and switch the bot on',
-      usage: '!approve',
+      description: '✅ Approve this chat and switch the bot on — or `all` of them',
+      usage: '!approve [tid | all]',
       cooldown: 20,
       permission: 'owner',
       execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'approve', async () => {
         await react('✅');
+
+        /**
+         * Lift one lock and switch its chat on.
+         *
+         * Both halves matter: the lock stops the refusal, the `isEnabled` write
+         * is what stops the bot answering with "this chat is paused" instead of
+         * running commands.
+         *
+         * @param {string} tid
+         * @returns {Promise<{tid:string,name:string,ok:boolean,why:string}>}
+         */
+        const approveOne = async (tid) => {
+          const row = pending.snapshot().find((r) => r.tid === tid) || null;
+          const onDisk = pending.readFile()[tid] || null;
+          const label = row || onDisk || { tid, name: tid, addedBy: '', addedByName: '' };
+          // The name is read BEFORE the approval, which deletes the record it
+          // came from.
+          const live = await realPendingLabel({ ...label, tid }, api);
+          const written = await pending.approve(tid, event.senderID);
+          let ok = written;
+          let why = written ? '' : 'the approval could not be written down';
+          try {
+            const group = await liveGroup(event, tid);
+            if (!group) {
+              ok = false;
+              why = why || 'no chat record';
+            } else {
+              group.isEnabled = true;
+              group.isApproved = true;
+              group.pendingApproval = false;
+              // save() reports a failure as a returned line rather than a throw.
+              const warn = await save(group);
+              if (warn) {
+                ok = false;
+                why = warn;
+              }
+            }
+          } catch (err) {
+            ok = false;
+            why = err.message;
+          }
+          return { tid, name: live.name, ok, why };
+        };
+
+        const wanted = String(args[0] || '').trim().toLowerCase();
+
+        // `!approve all` never asks whether each chat is pending. The whole
+        // point of the word is that the owner is answering for every row at
+        // once, and a per-chat check turns "approve all" into a command that
+        // reports nothing to do for every chat it was asked to approve.
+        if (wanted === 'all' || wanted === '*' || wanted === 'every') {
+          const targets = new Set([
+            ...pending.snapshot().map((r) => r.tid),
+            ...Object.keys(pending.readFile()),
+          ]);
+          if (!targets.size) {
+            await reply('✅ Nothing is waiting for approval.', event.messageID);
+            return;
+          }
+          const done = [];
+          for (const tid of targets) {
+            // eslint-disable-next-line no-await-in-loop
+            done.push(await approveOne(tid));
+          }
+          const okList = done.filter((d) => d.ok);
+          const lines = done.map((d) => `${d.ok ? '✅' : '⚠️'} ${d.name} — \`${d.tid}\`${d.ok ? '' : ` (${d.why})`}`);
+          await reply(
+            `✅ **APPROVED ${okList.length}/${done.length} CHAT(S)**\n`
+            + '· · · · · · ·\n'
+            + `${lines.join('\n')}\n`
+            + '📖 They can use commands now.',
+            event.messageID,
+          );
+          return;
+        }
+
         const tid = String(args[0] || event.threadID || '');
         if (!tid) {
-          await reply('❌ Give me a chat id: `!approve <tid>`.', event.messageID);
+          await reply('❌ Give me a chat id: `!approve <tid>`, or `!approve all`.', event.messageID);
           return;
         }
-        if (!pending.isPending(tid)) {
-          await reply(`✅ That chat is not waiting for approval. Nothing to do.`, event.messageID);
+        // Asked against the durable record as well as the cache: a chat locked
+        // before the last restart is pending even on a process whose cache has
+        // not been asked yet, and answering "not waiting for approval" there is
+        // the failure that left chats stuck forever.
+        if (!pending.isPendingDurably(tid)) {
+          await reply('✅ That chat is not waiting for approval. Nothing to do.', event.messageID);
           return;
         }
-        await pending.approve(tid, event.senderID);
-
-        // Approving the lock is not enough on its own: the document also has to
-        // be switched on, or the chat goes from "refused" to "refused" with a
-        // nicer message and nobody ever notices the difference.
-        try {
-          const group = await liveGroup(event, tid);
-          if (group) {
-            group.isEnabled = true;
-            await save(group);
-          }
-        } catch (err) {
-          await reply(`⚠️ Approved, but the chat could not be switched on: ${err.message}`, event.messageID);
+        const done = await approveOne(tid);
+        if (!done.ok) {
+          await reply(
+            `⚠️ **${done.name}** — the lock is lifted, but it is not switched on yet.\n`
+            + `Reason: ${done.why}\n`
+            + '📖 It starts working once an owner retries, or after the next restart.',
+            event.messageID,
+          );
           return;
         }
-        await reply('✅ **Group Approved!**\nNow you can use commands.', event.messageID);
+        await reply(`✅ **${done.name} approved!**\n\`${tid}\`\n📖 Now you can use commands.`, event.messageID);
       }),
     },
 
@@ -2457,7 +2680,7 @@ const commands = [];
       aliases: ['denygc', 'gcdeny'],
       category: 'group',
       description: '🚫 Refuse this chat and take the bot back out',
-      usage: '!deny',
+      usage: '!deny [tid]',
       cooldown: 20,
       permission: 'owner',
       execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'deny', async () => {
@@ -2467,7 +2690,7 @@ const commands = [];
           await reply('❌ Give me a chat id: `!deny <tid>`.', event.messageID);
           return;
         }
-        if (!pending.isPending(tid)) {
+        if (!pending.isPendingDurably(tid)) {
           await reply(`🚫 That chat is not waiting for approval. Nothing to do.`, event.messageID);
           return;
         }

@@ -12,6 +12,7 @@
 
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
@@ -19,6 +20,15 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 // (Never hard-coded in config.js — this is test-only.)
 process.env.ADMIN_IDS = process.env.ADMIN_IDS || '999000111';
 process.env.BOT_PREFIX = process.env.BOT_PREFIX || '!';
+// BEFORE ./pending is required: the module resolves its records file once, at
+// load. Without this the suite would read and write a real approval queue in
+// database/pending.json — a file the .gitignore exists to keep out of the
+// repository, and one that a test run must not be able to clear by accident.
+const PENDING_TEST_FILE = path.join(
+  fs.mkdtempSync(path.join(os.tmpdir(), 'ikontest-pending-')),
+  'pending.json',
+);
+process.env.PENDING_FILE = PENDING_TEST_FILE;
 
 const mongo = require('./mongo');
 const router = require('./router');
@@ -3579,6 +3589,353 @@ const PIKACHU = dex.find('pikachu');
     const said = texts(api.sent.slice(before));
     assert.ok(/approv/i.test(said), `the approve command should have replied, got: ${said}`);
     return 'the lock can be lifted from inside the chat';
+  });
+
+  await step('an approved chat is switched on, not just unlocked', async () => {
+    // `!approve` lifted the lock and stopped there. The chat then answered
+    // "this group is paused" to every command it was supposed to have been
+    // approved for, because the document's isEnabled was never written.
+    // A missing document is the other half: the chat was locked by the event
+    // before any Group row existed, so there was nothing to flip.
+    //
+    // The handler is called directly rather than through the engine, because a
+    // paused chat is refused before dispatch — which is the very state this
+    // command is meant to clear, so routing it through the gate would test the
+    // gate instead.
+    const cmds6 = require('../commands/cmds_6');
+    const cmd = cmds6.find((c) => c.name === 'approve');
+    assert.ok(cmd, 'the approve command exists');
+    const realFindOne = Group.findOne;
+    const realSave = Group.prototype.save;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    const doc = {
+      tid: 't_on', threadName: 'Locked Chat', isEnabled: false, isApproved: false,
+      pendingApproval: true, approval: {}, async save() { return this; }, markModified() {},
+    };
+    Group.findOne = () => query(doc);
+    pending.seed([{ tid: 't_on', approval: {} }]);
+    const api = mockApi();
+    const before = api.sent.length;
+    try {
+      await cmd.execute({
+        api, args: ['t_on'], event: { threadID: 't_on', messageID: 'm_on', senderID: '999000111' },
+        userDoc: { uid: '999000111', name: 'Owner' },
+        reply: async (msg) => { api.sent.push({ body: String(msg) }); },
+        react: async () => true,
+      });
+      assert.strictEqual(doc.isEnabled, true, 'the chat must be switched on, not merely unlocked');
+      assert.strictEqual(doc.isApproved, true, 'and marked approved');
+      assert.strictEqual(doc.pendingApproval, false, 'and no longer pending');
+      assert.strictEqual(pending.isPendingDurably('t_on'), false, 'the lock is lifted');
+      assert.ok(/approved/i.test(texts(api.sent.slice(before))), 'the owner is told it worked');
+    } finally {
+      Group.findOne = realFindOne;
+      Group.prototype.save = realSave;
+      mongo.isReady = realReady;
+      pending.reset();
+    }
+    return 'the document is enabled, approved and no longer pending';
+  });
+
+  await step('approving a chat with no document at all creates one', async () => {
+    // The locked chat that was locked by the event has no Group row, because the
+    // whole point of the lock is that the bot does not know this chat yet.
+    // Refusing to write is how approve ended up approving nothing.
+    const cmds6 = require('../commands/cmds_6');
+    const cmd = cmds6.find((c) => c.name === 'approve');
+    const realFindOne = Group.findOne;
+    const realSave = Group.prototype.save;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    const written = [];
+    Group.findOne = () => query(null);
+    Group.prototype.save = async function patchedSave() { written.push(this); return this; };
+    pending.seed([{ tid: 't_new', approval: {} }]);
+    const api = mockApi();
+    try {
+      await cmd.execute({
+        api, args: ['t_new'], event: { threadID: 't_new', messageID: 'm_new', senderID: '999000111' },
+        userDoc: { uid: '999000111', name: 'Owner' },
+        reply: async (msg) => { api.sent.push({ body: String(msg) }); },
+        react: async () => true,
+      });
+    } finally {
+      Group.findOne = realFindOne;
+      Group.prototype.save = realSave;
+      mongo.isReady = realReady;
+      pending.reset();
+    }
+    assert.strictEqual(written.length, 1, 'the missing document must be created, not skipped');
+    assert.strictEqual(written[0].isEnabled, true, 'and it starts switched on');
+    assert.strictEqual(written[0].isApproved, true);
+    assert.strictEqual(pending.isPendingDurably('t_new'), false, 'the lock is lifted');
+    return 'a chat nobody had a record for is approved into one';
+  });
+
+  await step('a pending chat that was never approved cannot be approved by a lie', async () => {
+    // The check the fix relies on: isPendingDurably reads the file as well as
+    // the cache, so "not waiting for approval" is answered from a record rather
+    // than from an empty Set in a process that has just started.
+    pending.reset();
+    assert.strictEqual(pending.isPendingDurably('t_ghost'), false, 'nothing was ever locked here');
+    fs.writeFileSync(PENDING_TEST_FILE, JSON.stringify({
+      t_ghost: {
+        threadID: 't_ghost', threadName: 'Ghost Chat', addedByID: '999000777',
+        addedByName: 'Owner Seven', time: new Date().toISOString(),
+        isApproved: false, pending: true,
+      },
+    }));
+    try {
+      assert.strictEqual(pending.isPendingDurably('t_ghost'), true, 'a file record is a pending record');
+      assert.ok(!pending.isPendingDurably('t_missing'), 'and it says so for a chat that is not there');
+      assert.strictEqual(pending.snapshot().some((r) => r.tid === 't_ghost'), false, 'the cache is still empty — this is the restart case');
+    } finally {
+      fs.unlinkSync(PENDING_TEST_FILE);
+      pending.reset();
+    }
+    return 'the file is read as the durable source of truth';
+  });
+
+  await step('the pending list never prints a placeholder for a name it can fetch', async () => {
+    // A record with no stored name was printed as "(unknown chat)", which is
+    // the row an owner cannot act on. The command re-asks the chat once, so the
+    // list reads as chats.
+    const ik = require('../ws3-fca');
+    ik.reloadCommands();
+    const realFindOne = Group.findOne;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    Group.findOne = () => query(null);
+    // seed() takes the document shape, so the adder lives under `approval`.
+    pending.seed([{ tid: 't_named', approval: { addedBy: '999000777' } }]);
+    const api = mockApi();
+    api.getThreadInfo = async () => ({ threadTitle: 'Real Chat Name', adminIDs: ['admin_1'] });
+    api.getUserInfo = async () => ({ name: 'Ada Lovelace' });
+    const before = api.sent.length;
+    try {
+      await ik.handleMessage(api, {
+        type: 'message', isSelf: false, isGroup: true, threadID: 't_ops',
+        messageID: 'm_pending', senderID: '999000111',
+        body: `${config.PREFIX}pending`, attachments: [],
+      });
+    } finally {
+      Group.findOne = realFindOne;
+      mongo.isReady = realReady;
+      pending.reset();
+    }
+    const said = texts(api.sent.slice(before));
+    assert.ok(/Real Chat Name/.test(said), `the live name must be used, got: ${said}`);
+    assert.ok(/Ada Lovelace/.test(said), `the adder's name must be resolved, got: ${said}`);
+    assert.ok(!/unknown chat/i.test(said), `"unknown chat" must never be printed, got: ${said}`);
+    return 'name and owner resolved, nothing printed as unknown';
+  });
+
+  await step('"!approve all" answers every chat at once, pending or not', async () => {
+    // The bug: `!approve all` called the same per-chat pending check as
+    // `!approve <tid>`, so it reported "nothing to do" for every chat it was
+    // asked to approve — the one command meant to answer for all of them
+    // answered for none.
+    const cmds6 = require('../commands/cmds_6');
+    const cmd = cmds6.find((c) => c.name === 'approve');
+    const realFindOne = Group.findOne;
+    const realSave = Group.prototype.save;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    const docs = {};
+    const mkDoc = (tid, name) => {
+      docs[tid] = {
+        tid, threadName: name, isEnabled: false, isApproved: false, pendingApproval: true,
+        approval: {}, async save() { return this; }, markModified() {},
+      };
+      return docs[tid];
+    };
+    mkDoc('t_a', 'Chat A');
+    mkDoc('t_b', 'Chat B');
+    Group.findOne = (q) => query(docs[String(q && q.tid)] || null);
+    Group.prototype.save = async function patchedSave() { return this; };
+    // Named, because the name is read BEFORE the approval that deletes the
+    // record it came from: reading it afterwards leaves every row "Unknown".
+    pending.seed([
+      { tid: 't_a', threadName: 'Chat A', approval: {} },
+      { tid: 't_b', threadName: 'Chat B', approval: {} },
+    ]);
+    const api = mockApi();
+    const before = api.sent.length;
+    try {
+      await cmd.execute({
+        api, args: ['all'], event: { threadID: 't_ops', messageID: 'm_all', senderID: '999000111' },
+        userDoc: { uid: '999000111', name: 'Owner' },
+        reply: async (msg) => { api.sent.push({ body: String(msg) }); },
+        react: async () => true,
+      });
+    } finally {
+      Group.findOne = realFindOne;
+      Group.prototype.save = realSave;
+      mongo.isReady = realReady;
+      pending.reset();
+    }
+    const said = texts(api.sent.slice(before));
+    assert.ok(/2\/2/.test(said), `both chats must be reported as approved, got: ${said}`);
+    assert.ok(/Chat A/.test(said) && /Chat B/.test(said), `and each named, got: ${said}`);
+    assert.ok(!/not waiting/i.test(said), `a refusal in "approve all" is the bug, got: ${said}`);
+    for (const tid of ['t_a', 't_b']) {
+      assert.strictEqual(docs[tid].isEnabled, true, `${tid} must be switched on`);
+      assert.strictEqual(docs[tid].isApproved, true, `${tid} must be approved`);
+    }
+    return 'two of two chats approved in one go';
+  });
+
+  await step('the member list reads the roster the client actually has', async () => {
+    // getThreadMembers and getParticipantInfo are not implemented on this build
+    // of ws3-fca, so the old order tried two endpoints that do not exist and
+    // returned []: `!gcmembers` reported 0 members in a chat with people in it.
+    // getThreadInfo exists and carries participantIDs and userInfo, so that is
+    // where the roster and the names come from.
+    const ik = require('../ws3-fca');
+    ik.reloadCommands();
+    const realFindOne = Group.findOne;
+    mongo.isReady = () => true;
+    const doc = {
+      tid: 't_roster', threadName: 'Roster Chat', isEnabled: true, isApproved: true,
+      pendingApproval: false, level: 3, msgs: 12, xp: 40, disabledCommands: [],
+      disabledModules: [], adminIDs: ['u1'], async save() { return this; }, markModified() {},
+    };
+    Group.findOne = () => query(doc);
+    const api = mockApi();
+    // A client that has ONLY the endpoint that works — the other two were never
+    // there — so the roster has exactly one place it can come from.
+    api.getThreadInfo = async () => ({
+      threadTitle: 'Roster Chat',
+      adminIDs: ['u1'],
+      participantIDs: ['u1', 'u2', 'u3'],
+      userInfo: [{ id: 'u1', name: 'Grace Hopper' }, { id: 'u2', name: 'Alan Turing' }],
+    });
+    api.getUserInfo = async (uid) => (uid === 'u3' ? { name: 'Katherine Johnson' } : { name: '' });
+    const before = api.sent.length;
+    try {
+      await ik.handleMessage(api, {
+        type: 'message', isSelf: false, isGroup: true, threadID: 't_roster',
+        messageID: 'm_roster', senderID: '999000111',
+        body: `${config.PREFIX}gcmembers`, attachments: [],
+      });
+    } finally {
+      Group.findOne = realFindOne;
+      pending.reset();
+    }
+    const said = texts(api.sent.slice(before));
+    assert.ok(!/\b0 members\b/.test(said), `a chat of three must not be reported as 0 members, got: ${said}`);
+    assert.ok(/\b3 members\b/.test(said), `the real count must be shown, got: ${said}`);
+    assert.ok(/Grace Hopper/.test(said), `a name from userInfo must be used, got: ${said}`);
+    assert.ok(/Alan Turing/.test(said), `both inline names must be used, got: ${said}`);
+    assert.ok(/Katherine Johnson/.test(said), `the rest resolved by uid, got: ${said}`);
+    return 'three members, three names, no zeros';
+  });
+
+  await step('a car is found by id, by name, by prefix and across two words', async () => {
+    // `findCar(args[0])` read only the first word, so `!gtabuycar Kairoz
+    // Phantom` looked up "Kairoz" and answered "No such car" about a car that is
+    // in the shop. And `!gtabuycar Zent` matched nothing at all.
+    const cars = require('../commands/cmds_7');
+    const cmd = cars.find((c) => c.name === 'gtabuycar');
+    assert.ok(cmd, 'the buy command exists');
+    const realReady = mongo.isReady;
+    mongo.isReady = () => false; // ledger entries are not what this asserts
+    // Re-implemented against the command itself, because findCar is a local
+    // helper: the only honest way to assert it is to buy a car.
+    // Rich, started, and a document-shaped object: the command spends coins and
+    // saves, and those writes are not what this test is about.
+    const usr = {
+      uid: '999000111', name: 'Buyer', coins: 5000000, gta: { started: true, level: 99, xp: 0, cars: [], spent: 0 },
+      async save() { return this; }, markModified() {},
+    };
+    const mk = async (args) => {
+      const api = mockApi();
+      const before = api.sent.length;
+      await cmd.execute({
+        api, args, event: { threadID: 't_buy', messageID: `m_${args.join('_')}`, senderID: '999000111' },
+        userDoc: usr, reply: async (msg) => { api.sent.push({ body: String(msg) }); },
+        react: async () => true,
+      });
+      return texts(api.sent.slice(before));
+    };
+    try {
+    const byId = await mk(['zentorno']);
+    const byPrefix = await mk(['zent']);
+    const twoWords = await mk(['phantom', 'prime']);
+    const byName = await mk(['Phantom Prime']);
+    void byPrefix; void byName;
+    assert.ok(!/No such car/i.test(byId), `an id must find its car, got: ${byId}`);
+    assert.strictEqual(byId, byPrefix, 'a prefix must find the same car as the id');
+    assert.ok(!/No such car/i.test(twoWords), `the second word is part of the name, got: ${twoWords}`);
+    assert.strictEqual(twoWords, byName, '"Kairoz Phantom" style and "Phantom Prime" are one lookup');
+    const nothing = await mk(['zzz']);
+    assert.ok(/No such car/i.test(nothing), `a name that is not a car must still say so, got: ${nothing}`);
+    } finally { mongo.isReady = realReady; }
+    return 'id, prefix and a two-word name all buy a car';
+  });
+
+  await step('a pet leaderboard names its owners instead of saying unknown', () => {
+    // `.populate('ownerUid', 'name')` populated nothing: ownerUid is a String,
+    // not a ref. So every row read "unknown" and the board was unusable.
+    const Pet = require('../models/Pet');
+    const schema = Pet.schema.path('ownerName');
+    assert.ok(schema, 'Pet must carry ownerName');
+    assert.strictEqual(schema.instance, 'String');
+    const cmd = require('../commands/cmds_4').find((c) => c.name === 'petrank');
+    assert.ok(cmd, 'petrank exists');
+    // Comments stripped first: the fix documents what populate() was doing there
+    // and why it did nothing, and an assertion that reads its own explanation
+    // back as the bug is worse than no assertion.
+    const code = String(cmd.execute)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    assert.ok(!/populate\(\s*['"]ownerUid['"]/.test(code),
+      `populate('ownerUid') is still called in petrank: ${code.slice(0, 200)}`);
+    assert.ok(/ownerLabel/.test(code), 'petrank must go through the owner resolver');
+    return 'ownerName on the schema, no populate of a plain String';
+  });
+
+  await step('"next due" never prints a time that has already gone', () => {
+    // The status line printed `last + interval` as the next due date. For a
+    // chat whose last spawn was yesterday that is a moment in the past, so the
+    // line read "next due: 1d 8h ago" directly under "last spawn: 1d 8h ago" —
+    // a countdown to a moment already gone.
+    const dex = require('./pokemon');
+    assert.strictEqual(typeof dex.nextDue, 'function', 'nextDue must be exported');
+    const NOW = Date.UTC(2026, 0, 2, 12, 0, 0);
+    const INTERVAL = 15 * 60 * 1000;
+
+    // Never spawned: due on the next tick, not in fifteen minutes.
+    const fresh = dex.nextDue({}, NOW, INTERVAL);
+    assert.strictEqual(fresh.isDue, true);
+    assert.strictEqual(fresh.dueAt, null, 'there is no date to print when there is no last spawn');
+
+    // Due later: exactly one interval after the last spawn.
+    const soon = dex.nextDue({ lastSpawnAt: new Date(NOW - INTERVAL / 2) }, NOW, INTERVAL);
+    assert.strictEqual(soon.isDue, false);
+    assert.strictEqual(soon.dueAt.getTime(), NOW + INTERVAL / 2, 'a future date is lastSpawnAt + interval');
+
+    // Overdue by a day: still a date in the future, plus the shortfall.
+    const late = dex.nextDue({ lastSpawnAt: new Date(NOW - INTERVAL - 24 * 60 * 60 * 1000) }, NOW, INTERVAL);
+    assert.strictEqual(late.isDue, true, 'an overdue chat is due now');
+    assert.ok(late.dueAt.getTime() > NOW, `the printed date must be ahead of now, got ${late.dueAt.toISOString()}`);
+    assert.strictEqual(late.dueAt.getTime(), NOW + INTERVAL, 'and exactly one interval ahead');
+    assert.strictEqual(late.overdueMs, INTERVAL + 24 * 60 * 60 * 1000 - INTERVAL, 'how far behind is reported');
+
+    // The boundary: due at this very instant, not a quarter of an hour away.
+    const edge = dex.nextDue({ lastSpawnAt: new Date(NOW - INTERVAL) }, NOW, INTERVAL);
+    assert.strictEqual(edge.isDue, true, 'exactly due belongs on this tick');
+    assert.strictEqual(edge.dueAt.getTime(), NOW + INTERVAL);
+
+    // lastAttemptAt is the other stamp the scheduler reads, and the later of
+    // the two is the one that counts.
+    const both = dex.nextDue(
+      { lastSpawnAt: new Date(NOW - INTERVAL), lastAttemptAt: new Date(NOW - 60 * 1000) },
+      NOW, INTERVAL,
+    );
+    assert.strictEqual(both.lastAt, NOW - 60 * 1000, 'the later stamp wins');
+    return 'never / soon / overdue / boundary, none of them in the past';
   });
 
   await step('the thread list asks for 100 chats, not 10', async () => {

@@ -5,6 +5,14 @@ const mongoose = require('mongoose');
 const PetSchema = new mongoose.Schema(
   {
     ownerUid: { type: String, required: true, index: true },
+    // The owner's name as it read when the pet was created.
+    //
+    // `ownerUid` is a String with no `ref`, so `.populate('ownerUid', 'name')`
+    // silently populated nothing and every leaderboard row fell back to
+    // "unknown". This is the denormalised copy that makes a pet's owner readable
+    // without a second query, and it is what covers the row whose live Facebook
+    // lookup failed.
+    ownerName: { type: String, default: '' },
     name: { type: String, required: true },
     type: { type: String, default: 'dragon' },
     level: { type: Number, default: 1, min: 1 },
@@ -64,5 +72,11 @@ const PetSchema = new mongoose.Schema(
 PetSchema.index({ ownerUid: 1, name: 1 });
 PetSchema.index({ ownerUid: 1, isDead: 1 });
 PetSchema.index({ basePower: -1 });
+
+// The strongest-first index the leaderboard actually sorts by: a plain
+// `{basePower: -1}` has to filter `isDead: false` after the sort and then throw
+// most of the result away, which is how a board of ten could be missing the
+// strongest living pet when there were more than ten pets in the city.
+PetSchema.index({ isDead: 1, basePower: -1, level: -1 });
 
 module.exports = mongoose.models.Pet || mongoose.model('Pet', PetSchema);

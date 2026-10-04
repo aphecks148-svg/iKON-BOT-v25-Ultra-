@@ -29,6 +29,7 @@ const Group = require('../models/Group');
 const config = require('../config');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
+const profile = require('../bot/profile');
 const { fmt } = require('../bot/helpers');
 const userTarget = require('../bot/target');
 const rarity = require('../bot/content');
@@ -384,6 +385,53 @@ async function mainPet(uid) {
   if (!mongo.isReady()) return null;
   const pets = await Pet.find({ ownerUid: String(uid), isDead: false }).sort({ basePower: -1, level: -1 });
   return pets[0] || null;
+}
+
+/**
+ * The name to write on a pet when it is created.
+ *
+ * Only used to stamp `ownerName`, never to decide who somebody is at display
+ * time — a leaderboard reads the live name and falls back to this. A stored
+ * "Facebook User" is the API's placeholder rather than a person, so it is worth
+ * no more than an empty string here.
+ *
+ * @param {{uid?:string,name?:string}} userDoc
+ * @returns {string}
+ */
+function ownerNameOf(userDoc) {
+  const name = userDoc && userDoc.name ? String(userDoc.name) : '';
+  return profile.isPlaceholderName(name) ? '' : name;
+}
+
+/**
+ * Who owns a pet, as a name a person would recognise as their own.
+ *
+ * Three sources, live first: the Facebook name as it is now, then the name
+ * stamped on the pet when it was born, then the owner's database row. Live
+ * first is the house rule everywhere else people are printed — a board that
+ * shows last year's name for somebody who has since changed it is showing the
+ * wrong person — and the stamp is what covers the row whose lookup failed.
+ *
+ * `.populate('ownerUid', 'name')` was the old answer and it populated nothing at
+ * all: `ownerUid` is a String, not a ref. So every row read "unknown", which is a
+ * board nobody can use.
+ *
+ * @param {{ownerUid:string,ownerName?:string}} pet
+ * @param {object} api ws3-fca client
+ * @returns {Promise<string>} never the literal string "unknown"
+ */
+async function ownerLabel(pet, api) {
+  const uid = String((pet && pet.ownerUid) || '');
+  try {
+    const live = await profile.fetchRealName(uid, api);
+    if (live) return live;
+  } catch { /* fall through to the stamp */ }
+  if (pet && pet.ownerName && !profile.isPlaceholderName(pet.ownerName)) return String(pet.ownerName);
+  try {
+    const doc = await User.findOne({ uid }).lean();
+    if (doc && doc.name && !profile.isPlaceholderName(doc.name)) return String(doc.name);
+  } catch { /* fall through to the id */ }
+  return uid ? `Hunter ${uid.slice(-4)}` : 'unknown owner';
 }
 
 /** Any living pet, or a specific one by name. */
@@ -744,7 +792,9 @@ module.exports = [
         }
         await spend(userDoc, cost, 'pet:adopt_starter', { pet: 'dragon' });
         const pet = await Pet.create({
-          ownerUid: String(userDoc.uid), name: 'Tiny Dragon', type: 'dragon',
+          ownerUid: String(userDoc.uid),
+          ownerName: ownerNameOf(userDoc),
+          name: 'Tiny Dragon', type: 'dragon',
           basePower: 100, level: 1, hunger: 100, isSafe: true,
         });
         await reply(
@@ -804,6 +854,7 @@ module.exports = [
       await spend(userDoc, spec.price, 'pet:adopt', { pet: spec.id, power: spec.power });
       const pet = await Pet.create({
         ownerUid: String(userDoc.uid),
+        ownerName: ownerNameOf(userDoc),
         name: spec.name,
         type: spec.id,
         basePower: spec.power,
@@ -1726,17 +1777,18 @@ module.exports = [
     usage: '!petrank',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'petrank', async () => {
+    execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'petrank', async () => {
       await react('🏆');
       if (!mongo.isReady()) {
         await reply('💾 The bestiary is sealed — database offline.', event.messageID);
         return;
       }
 
+      // No populate. `ownerUid` is a plain String, so populate('ownerUid',
+      // 'name') replaced nothing and every row read "unknown".
       const top = await Pet.find({ isDead: false })
         .sort({ basePower: -1, level: -1 })
         .limit(10)
-        .populate('ownerUid', 'name')
         .exec();
       if (!top.length) {
         await reply('🏆 No living pets in the city yet. Hatch one with `!petegg`.', event.messageID);
@@ -1744,10 +1796,10 @@ module.exports = [
       }
 
       const medals = ['🥇', '🥈', '🥉'];
-      const lines = top.map((p, i) => {
-        const owner = p.ownerUid && p.ownerUid.name ? p.ownerUid.name : 'unknown';
-        return `${medals[i] || `${i + 1}.`} ${p.emoji || '🐉'} ${p.name} — ${owner} (⚡${num(powerOf(p))})`;
-      });
+      // Every owner is named before any of them is printed, so a name that could
+      // not be resolved is visible as such rather than hidden behind the board.
+      const owners = await Promise.all(top.map((p) => ownerLabel(p, api)));
+      const lines = top.map((p, i) => `${medals[i] || `${i + 1}.`} ${p.emoji || '🐉'} ${p.name} — ${owners[i]} (⚡${num(powerOf(p))})`);
 
       await reply(
         `🏆 **STRONGEST PETS IN iKON CITY**\n`
@@ -1951,6 +2003,7 @@ module.exports = [
       const childPower = clamp(Math.floor((Number(stronger.basePower) || 0) * 0.7) + rand(50, 250));
       const child = await Pet.create({
         ownerUid: String(userDoc.uid),
+        ownerName: ownerNameOf(userDoc),
         name: `${mutation} ${stronger.name.split(' ').slice(-1)[0]}cub`,
         type: stronger.type,
         basePower: childPower,
@@ -2042,6 +2095,7 @@ module.exports = [
 
       const egg = await Pet.create({
         ownerUid: String(userDoc.uid),
+        ownerName: ownerNameOf(userDoc),
         name: 'Mystery Egg',
         type: 'egg',
         basePower: 0,

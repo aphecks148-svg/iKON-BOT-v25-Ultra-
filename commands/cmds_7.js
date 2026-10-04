@@ -81,16 +81,39 @@ const CARS = [
 const CAR_BY_ID = new Map(CARS.map((c) => [c.id, c]));
 const CAR_BY_NAME = new Map(CARS.map((c) => [c.name.toLowerCase(), c]));
 
-/** Tolerate "zentorno", "Zentorno", "phantom" and "phantom prime". */
+/**
+ * Tolerate "zentorno", "Zentorno", "phantom" and "phantom prime".
+ *
+ * People type the word they remember, not the row in the table: an id, a name,
+ * a two-word name typed as two arguments, or the first few letters of either.
+ * All of those are the same car, and a command that only accepts one spelling of
+ * it answers "No such car" to somebody standing in front of the garage.
+ *
+ * A whole word list, not just the first argument: `!gtabuycar Kairoz Phantom` is
+ * two tokens and the second one is part of the name.
+ *
+ * @param {string|string[]} ref one word, or every word of the argument
+ * @returns {object|null} the car, or null when nothing matches
+ */
 function findCar(ref) {
-  const q = String(ref || '').toLowerCase().trim();
+  const raw = Array.isArray(ref) ? ref.join(' ') : String(ref == null ? '' : ref);
+  const q = raw.toLowerCase().trim().replace(/\s+/g, ' ');
   if (!q) return null;
   if (CAR_BY_ID.has(q)) return CAR_BY_ID.get(q);
   if (CAR_BY_NAME.has(q)) return CAR_BY_NAME.get(q);
   const flat = q.replace(/[^a-z0-9]/g, '');
+  if (!flat) return null;
   for (const c of CARS) {
     if (c.id === flat) return c;
     if (c.name.toLowerCase().replace(/[^a-z0-9]/g, '') === flat) return c;
+  }
+  // Prefix pass, four characters minimum for the same reason the dex has one:
+  // two characters are every car in the garage at once.
+  if (flat.length >= 4) {
+    for (const c of CARS) {
+      if (c.id.startsWith(flat)) return c;
+      if (c.name.toLowerCase().replace(/[^a-z0-9]/g, '').startsWith(flat)) return c;
+    }
   }
   return null;
 }
@@ -937,7 +960,7 @@ const commands = [];
     usage: '!gtacarshop',
     cooldown: 30,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacarshop', async () => {
+    execute: async ({ userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'gtacarshop', async () => {
       await react('🏎️');
       const t = g(userDoc);
       // The prime is found by its flag, never by position: the old code took the
@@ -964,7 +987,7 @@ const commands = [];
         + `👑 **${prime.name}** — ${kc(prime.price)} · ${num(prime.power)} pwr\n`
         + `📖 One exists. The man who sold it will not say where it came from.\n\n`
         + `💼 You have ${kc(userDoc.coins)}.\n`
-        + `🛒 Buy with \`!gtabuycar <name>\``,
+        + `🛒 Buy with ${config.PREFIX}gtabuycar <name> — also ${config.PREFIX}gtacarbuy`,
         event.messageID,
       );
     }),
@@ -972,10 +995,15 @@ const commands = [];
 
   commands.push({
     name: 'gtabuycar',
-    aliases: ['gtacargobuy'],
+    // The shop printed `!gtabuycar` and people typed `!gtacarbuy`, which came
+    // back as "Unknown command". Every spelling a person actually reaches for
+    // is here: the two transpositions, the words the other way round, and the
+    // verb first.
+    aliases: ['gtacarbuy', 'gtacarsbuy', 'buygtacar', 'buycar', 'gtacargobuy'],
     category: 'gta',
     description: '🛒 Buy a car. This is where the money goes',
     usage: '!gtabuycar <name>',
+    hint: 'The name is forgiving — id, display name or a prefix all work.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtabuycar', async () => {
@@ -986,7 +1014,8 @@ const commands = [];
         return;
       }
 
-      const car = findCar(args[0]);
+      // Every word, not just the first: "Kairoz Phantom" is one car.
+      const car = findCar(args);
       if (!car) {
         await reply(`❌ No such car. \`!gtacarshop\` lists the lot.`, event.messageID);
         return;

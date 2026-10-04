@@ -1918,8 +1918,58 @@ function bounty(p) {
   return BOUNTY[p && p.rarity] || BOUNTY.common;
 }
 
+/**
+ * When this group's next spawn is due.
+ *
+ * One interval after the last attempt, exactly as `isDue` in bot/pokemonSpawn.js
+ * measures it — the same two stamps, because a status line that disagrees with
+ * the scheduler about when it will next post is worse than no status line.
+ *
+ * The important rule is that it never returns a moment in the past. A group whose
+ * last spawn was yesterday is due *now*, and "next due: 1d 8h ago" is a countdown
+ * to a moment that has already gone: it printed the same value on the "last
+ * spawn" line and the "next due" line, and read as a scheduler that had run
+ * backwards. An overdue group is reported as due, and how far behind it is comes
+ * back in `overdueMs` so a caller can say so instead of pretending the clock
+ * never slipped.
+ *
+ * @param {object} pokemon the `group.pokemon` subdocument
+ * @param {number} [now] epoch ms, injectable for tests
+ * @param {number} [intervalMs] override for the group's own interval
+ * @returns {{dueAt:Date|null, isDue:boolean, overdueMs:number, intervalMs:number, lastAt:number}}
+ */
+function nextDue(pokemon, now = Date.now(), intervalMs = DEFAULT_INTERVAL_MS) {
+  const poke = pokemon || {};
+  const interval = Number(poke.intervalMs) || intervalMs;
+  const stamps = [poke.lastSpawnAt, poke.lastAttemptAt]
+    .filter(Boolean)
+    .map((d) => new Date(d).getTime())
+    .filter(Number.isFinite);
+  const lastAt = stamps.length ? Math.max(...stamps) : 0;
+  // Never spawned: due on the next tick, not in fifteen minutes.
+  if (!lastAt) return { dueAt: null, isDue: true, overdueMs: 0, intervalMs: interval, lastAt: 0 };
+
+  const raw = lastAt + interval;
+  if (raw <= now) {
+    // Overdue. The next one is a fresh interval from now, and the shortfall is
+    // handed back so a caller can say how far behind the group is instead of
+    // pretending the clock never slipped. `isDue` covers the exact boundary as
+    // well, where the shortfall is zero milliseconds but the spawn still belongs
+    // on this tick rather than a quarter of an hour from now.
+    return {
+      dueAt: new Date(now + interval),
+      isDue: true,
+      overdueMs: now - raw,
+      intervalMs: interval,
+      lastAt,
+    };
+  }
+  return { dueAt: new Date(raw), isDue: false, overdueMs: 0, intervalMs: interval, lastAt };
+}
+
 module.exports = {
   POKEMON, TIERS, TIER_BY_KEY, WEIGHTS, BOUNTY,
   DEFAULT_INTERVAL_MS, DEFAULT_TTL_MS, SPRITES,
   normalise, find, byId, sprite, tier, types, typeLabel, random, bounty,
+  nextDue,
 };

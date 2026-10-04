@@ -899,19 +899,29 @@ async function handleBotArrival(api, event, threadID, data, selfId, isGroup) {
   if (await toggles.findGroup(threadID)) return false;
   if (!mongo.isReady()) return false;
 
-  let threadName = '';
-  try {
-    const info = await threadInfo(threadID, api);
-    threadName = info && (info.threadTitle || info.name) ? String(info.threadTitle || info.name) : '';
-  } catch {
-    // A name is a nicety for `!pending`; the lock does not depend on it.
+  // Everything `!pending` shows about this chat is written down HERE, at the one
+  // moment the answer is knowable, and never read from the event again. An
+  // event carries a thread id and nothing else: the chat's name and the name of
+  // the person who pulled the bot in are two lookups away, and a record built
+  // without them is the "(unknown chat) / someone / unknown time" row an owner
+  // cannot act on.
+  const info = await threadInfo(threadID, api);
+  const threadName = info.name && info.name !== String(threadID) ? info.name : 'Unknown';
+
+  // event.author is who Facebook names as the actor on this subscribe. The
+  // participant list is the bot itself by construction, so it is never a source
+  // for "who added it" — reading it that way is how the list ended up crediting
+  // the bot with adding the bot. `alsoAdded` is the fallback for a client that
+  // omits the author, and never includes the bot.
+  const alsoAdded = added.filter((u) => u !== selfId);
+  const addedByID = String((event && (event.author || event.actorFbId)) || (alsoAdded[0] || '')).trim();
+  let addedByName = '';
+  if (addedByID) {
+    addedByName = (await profile.fetchRealName(addedByID, api).catch(() => null)) || '';
   }
 
-  // The first entry is the bot, by construction — the whole event is. Who else
-  // came along with it is the useful part, so that is what gets recorded.
-  const alsoAdded = added.filter((u) => u !== selfId);
-  await pending.lock(threadID, { name: threadName, addedBy: (alsoAdded[0] || selfId) });
-  log(`[PENDING] ${threadID} is waiting for approval${threadName ? ` (${threadName})` : ''}`);
+  await pending.lock(threadID, { name: threadName, addedBy: addedByID, addedByName });
+  log(`[PENDING] ${threadID} is waiting for approval (${threadName}${addedByName ? `, added by ${addedByName}` : ''})`);
 
   try {
     await reply(api, threadID, {

@@ -6,6 +6,10 @@ node_modules/
 npm-debug.log*
 appstate.json
 appstate.json.txt
+# Runtime state. database/pending.json holds the approval queue the bot works
+# from across restarts: it is machine state, not source, and committing it would
+# put one operator's chats into everybody else's checkout.
+database/
 .cache/
 .tmp/
 coverage/

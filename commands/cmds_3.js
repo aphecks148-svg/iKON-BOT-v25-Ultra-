@@ -2248,20 +2248,28 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
       // Bare !pokemon: status.
       const interval = Number(group.pokemon.intervalMs) || dex.DEFAULT_INTERVAL_MS;
       const last = group.pokemon.lastSpawnAt ? new Date(group.pokemon.lastSpawnAt) : null;
-      const next = last ? new Date(last.getTime() + interval) : null;
+      // `dex.nextDue` reads the same two stamps the scheduler reads and clamps a
+      // past date forward. Computing it here as `last + interval` is what made a
+      // chat whose last spawn was a day ago print "next due: 1d 8h ago" — a
+      // countdown to a moment already gone, on the line directly under "last
+      // spawn: 1d 8h ago".
+      const due = dex.nextDue(group.pokemon);
       // A group that has never spawned is due on the next tick, not in fifteen
       // minutes — saying otherwise here is how an admin talks themselves into
       // thinking the scheduler is asleep.
       const dueIn = !group.pokemon.enabled
         ? 'while they are off'
-        : last ? ago(next) : 'any minute now';
+        : !due.dueAt ? 'any minute now' : ago(due.dueAt);
+      // Behind by more than a second is not rounding, and saying so is more
+      // useful than a countdown that implies the schedule was kept.
+      const behind = due.overdueMs > 1000 ? `\n⚠️ Overdue by ${fmt.dur(due.overdueMs / 1000)} — the next tick posts it.` : '';
       await react('🌿');
       await reply(
         `🌿 **POKEMON IN THIS CHAT: ${yesNo(!!group.pokemon.enabled)}**\n`
         + '· · · · · · ·\n'
         + `⏱️ One every ${Math.round(interval / 60000)} minutes\n`
         + `🕐 Last spawn: ${ago(last)}\n`
-        + `⏭️ Next due: ${dueIn}\n`
+        + `⏭️ Next due: ${dueIn}${behind}\n`
         + `🎯 ${currentLine(group)}\n`
         + '· · · · · · ·\n'
         + 'Turn it on or off with `!pokemon on` / `!pokemon off`.'
