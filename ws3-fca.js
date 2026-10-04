@@ -32,6 +32,8 @@ const helpers = require('./bot/helpers');
 const profile = require('./bot/profile');
 const cards = require('./bot/cards');
 const pending = require('./bot/pending');
+const flood = require('./bot/flood');
+const moderation = require('./bot/moderation');
 
 const { log, error, reply, react, safe } = helpers;
 
@@ -166,6 +168,11 @@ function startServer() {
       pokemonTiers: dex.TIERS.length,
       pokemonCheckEvery: Math.round(pokemonSpawn.TICK_MS / 1000),
       threadListLimit: gcs.THREAD_LIMIT,
+      // Spam posture, so "is the bot being flooded and did we notice" is one
+      // request rather than a guess. `held` and `sealed` are the interesting two:
+      // a chat sitting sealed is a chat that is not answering anybody.
+      spam: flood.stats(),
+      moderation: moderation.stats(),
       uptime: Math.floor((Date.now() - STATE.startedAt) / 1000),
     });
   });
@@ -212,6 +219,113 @@ async function resolvePrefix(threadID) {
   return config.PREFIX;
 }
 
+/** What a flood block is told, once, when the hold starts. */
+function floodNotice(verdict) {
+  const secs = `${verdict.holdSec}s`;
+  if (verdict.reason === 'duplicate') {
+    return `♻️ **Same message again.** Dropped.\n⏳ Flood control is watching — ${secs} if you keep it up.`;
+  }
+  if (verdict.reason === 'thread') {
+    return `🌊 **This chat is flooding the bot.** Answering has stopped for ${secs}.\n📖 Slow down, everybody.`;
+  }
+  return `⚠️ **Too fast.** You are paused for ${secs}.\n📖 The hold doubles each time you rush it.`;
+}
+
+/**
+ * The single spam gate: flood control first, then the chat's own moderation
+ * settings.
+ *
+ * Flood runs first because it is in-memory and the settings read is not, so the
+ * common case — an ordinary message in an ordinary chat — costs one cached
+ * lookup and nothing else. The moderation settings then decide whether this
+ * particular person is allowed to speak at all.
+ *
+ * Bot admins pass both, untouched. They are not merely exempt from the limits:
+ * they are never recorded, so an admin running the bot cannot build up a streak
+ * that later silences them, and cannot be sealed out of their own chat.
+ *
+ * Both gates fail OPEN. A rate limiter that throws and eats every message is
+ * worse than no rate limiter, so any error here logs and lets the message
+ * through.
+ *
+ * @param {object} event the raw message event
+ * @param {object} ctx
+ * @param {string} ctx.body raw text
+ * @param {object|null} ctx.parsed router result, already computed
+ * @param {Function} ctx.say the thread-bound reply helper
+ * @returns {Promise<{allowed: boolean, reason?: string}>}
+ */
+async function spamGate(event, ctx) {
+  const { body, parsed, say } = ctx;
+  const threadID = event.threadID;
+  const uid = String(event.senderID || '');
+  const isGroup = event.isGroup !== false;
+  const command = parsed ? String(parsed.commandName || parsed.name || '') : '';
+  const exempt = permissions.isOwner(uid);
+
+  // One settings read serves both gates. gcFor caches for a few seconds, so this
+  // is one query per chat per window rather than one per message.
+  let gc = null;
+  try {
+    gc = await moderation.gcFor(threadID);
+  } catch (err) {
+    error(`[SPAM] settings read failed in ${threadID}: ${err.message}`);
+  }
+
+  let verdict;
+  try {
+    verdict = flood.check({
+      threadID,
+      uid,
+      body,
+      cfg: gc && gc.flood,
+      isCommand: Boolean(parsed),
+      exempt,
+    });
+  } catch (err) {
+    error(`[SPAM] flood check failed: ${err.message}`);
+    return { allowed: true };
+  }
+
+  if (!verdict.allowed) {
+    // Warn once, when the hold starts. Answering every dropped message is itself
+    // a message, which is how a bot ends up amplifying the spam it is stopping.
+    if (verdict.notify) {
+      try {
+        await say(floodNotice(verdict), event.messageID);
+      } catch (err) {
+        error(`[SPAM] notice failed in ${threadID}: ${err.message}`);
+      }
+    }
+    return { allowed: false, reason: `flood:${verdict.reason}` };
+  }
+
+  let mod;
+  try {
+    mod = await moderation.inspect({
+      threadID, uid, body, command, isGroup, exempt,
+    });
+  } catch (err) {
+    error(`[SPAM] moderation check failed: ${err.message}`);
+    return { allowed: true };
+  }
+
+  if (mod.action === 'allow') return { allowed: true };
+
+  // silent: nothing at all. A muted member is not told they are muted, because
+  // the notice is the one reply that would prove the mute is real.
+  if (mod.action === 'silent') return { allowed: false, reason: `moderation:${mod.reason}` };
+
+  // ghost: `text` is set only for a private chat, where the target is the only
+  // reader. In a group it is null, which is the entire point of a ghostban.
+  try {
+    if (mod.text) await say(mod.text, event.messageID);
+  } catch (err) {
+    error(`[SPAM] reply failed in ${threadID}: ${err.message}`);
+  }
+  return { allowed: false, reason: `moderation:${mod.reason}` };
+}
+
 /**
  * Process one incoming message.
  * Every step is guarded: nothing here may throw out of the handler.
@@ -253,6 +367,21 @@ async function handleMessage(api, event) {
   // and without this line there is no way to tell it apart from a dead listener.
   const prefix = await resolvePrefix(threadID);
 
+  // ── SPAM AND MODERATION ───────────────────────────────────
+  // Ahead of everything below, including the pokemon catch: a reply-to is still
+  // a message somebody sent, and a muted or flooded member must not be able to
+  // make the bot answer them by replying to a spawn.
+  //
+  // router.parse is called here rather than further down purely so both gates
+  // can tell a command from ordinary chatter — lockdown and anti-link both have
+  // to let commands through. It is a pure string operation with no side effects,
+  // so the result is reused verbatim below and nothing about the message changes;
+  // only the moment the word is first recognised moves earlier.
+  const parsed = router.parse(body, prefix);
+
+  const spam = await spamGate(event, { body, parsed, say });
+  if (!spam.allowed) return;
+
   // ── WILD POKEMON ──────────────────────────────────────────
   // A reply to a spawn message, carrying that Pokemon's name, is a catch. This
   // runs before the parser because a catch is not a command: the reply is just
@@ -287,7 +416,7 @@ async function handleMessage(api, event) {
     }
   }
 
-  const parsed = router.parse(body, prefix);
+  // `parsed` was computed above, ahead of the spam gate, and is reused here.
   if (!parsed) {
     if (body) log(`[PARSE] no command for "${body.slice(0, 60)}" (prefix ${JSON.stringify(prefix)})`);
     // Not a command. Count the message for the RPG profile and stop.
@@ -956,16 +1085,47 @@ async function handleGroupChange(api, event) {
       // about. Returns true when the bot itself was the one added.
       if (await handleBotArrival(api, event, threadID, data, selfId, isGroup)) return;
       const group = await toggles.getGroup(threadID);
+      // notMe, not the caller: Facebook reports the bot's own join through
+      // the same log:subscribe as everybody else, so without this the chat is
+      // told "welcome, iKON BOT to the group" the moment it starts up.
+      const people = notMe(changeParticipants(data), selfId);
+
+      // Anti-raid, ahead of the welcome announcement and independent of it.
+      //
+      // A raid is exactly the case where `welcome on` and a burst of twenty
+      // joins happen together, and the answer to both at once must not be twenty
+      // welcome cards from the bot — that is the raid being amplified instead of
+      // stopped. This also gives `!antiraid` the thing it always promised: it had
+      // a burst number and a window in the database, and nothing anywhere counted
+      // a join, so the lock could never fire no matter how the chat was set up.
+      if (people.length && group.gc && group.gc.antiRaid && group.gc.antiRaid.on) {
+        try {
+          const raid = await moderation.raidCheck({ threadID, joins: people.length, gc: group.gc });
+          if (raid.sealed) {
+            await helpers.reply(
+              api,
+              threadID,
+              `🛡️ **RAID LOCK**\n\n`
+              + `${raid.joins} people joined inside ${fmt.dur(Math.round((Number(group.gc.antiRaid.windowMs) || 10000) / 1000))}.\n`
+              + `This chat is sealed for ${Math.round(raid.holdSec / 60) || 1} minutes.\n`
+              + '📖 Bot admins still get through.',
+              null,
+              isGroup,
+            );
+            return;
+          }
+        } catch (err) {
+          // Never let the raid check cost somebody their welcome message.
+          error(`[GROUP] anti-raid check failed in ${threadID}: ${err.message}`);
+        }
+      }
+
       // The toggle alone, not the toggle AND a configured line. A chat that ran
       // `!welcome on` and never touched `!setwelcome` used to get silence,
       // because the gate also asked for a message that only the second command
       // writes — so "welcome is on" and "nothing is ever announced" were both
       // true at once.
       if (group.settings?.welcome) {
-        // notMe, not the caller: Facebook reports the bot's own join through
-        // the same log:subscribe as everybody else, so without this the chat is
-        // told "welcome, iKON BOT to the group" the moment it starts up.
-        const people = notMe(changeParticipants(data), selfId);
         if (people.length) {
           const info = await threadInfo(threadID, api);
           // Facebook can report several people at once — an admin import adds
@@ -1307,7 +1467,12 @@ async function boot() {
     housekeeping = setInterval(() => {
       cooldown.sweep();
       cache.sweep();
-      }, 60 * 1000);
+      // Both spam stores are per-message state with no user-visible reason to
+      // keep a stale entry: flood drops expired fingerprints and spent holds,
+      // moderation drops chats it has not been asked about in a while.
+      flood.sweep();
+      moderation.sweep();
+    }, 60 * 1000);
     if (typeof housekeeping.unref === 'function') housekeeping.unref();
   }
 

@@ -42,6 +42,8 @@ const { isPlaceholderName } = profile;
 // Group listing, the 100-chat sweep and the dead-account detector. Owns the
 // work behind !gclist and !gccleanup.
 const gcs = require('../bot/gcs');
+const moderation = require('../bot/moderation');
+const flood = require('../bot/flood');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -193,6 +195,13 @@ async function save(doc) {
   if (doc.transient) return '⚠️ Database is offline — this is TEMPORARY and resets on restart.';
   try {
     await doc.save();
+    // The message path reads a group's moderation settings from a short cache,
+    // and this is the one place every `gc` write in this module goes through.
+    // Invalidating here means an admin who runs `!gcmute` has it enforced on the
+    // very next message instead of up to five seconds later — and, more to the
+    // point, it means the flags cannot drift into being enforced-late for any
+    // command that forgot to say so itself.
+    if (doc.gc) moderation.invalidate(doc.tid);
     return '';
   } catch (err) {
     return `⚠️ Could not save this — the change was NOT applied. (${err.message})`;
@@ -358,6 +367,7 @@ function gcfg(group) {
   if (!group.gc || typeof group.gc !== 'object') group.gc = {};
   const c = group.gc;
   if (!c.antiLink || typeof c.antiLink !== 'object') c.antiLink = {};
+  if (!c.flood || typeof c.flood !== 'object') c.flood = {};
   if (!c.antiRaid || typeof c.antiRaid !== 'object') c.antiRaid = {};
   if (!c.warzone || typeof c.warzone !== 'object') c.warzone = {};
   if (!c.lockdown || typeof c.lockdown !== 'object') c.lockdown = {};
@@ -370,6 +380,14 @@ function gcfg(group) {
     if (!Array.isArray(c[f])) c[f] = [];
   }
   if (c.antiLink.fine === undefined || !Number.isFinite(c.antiLink.fine)) c.antiLink.fine = 500;
+  // Flood limits backfill to bot/flood.js DEFAULTS rather than to numbers typed
+  // here, so the two can never drift apart.
+  const floodDefaults = flood.DEFAULTS;
+  for (const [field, value] of Object.entries(floodDefaults)) {
+    if (field === 'on') continue;
+    if (c.flood[field] === undefined || !Number.isFinite(Number(c.flood[field]))) c.flood[field] = value;
+  }
+  if (c.flood.on !== true && c.flood.on !== false) c.flood.on = floodDefaults.on;
   if (c.antiRaid.burst === undefined || !Number.isFinite(c.antiRaid.burst)) c.antiRaid.burst = 5;
   if (c.antiRaid.windowMs === undefined || !Number.isFinite(c.antiRaid.windowMs)) c.antiRaid.windowMs = 10000;
   if (c.warzone.tax === undefined || !Number.isFinite(c.warzone.tax)) c.warzone.tax = 50;
@@ -1154,6 +1172,85 @@ const commands = [];
       await save(group);
       await reply(
         `🔒 **LOCKDOWN.**\n━━━━━━━━━━━━━━━\nOnly \`${emoji}\` is allowed through this door.\n📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'flood',
+    aliases: ['gcflood', 'antiflood'],
+    category: 'group',
+    description: '🌊 Rate limits — duplicate messages, per-person speed and a chat-wide ceiling',
+    usage: '!flood [on|off|set <field> <value>]',
+    hint: 'Bot admins are never rate-limited. That is the escape hatch.',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'flood', async () => {
+      await react('🌊');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+      const f = cfg.flood;
+
+      const on = onOff(args);
+      if (on !== null) {
+        f.on = on;
+        await save(group);
+        await reply(
+          on
+            ? `🌊 **FLOOD CONTROL ON.** ${num(f.maxPerUser)} messages per ${num(f.userWindowSec)}s, ${num(f.maxPerThread)} per chat.`
+            : '🌊 Flood control is off. This chat can flood the bot as hard as it likes now.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // `!flood set <field> <value>`
+      if (String(args[0] || '').toLowerCase() === 'set') {
+        const field = String(args[1] || '').trim();
+        const raw = Number(args[2]);
+        const allowed = [
+          'duplicateSec', 'maxPerUser', 'userWindowSec',
+          'maxPerThread', 'threadWindowSec', 'muteSec', 'maxMuteSec',
+        ];
+        if (!allowed.includes(field)) {
+          await reply(
+            `⚠️ Unknown setting \`${field || '?'}\`.\nValid: ${allowed.map((k) => `\`${k}\``).join(', ')}`,
+            event.messageID,
+          );
+          return;
+        }
+        if (!Number.isFinite(raw) || raw < 0) {
+          await reply(`⚠️ \`${field}\` needs a number of seconds or messages, not \`${args[2] || ''}\`.`, event.messageID);
+          return;
+        }
+        if (field === 'maxPerUser' && raw < 1) {
+          await reply('⚠️ `maxPerUser` cannot be 0 — that would block every message. Use `!flood off` instead.', event.messageID);
+          return;
+        }
+        if (field === 'maxMuteSec' && raw < Number(f.muteSec)) {
+          await reply(`⚠️ \`maxMuteSec\` (${raw}) cannot be below \`muteSec\` (${f.muteSec}).`, event.messageID);
+          return;
+        }
+        f[field] = raw;
+        await save(group);
+        await reply(`🌊 \`${field}\` is now **${raw}**.`, event.messageID);
+        return;
+      }
+
+      const live = flood.stats();
+      await reply(
+        `🌊 **FLOOD CONTROL** — **${yesNo(!!f.on)}**\n\n`
+        + `♻️ Duplicate window: ${num(f.duplicateSec)}s\n`
+        + `👤 Per person: ${num(f.maxPerUser)} / ${num(f.userWindowSec)}s\n`
+        + `💬 Per chat: ${num(f.maxPerThread)} / ${num(f.threadWindowSec)}s\n`
+        + `⏳ Penalty: ${num(f.muteSec)}s, doubling to ${num(f.maxMuteSec)}s\n\n`
+        + `👁️ Watching: ${num(live.people)} sender(s), ${num(live.held)} held, ${num(live.sealed)} chat(s) sealed\n\n`
+        + `\`!flood on|off\` · \`!flood set maxPerUser 5\``,
         event.messageID,
       );
     }),

@@ -118,6 +118,19 @@ const GroupSchema = new mongoose.Schema(
     gc: {
       // Announced policy text, shown by !gcpolicy.
       policy: { type: String, default: '' },
+      // Flood control. Defaults here mirror bot/flood.js DEFAULTS and match the
+      // shipped behaviour, so a document written before this block existed still
+      // rate-limits at the same numbers instead of silently going unprotected.
+      flood: {
+        on: { type: Boolean, default: true },
+        duplicateSec: { type: Number, default: 12 },
+        maxPerUser: { type: Number, default: 8 },
+        userWindowSec: { type: Number, default: 10 },
+        maxPerThread: { type: Number, default: 50 },
+        threadWindowSec: { type: Number, default: 10 },
+        muteSec: { type: Number, default: 20 },
+        maxMuteSec: { type: Number, default: 600 },
+      },
       // Link scrubbing: on/off plus the flat fine applied to each offender.
       antiLink: { on: { type: Boolean, default: false }, fine: { type: Number, default: 500 } },
       // Raid lock: lock when `burst` joins land inside `windowMs`.

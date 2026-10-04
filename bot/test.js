@@ -5524,6 +5524,372 @@ const PIKACHU = dex.find('pikachu');
     return 'no "Facebook User" on the board, not even for your own spouse';
   });
 
+// ── 38. spam is actually stopped ────────────────────────────
+  // Before this section the bot had no flood control at all and seven moderation
+  // flags that nothing read. `!gcmute` told an admin "the bot deletes everything
+  // they say" and the mute was a line in a document no code path ever queried,
+  // so the spammer kept going and the admin had no way to know why. These checks
+  // are the enforcement side of that claim, and they are deliberately written
+  // against the modules rather than against a live Facebook client.
+  await step('a message repeated in the same breath is dropped the second time', async () => {
+    const flood = require('./flood');
+    flood.clear('u_dup');
+    const first = flood.check({ threadID: 't', uid: 'u_dup', body: 'join my server now' });
+    assert.strictEqual(first.allowed, true, 'the first copy is normal traffic');
+    const second = flood.check({ threadID: 't', uid: 'u_dup', body: 'join my server now' });
+    assert.strictEqual(second.allowed, false, 'the second copy is spam');
+    assert.strictEqual(second.reason, 'duplicate', `and is called a duplicate, got ${second.reason}`);
+    // The cheap evasions: case, padding, and the zero-width characters people
+    // paste in from a phone keyboard.
+    assert.strictEqual(flood.normalise('JOIN  My Server Now'), 'join my server now', 'case and spacing collapse');
+    assert.strictEqual(flood.normalise('join\u200b my server now'), 'join my server now', 'invisible marks are stripped');
+    const evaded = flood.check({ threadID: 't', uid: 'u_dup', body: 'join\u200b  MY   server now' });
+    assert.strictEqual(evaded.allowed, false, 'and the evasions are still caught as duplicates');
+    flood.clear('u_dup');
+    return 'same text twice inside the window, however it is typed';
+  });
+
+  await step('a sender who outruns the limit is put aside, and the hold grows', async () => {
+    const flood = require('./flood');
+    flood.clear('u_fast');
+    const cfg = { on: true, maxPerUser: 3, userWindowSec: 30, muteSec: 5, maxMuteSec: 60 };
+    const say = (n) => flood.check({
+      threadID: 't2', uid: 'u_fast', body: `message number ${n}`, cfg,
+    });
+
+    assert.strictEqual(say(1).allowed, true, '1 of 3 is fine');
+    assert.strictEqual(say(2).allowed, true, '2 of 3 is fine');
+    assert.strictEqual(say(3).allowed, true, '3 of 3 is fine');
+    const trip = say(4);
+    assert.strictEqual(trip.allowed, false, 'the 4th is over the ceiling');
+    assert.strictEqual(trip.holdSec, 5, 'and starts at the base hold');
+
+    // Still inside the hold: refused, and NOT told again. Answering every dropped
+    // message is itself a message, so a hold that replies each time is a bot
+    // arguing with the spammer.
+    const served = say('another one');
+    assert.strictEqual(served.allowed, false, 'the hold holds');
+    assert.strictEqual(served.notify, false, 'and does not nag on every message');
+    assert.strictEqual(served.holdSec, 5, 'the remaining seconds are reported');
+    flood.clear('u_fast');
+    return '4 messages trip it; the hold is silent while it runs';
+  });
+
+  await step('one noisy member cannot silence the whole chat, and one chat cannot bury the bot', async () => {
+    const flood = require('./flood');
+    flood.clear('u_loud');
+    // Per-user ceiling of 2, but the chat as a whole is nowhere near its 100.
+    const perUser = { on: true, maxPerUser: 2, userWindowSec: 30, maxPerThread: 100 };
+    flood.check({ threadID: 't3', uid: 'u_loud', body: 'a', cfg: perUser });
+    flood.check({ threadID: 't3', uid: 'u_loud', body: 'b', cfg: perUser });
+    const blocked = flood.check({ threadID: 't3', uid: 'u_loud', body: 'c', cfg: perUser });
+    assert.strictEqual(blocked.allowed, false, 'the loud member is blocked');
+
+    // A different member in the same chat is untouched by that hold.
+    const quiet = flood.check({ threadID: 't3', uid: 'u_quiet', body: 'hello', cfg: perUser });
+    assert.strictEqual(quiet.allowed, true, 'and the rest of the chat carries on');
+
+    // Now the chat-wide ceiling: many senders, none of them individually loud.
+    const perThread = { on: true, maxPerUser: 10, userWindowSec: 30, maxPerThread: 3, threadWindowSec: 30 };
+    for (let i = 0; i < 3; i += 1) {
+      const v = flood.check({ threadID: 't4', uid: `u_${i}`, body: `line ${i}`, cfg: perThread });
+      assert.strictEqual(v.allowed, true, `message ${i + 1} of 3 gets through`);
+    }
+    const buried = flood.check({ threadID: 't4', uid: 'u_0', body: 'line 4', cfg: perThread });
+    assert.strictEqual(buried.allowed, false, 'the 4th is over the chat ceiling');
+    assert.strictEqual(buried.reason, 'thread', 'and is blamed on the chat, not on one person');
+    flood.clear();
+    return 'a per-user hold is personal; a thread hold is everybody';
+  });
+
+  await step('a bot admin is never restricted by any of it', async () => {
+    const flood = require('./flood');
+    const moderation = require('./moderation');
+    const cfg = { on: true, maxPerUser: 1, userWindowSec: 30, maxPerThread: 2, threadWindowSec: 30 };
+
+    // The owner id from the environment, exactly as the rest of the bot resolves
+    // it — the same answer permissions.isOwner gives.
+    const owner = (require('../config').ADMIN_IDS[0] || String(require('../config').OWNER_ID || ''));
+    if (owner) {
+      // Counted as a delta, not as an absolute: earlier checks in this file share
+      // the same in-memory module, and what matters is that the admin's messages
+      // added nothing — not that the process happens to be holding no state.
+      const before = flood.stats().people;
+      for (let i = 0; i < 40; i += 1) {
+        const v = flood.check({
+          threadID: 't5', uid: owner, body: `owner line ${i}`, cfg,
+        });
+        assert.strictEqual(v.allowed, true, `admin message ${i + 1} of 40 gets through`);
+      }
+      // And an admin is not recorded, so an admin cannot build a streak that
+      // later silences them once they stop being an admin.
+      assert.strictEqual(
+        flood.stats().people, before,
+        'an admin leaves no flood state behind',
+      );
+
+      // The same exemption in the moderation layer, which is the layer that used
+      // to read nothing at all.
+      const gc = { mutes: [{ uid: owner, name: 'boss' }], flood: cfg };
+      moderation.invalidate('t6');
+      const realGetGroup = require('./toggles').getGroup;
+      require('./toggles').getGroup = async () => ({ gc });
+      try {
+        const verdict = await moderation.inspect({
+          threadID: 't6', uid: owner, body: 'anything at all', isGroup: true,
+        });
+        assert.strictEqual(verdict.action, 'allow', `a muted admin is still allowed, got ${verdict.action}`);
+      } finally {
+        require('./toggles').getGroup = realGetGroup;
+        moderation.invalidate('t6');
+      }
+    }
+
+    // A whole chat sealed by a raid, with an admin still in it.
+    flood.holdThread('t7', 120);
+    assert.strictEqual(flood.threadSealed('t7'), true, 'the chat is sealed');
+    assert.strictEqual(
+      flood.check({ threadID: 't7', uid: owner || 'nobody', body: 'x', cfg }).allowed,
+      true,
+      'and an admin still gets through it',
+    );
+    flood.clearThread('t7');
+    flood.clear();
+    return '40 admin messages, a sealed chat, and a mute — none of them apply';
+  });
+
+  await step('a mute actually silences, which is the whole claim !gcmute makes', async () => {
+    const moderation = require('./moderation');
+    const toggles = require('./toggles');
+    const realGetGroup = toggles.getGroup;
+    const gc = { mutes: [{ uid: 'u_mute', name: 'spammer' }] };
+    toggles.getGroup = async () => ({ gc });
+    try {
+      const verdict = await moderation.inspect({
+        threadID: 't8', uid: 'u_mute', body: 'are you there', isGroup: true,
+      });
+      assert.strictEqual(verdict.action, 'silent', `a muted sender must be dropped, got ${verdict.action}`);
+      assert.ok(!verdict.text, 'and told nothing — the reply would prove the mute is real');
+
+      // The same uid, unmuted, is answered.
+      gc.mutes = [];
+      moderation.invalidate('t8');
+      const free = await moderation.inspect({
+        threadID: 't8', uid: 'u_mute', body: 'are you there', isGroup: true,
+      });
+      assert.strictEqual(free.action, 'allow', 'and nobody else is affected');
+    } finally {
+      toggles.getGroup = realGetGroup;
+      moderation.invalidate('t8');
+    }
+    return 'muted means silent, and the mute is only the muted uid';
+  });
+
+  await step('a ghostban is invisible in a chat and audible in a private message', async () => {
+    const moderation = require('./moderation');
+    const toggles = require('./toggles');
+    const realGetGroup = toggles.getGroup;
+    toggles.getGroup = async () => ({ gc: { ghostBans: [{ uid: 'u_ghost', name: 'ghost' }] } });
+    try {
+      const inGroup = await moderation.inspect({
+        threadID: 't9', uid: 'u_ghost', body: 'hello?', isGroup: true,
+      });
+      assert.strictEqual(inGroup.action, 'ghost', 'the group gets nothing');
+      assert.strictEqual(inGroup.text, null, 'and there is no text to send, which is the ban');
+
+      const inDM = await moderation.inspect({
+        threadID: 't9', uid: 'u_ghost', body: 'hello?', isGroup: false,
+      });
+      assert.strictEqual(inDM.action, 'ghost', 'a direct message is still dropped');
+      assert.ok(inDM.text && inDM.text.length > 0, 'but the target is told, so it does not look broken');
+    } finally {
+      toggles.getGroup = realGetGroup;
+      moderation.invalidate('t9');
+    }
+    return 'nobody in the group sees it; the target does';
+  });
+
+  await step('lockdown lets emoji through and drops words, but never blocks a command', async () => {
+    const moderation = require('./moderation');
+    const toggles = require('./toggles');
+    const realGetGroup = toggles.getGroup;
+    toggles.getGroup = async () => ({ gc: { lockdown: { on: true, emoji: '✅' } } });
+    try {
+      for (const face of ['✅', '✅ 🔥', '✅✅', '🔥🎉', '!!!', '  ']) {
+        const v = await moderation.inspect({
+          threadID: 'ta', uid: 'u_x', body: face, isGroup: true,
+        });
+        assert.strictEqual(v.action, 'allow', `"${face}" is emoji and gets through`);
+      }
+      for (const words of ['hello everyone', 'ok', 'join my server', 'yes']) {
+        const v = await moderation.inspect({
+          threadID: 'ta', uid: 'u_x', body: words, isGroup: true,
+        });
+        assert.strictEqual(v.action, 'silent', `"${words}" is words and is dropped`);
+      }
+      // The escape hatch: a lockdown that blocked the command that lifts it would
+      // have to be undone from a private message by an owner.
+      const cmd = await moderation.inspect({
+        threadID: 'ta', uid: 'u_x', body: '!lockdown off', command: 'lockdown', isGroup: true,
+      });
+      assert.strictEqual(cmd.action, 'allow', 'commands still work, so the rule can be lifted');
+    } finally {
+      toggles.getGroup = realGetGroup;
+      moderation.invalidate('ta');
+    }
+    return 'emoji through, words dropped, commands always through';
+  });
+
+  await step('anti-link fines a link and does not fine a sentence that merely mentions one', async () => {
+    const moderation = require('./moderation');
+    assert.ok(moderation.matchesLink('go to https://spam.example/x now'), 'a scheme is a link');
+    assert.ok(moderation.matchesLink('www.spam.link'), 'www is a link');
+    assert.ok(moderation.matchesLink('t.me/spamroom'), 'a bare dotted host is a link');
+    assert.ok(!moderation.matchesLink('i think this is fine e.g. really'), 'an abbreviation is not a link');
+    assert.ok(!moderation.matchesLink('no links here'), 'plain words are not a link');
+    assert.ok(!moderation.matchesLink('come to the meeting at 5'), 'an ordinary sentence is not a link');
+
+    const toggles = require('./toggles');
+    const realGetGroup = toggles.getGroup;
+    const gc = { antiLink: { on: true, fine: 500 } };
+    toggles.getGroup = async () => ({ gc });
+    const cache = require('./cache');
+    const realGetUser = cache.getUser;
+    const realGetOrCreate = cache.getOrCreateUser;
+    let fines = 0;
+    // Both cache readers are stubbed. punishLink charges through getOrCreateUser
+    // and then counts the offence through getUser, and leaving the second one
+    // real meant a ten-second mongo timeout on every run of this check.
+    cache.getUser = async () => ({
+      uid: 'u_link', coins: 5000, gc: {}, async save() {},
+    });
+    cache.getOrCreateUser = async () => ({
+      uid: 'u_link', coins: 5000, gc: {}, fines: 0, async save() { fines += 1; },
+    });
+    try {
+      const hit = await moderation.inspect({
+        threadID: 'tb', uid: 'u_link', body: 'join https://spam.example', isGroup: true,
+      });
+      assert.strictEqual(hit.action, 'link', `a link is caught, got ${hit.action}`);
+      assert.ok(hit.text.includes('500'), `and the fine is quoted, got ${hit.text}`);
+      assert.strictEqual(fines, 1, 'exactly one fine');
+
+      const clean = await moderation.inspect({
+        threadID: 'tb', uid: 'u_link', body: 'the meeting is at five', isGroup: true,
+      });
+      assert.strictEqual(clean.action, 'allow', 'ordinary text is left alone');
+      assert.strictEqual(fines, 1, 'and costs nothing');
+    } finally {
+      cache.getUser = realGetUser;
+      cache.getOrCreateUser = realGetOrCreate;
+      toggles.getGroup = realGetGroup;
+      moderation.invalidate('tb');
+    }
+    return 'links are caught, sentences that only mention links are not';
+  });
+
+  await step('an anti-raid burst seals the chat, which is what !antiraid promised', async () => {
+    const moderation = require('./moderation');
+    const gc = { antiRaid: { on: true, burst: 5, windowMs: 10000 } };
+    const flood = require('./flood');
+    flood.clearThread('tc');
+
+    let sealed = null;
+    for (let i = 0; i < 4; i += 1) {
+      const v = await moderation.raidCheck({ threadID: 'tc', joins: 1, gc });
+      assert.strictEqual(v.sealed, false, `join ${i + 1} of 5 does not seal the chat`);
+    }
+    sealed = await moderation.raidCheck({ threadID: 'tc', joins: 3, gc });
+    assert.strictEqual(sealed.sealed, true, 'the join that reaches the burst seals the chat');
+    assert.ok(sealed.holdSec >= 60, `for a full minute at least, got ${sealed.holdSec}s`);
+    assert.strictEqual(flood.threadSealed('tc'), true, 'and the seal is the chat-wide one the message gate reads');
+
+    // Off means off.
+    const off = await moderation.raidCheck({ threadID: 'tc', joins: 50, gc: { antiRaid: { on: false } } });
+    assert.strictEqual(off.sealed, false, 'a chat with anti-raid off is never sealed');
+    flood.clearThread('tc');
+    return 'four joins are fine, five seal the room';
+  });
+
+  await step('every punishment list expires, and an expired one stops punishing', async () => {
+    const moderation = require('./moderation');
+    const past = new Date(Date.now() - 60000);
+    const future = new Date(Date.now() + 60000);
+    const now = Date.now();
+
+    assert.strictEqual(moderation.active({ uid: 'a' }, now), true, 'no expiry is permanent');
+    assert.strictEqual(moderation.active({ uid: 'a', expires: future }, now), true, 'a future expiry is live');
+    assert.strictEqual(moderation.active({ uid: 'a', expires: past }, now), false, 'a past expiry is dead');
+    assert.strictEqual(moderation.active(null, now), false, 'no entry is not an entry');
+    assert.strictEqual(moderation.active({}, now), false, 'an entry with no uid is not an entry');
+    assert.strictEqual(moderation.active({ uid: 'a', expires: 'not a date' }, now), false, 'an unreadable expiry is dead');
+
+    // The list lookup respects that, which is what stops a chat from being
+    // silenced forever by somebody who forgot to run the unmute.
+    assert.strictEqual(moderation.find([{ uid: 'a', expires: past }], 'a', now), null, 'expired entries are not found');
+    assert.ok(moderation.find([{ uid: 'a', expires: future }], 'a', now), 'a', 'live entries are');
+    assert.strictEqual(moderation.find(null, 'a', now), null, 'a missing list is not a match');
+    return 'a mute with no end date lasts forever; one in the past does not last at all';
+  });
+
+  await step('the flood gate fails open, so a broken rate limiter cannot eat the chat', async () => {
+    const flood = require('./flood');
+    // Flood control off is the only way to have no limits at all, and it is a
+    // real switch rather than a special case: `!flood off` turns it off.
+    const off = { on: false, maxPerUser: 1, userWindowSec: 30 };
+    flood.clear('u_off');
+    for (let i = 0; i < 20; i += 1) {
+      const v = flood.check({ threadID: 'td', uid: 'u_off', body: `line ${i}`, cfg: off });
+      assert.strictEqual(v.allowed, true, '!flood off really does mean off');
+    }
+
+    // Nonsense in the settings must not become "no limit" by accident, and must
+    // not throw on the message path either.
+    const junk = { on: 'yes', maxPerUser: 'lots', userWindowSec: null, muteSec: NaN };
+    const lim = flood.limits(junk);
+    assert.strictEqual(lim.on, true, 'a nonsense switch is treated as on, never as off');
+    assert.strictEqual(Number.isFinite(lim.maxPerUser), true, 'a nonsense limit falls back to the default');
+    assert.strictEqual(lim.maxPerUser, flood.DEFAULTS.maxPerUser, 'and it is the default, not zero');
+    assert.strictEqual(flood.limits(null).maxPerUser, flood.DEFAULTS.maxPerUser, 'no settings is the default');
+    flood.clear();
+    return 'off is off, junk is the default, and neither throws';
+  });
+
+  await step('the spam gate runs before anything else, including a pokemon catch', async () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'ws3-fca.js'), 'utf8');
+    const gate = src.indexOf('const spam = await spamGate(');
+    assert.ok(gate > 0, 'handleMessage must call the spam gate');
+    // Ahead of the catch block, the parser's "not a command" exit, pending
+    // approval, command lookup, the per-command cooldown and the toggles — a
+    // blocked message must not cost the bot a database write for its RPG level.
+    for (const marker of [
+      'if (event.messageReply) {',
+      'await recordActivity(senderID, false',
+      'if (pending.isPending(threadID)) {',
+      'cooldown.check(',
+    ]) {
+      const at = src.indexOf(marker);
+      assert.ok(at > gate, `the spam gate must come before "${marker}" (${at} vs ${gate})`);
+    }
+    // And the catch block must not be reachable before it.
+    assert.ok(
+      src.indexOf('attemptCatch') > gate || src.indexOf('attemptCatch', gate) > gate,
+      'a muted member must not be able to trigger a catch by replying to a spawn',
+    );
+    // The duplicate parse: `parsed` is computed once, ahead of the gate, and the
+    // later use reuses it. Two parses would mean the two gates could disagree
+    // about what the message is. Comment lines are stripped first — the prose
+    // around this very code mentions router.parse() by name.
+    const code = src.split('\n').filter((line) => !/^\s*\/\//.test(line)).join('\n');
+    const parses = [...code.matchAll(/router\.parse\(/g)];
+    assert.strictEqual(parses.length, 1, `router.parse must be called once, found ${parses.length}`);
+
+    // Housekeeping must actually sweep both new stores.
+    assert.ok(/flood\.sweep\(\)/.test(src), 'the 60s tick must sweep flood state');
+    assert.ok(/moderation\.sweep\(\)/.test(src), 'and the moderation cache');
+    return 'one gate, first, with one parse and a real sweep';
+  });
+
 // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;

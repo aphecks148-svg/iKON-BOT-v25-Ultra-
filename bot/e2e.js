@@ -20,6 +20,7 @@ const ik = require('../ws3-fca');
 const router = require('./router');
 const loader = require('./loader');
 const config = require('../config');
+const cooldown = require('./cooldown');
 
 const line = (s) => console.log(s);
 let failures = 0;
@@ -154,6 +155,99 @@ const EVENT = (body, over = {}) => ({
     const before = api.sent.length;
     await ik.handleMessage(api, event);
     assert.strictEqual(api.sent.length, before, 'bot replied to plain text');
+  });
+
+  // ── 5b. the spam gate, end to end ─────────────────────────
+  // The module tests prove flood.check does what it says; these prove
+  // handleMessage actually calls it, on the real path, before anything else
+  // answers. This is the layer where a correct module and a missing call look
+  // identical from the outside.
+  //
+  // Every scenario below uses its own sender and thread and clears what it
+  // created. A flood hold outlives the message that caused it by design, so a
+  // scenario that left one behind would be answered by the next scenario in the
+  // file rather than by its own code — the suite would then be testing its own
+  // history.
+  const flood = require('./flood');
+  await assertStep('SPAM: a pasted line is dropped, and the bot says nothing more', async () => {
+    const who = 'e2e_spammer';
+    const line = 'come join my server right now';
+    // First copy is ordinary chatter: no reply, and no flood state complaint.
+    await ik.handleMessage(api, EVENT(line, { messageID: 'spam_1', senderID: who }));
+    // Second copy inside the window is spam, and is announced once.
+    await ik.handleMessage(api, EVENT(line, { messageID: 'spam_2', senderID: who }));
+    assert.ok(
+      String(api.lastBody()).includes('Same message again'),
+      `the second copy should be reported once, got: ${api.lastBody()}`,
+    );
+    // Third copy is served by the same hold and is NOT announced again —
+    // answering every dropped message is how a bot amplifies spam.
+    const before = api.sent.length;
+    await ik.handleMessage(api, EVENT(line, { messageID: 'spam_3', senderID: who }));
+    assert.strictEqual(api.sent.length, before, 'a hold that is still running must be silent');
+    // And the hold really did stop the message reaching the command path: a
+    // command from the held sender is dropped too, not answered.
+    await ik.handleMessage(api, EVENT('!ping', { messageID: 'spam_4', senderID: who }));
+    assert.strictEqual(api.sent.length, before, 'a held sender is not answered, even with a command');
+    // A different member of the same chat is unaffected.
+    await ik.handleMessage(api, EVENT('hello everyone', {
+      messageID: 'spam_ok', senderID: 'e2e_neighbour',
+    }));
+    assert.strictEqual(api.sent.length, before, 'and the rest of the chat carries on');
+    flood.clear(who, 'e2e_thread');
+  });
+
+  await assertStep('SPAM: a command is not treated as a duplicate paste', async () => {
+    const who = 'e2e_cmd';
+    await ik.handleMessage(api, EVENT('!ping', { messageID: 'spamcmd_1', senderID: who }));
+    assert.ok(String(api.lastBody()).startsWith('Pong!'), `got: ${api.lastBody()}`);
+    await ik.handleMessage(api, EVENT('!ping', { messageID: 'spamcmd_2', senderID: who }));
+    // The per-command cooldown answers this, not the flood duplicate rule: the
+    // person who pressed the button learns how many seconds are left.
+    assert.ok(
+      String(api.lastBody()).startsWith('⏳ Cooldown'),
+      `a repeated command should hit its own cooldown, got: ${api.lastBody()}`,
+    );
+    cooldown.clear(who, 'ping');
+    flood.clear(who, 'e2e_thread');
+  });
+
+  await assertStep('SPAM: a bot admin is never rate-limited, held or sealed out', async () => {
+    const owner = config.ADMIN_IDS[0] || String(config.OWNER_ID || '');
+    if (!owner) {
+      // Nothing to prove without an owner id; the module test covers the
+      // exemption by flag in this case.
+      return;
+    }
+    // A separate thread, so the seal below cannot swallow a later scenario.
+    const tid = 'e2e_sealed_thread';
+    flood.clear(owner, tid);
+    // Seal the whole chat the way a raid would, then fire the admin at it.
+    flood.holdThread(tid, 600);
+    await ik.handleMessage(api, EVENT('!ping', { messageID: 'spamadmin_1', senderID: owner, threadID: tid }));
+    assert.ok(
+      String(api.lastBody()).startsWith('Pong!'),
+      `an admin must get through a sealed chat, got: ${api.lastBody()}`,
+    );
+    // And forty distinct lines in a row — past every default ceiling, and all
+    // different so the duplicate rule cannot be what stops them.
+    let blocked = false;
+    for (let i = 0; i < 40; i += 1) {
+      await ik.handleMessage(api, EVENT(`admin chatter ${i}`, {
+        messageID: `spamadmin_loop_${i}`, senderID: owner, threadID: tid,
+      }));
+      if (/Too fast|Slow down/i.test(String(api.lastBody()))) blocked = true;
+    }
+    assert.strictEqual(blocked, false, `an admin must never be flood-blocked, last said: ${api.lastBody()}`);
+    assert.strictEqual(
+      flood.stats().held, 0, 'and an admin leaves nobody held behind them',
+    );
+    flood.clearThread(tid);
+    flood.clear(owner, tid);
+    // `!ping` above armed the real per-command cooldown for this uid, and a
+    // later scenario asserts the admin is never locked out. Clear it, or this
+    // scenario is the reason that one fails.
+    cooldown.clear(owner, 'ping');
   });
 
   // ── 6. unknown command ────────────────────────────────────
