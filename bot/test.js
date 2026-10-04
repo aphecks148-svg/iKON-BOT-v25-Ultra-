@@ -4924,6 +4924,152 @@ const PIKACHU = dex.find('pikachu');
     return 'cmds_6.js has no uid fallback left';
   });
 
+  await step('the couples board shows the pairs this chat shipped', async () => {
+    // `!ship` writes Group.fun.ships and `!marry` writes it too — and until now
+    // NOTHING read it. `!couple` looked only at User.spouse, so a chat full of
+    // shipped couples was told "Nobody is married": true of the registry, and a
+    // lie about the chat whose own subtitle promised "every married couple in
+    // this chat". `!ship`'s "Permanent. There is no unship command." was also
+    // false in practice, because the score was never shown to anybody again.
+    const cmds9 = require('../commands/cmds_9');
+    const couple = cmds9.find((c) => c.name === 'couple');
+    assert.ok(couple, 'the couple command exists');
+
+    const realFind = User.find;
+    const realFindOne = Group.findOne;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+
+    const people = {
+      a: { uid: 'u_a', name: 'Alice', spouse: 'u_b', marriedAt: new Date(Date.now() - 3 * 86400000) },
+      b: { uid: 'u_b', name: 'Bob', spouse: 'u_a', marriedAt: new Date(Date.now() - 3 * 86400000) },
+      c: { uid: 'u_c', name: 'Carol', spouse: '', marriedAt: null },
+      d: { uid: 'u_d', name: 'Dave', spouse: '', marriedAt: null },
+    };
+    const all = Object.values(people);
+    const matches = (d, q) => Object.entries(q || {}).every(([k, cond]) => {
+      if (cond && cond.$nin) return !cond.$nin.some((x) => x === d[k]);
+      if (cond && cond.$in) return cond.$in.some((x) => String(x) === String(d[k]));
+      return d[k] === cond;
+    });
+    // A stand-in for a mongoose query: thenable, chainable, and with .catch, the
+    // four things the command actually uses.
+    const mem = (rows) => {
+      const q = {
+        sort: () => q, select: () => q, lean: () => q,
+        limit: (n) => { q._n = n; return q; },
+        then: (res, rej) => Promise.resolve(q._n ? rows.slice(0, q._n) : rows.slice()).then(res, rej),
+        catch: (rej) => Promise.resolve(rows).catch(rej),
+      };
+      return q;
+    };
+    User.find = (q2) => mem(all.filter((d) => matches(d, q2)));
+    Group.findOne = () => query({
+      tid: 'g_couple',
+      fun: {
+        // Alice and Bob are shipped AND married, so they must appear once.
+        ships: [
+          { a: 'u_a', b: 'u_b', score: 50, by: 'u_a' },
+          { a: 'u_c', b: 'u_d', score: 30, by: 'u_a' },
+        ],
+        besties: [], enemies: [],
+      },
+      async save() { return this; }, markModified() {},
+    });
+    profile.clear();
+    const out = [];
+    const api = {
+      async getUserInfo(uid) { return { name: people[uid.slice(-1).toLowerCase()] ? `Live ${people[uid.slice(-1).toLowerCase()].name}` : '' }; },
+    };
+    // Canvas off, so the rows the command built are the ones that get asserted
+    // rather than the ones a card drew. The rows themselves are captured too, so
+    // the card path is checked for the same list.
+    const realPairCard = cards.pairCard;
+    let cardRows = null;
+    cards.pairCard = async (opts) => { cardRows = opts.pairs; return null; };
+    try {
+      await couple.execute({
+        api, event: { threadID: 'g_couple', isGroup: true, messageID: 'cp1', senderID: 'u_a' },
+        userDoc: { uid: 'u_a', name: 'Alice', spouse: 'u_b' },
+        reply: async (m) => out.push(String(m)), react: async () => true,
+      });
+    } finally {
+      User.find = realFind;
+      Group.findOne = realFindOne;
+      cards.pairCard = realPairCard;
+      mongo.isReady = realReady;
+      profile.clear();
+    }
+    const said = out.join('\n');
+    assert.ok(Array.isArray(cardRows) && cardRows.length === 2,
+      `the card must be handed the same two rows, got: ${JSON.stringify(cardRows)}`);
+    assert.ok(/Alice/.test(said) && /Bob/.test(said), `the married couple must be listed, got: ${said}`);
+    assert.ok(/Carol/.test(said) && /Dave/.test(said), `the SHIPPED couple must be listed too, got: ${said}`);
+    assert.ok(/ship/i.test(said), `and must be marked as a ship, got: ${said}`);
+    // Alice and Bob are both married and shipped: one row, not two.
+    const aliceRows = said.split('\n').filter((l) => /Alice/.test(l) && /Bob/.test(l));
+    assert.strictEqual(aliceRows.length, 1, `a married pair that was also shipped is ONE row, got ${aliceRows.length}: ${said}`);
+    assert.ok(!/Nobody is married/i.test(said), `the registry line must not win when there are couples, got: ${said}`);
+    return 'one married row, one shipped row, the married+shipped pair counted once';
+  });
+
+  await step('the couples board names a spouse from Facebook, not the placeholder', async () => {
+    // The text fallback answered "💖 You are married to ${mine.name}" straight
+    // off the stored document, and ws3-fca's createDefaultUser() names people
+    // "Facebook User". So the one line about YOUR OWN marriage was the one line
+    // on the board that could print the API's placeholder as a person.
+    const cmds9 = require('../commands/cmds_9');
+    const couple = cmds9.find((c) => c.name === 'couple');
+    const realFind = User.find;
+    const realFindOne = Group.findOne;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    const me = { uid: 'u_me', name: 'Me', spouse: 'u_sp', marriedAt: new Date() };
+    const sp = { uid: 'u_sp', name: 'Facebook User', spouse: 'u_me', marriedAt: new Date() };
+    const mem = (rows) => {
+      const q = {
+        sort: () => q, select: () => q, lean: () => q, limit: () => q,
+        then: (res, rej) => Promise.resolve(rows.slice()).then(res, rej),
+        catch: (rej) => Promise.resolve(rows).catch(rej),
+      };
+      return q;
+    };
+    User.find = (q2) => {
+      const cond = (q2 && q2.spouse) || {};
+      const rows = cond.$nin
+        ? [me, sp].filter((d) => !cond.$nin.includes(d.spouse))
+        : [me, sp];
+      return mem(rows);
+    };
+    Group.findOne = () => query(null);
+    profile.clear();
+    const out = [];
+    const realPairCard = cards.pairCard;
+    cards.pairCard = async () => null;
+    // A live lookup that fails, so the stored placeholder is the only name left.
+    const api = { async getUserInfo() { return { name: 'Facebook User' }; } };
+    try {
+      await couple.execute({
+        api, event: { threadID: 'g_couple2', isGroup: true, messageID: 'cp2', senderID: 'u_me' },
+        userDoc: me, reply: async (m) => out.push(String(m)), react: async () => true,
+      });
+    } finally {
+      User.find = realFind;
+      Group.findOne = realFindOne;
+      cards.pairCard = realPairCard;
+      mongo.isReady = realReady;
+      profile.clear();
+    }
+    const said = out.join('\n');
+    assert.ok(!/Facebook User/.test(said), `the placeholder must never be printed as a person, got: ${said}`);
+    // The sanctioned last resort: a short id, never the placeholder and never a
+    // bare uid in a name slot. Spelled out rather than hard-coded so it cannot
+    // drift from nameOf().
+    assert.ok(said.includes(`Hunter ${'u_sp'.slice(-4)}`),
+      `and the honest short id is used instead, got: ${said}`);
+    return 'no "Facebook User" on the board, not even for your own spouse';
+  });
+
 // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;

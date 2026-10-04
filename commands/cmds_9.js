@@ -1655,81 +1655,153 @@ const commands = [];
     name: 'couple',
     aliases: ['couple2', 'couples'],
     category: 'fun',
-    description: '💑 Every married couple in this chat, read off the spouse field',
+    description: '💑 Everybody coupled up - the married ones and the ones this chat shipped',
     usage: '!couple',
+    hint: 'Marriages are global. `!ship` pairs are this chat\'s. Both show here.',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'couple', async () => {
+    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'couple', async () => {
       await react('💑');
       if (!mongo.isReady()) {
         await reply('💑 The marriage registry is asleep. No records. Ever.', event.messageID);
         return;
       }
 
-      let docs = [];
+      // ── married, from the User documents ────────────────────────────
+      let married = [];
       try {
         // Only half of each couple is stored twice, so matching both directions
         // and then de-duplicating on the lower uid halves the list.
-        docs = (await User.find({ spouse: { $nin: ['', null] } }).sort({ marriedAt: -1 }).limit(60)) || [];
+        married = (await User.find({ spouse: { $nin: ['', null] } }).sort({ marriedAt: -1 }).limit(60)) || [];
       } catch {
         await reply('💑 The registry refused to open.', event.messageID);
         return;
       }
 
+      // ── shipped, from this chat's group document ────────────────────
+      //
+      // `!ship` writes here and `!marry` writes here too, and until now nothing
+      // read it: a chat full of shipped couples answered "Nobody is married",
+      // which is true of the registry and a lie about the chat. The subtitle
+      // used to promise "every married couple in this chat" and the registry
+      // holds marriages from every chat the bot is in.
+      const group = await groupOf(event);
+      const ships = group && Array.isArray(group.fun.ships) ? group.fun.ships : [];
+
+      // ── one query for every name on the board ───────────────────────
+      //
+      // This used to be a findOne per spouse and then another per name inside
+      // nameOf, so a chat with sixty couples spent 180 round trips to print
+      // sixty lines. Every uid the board can print is fetched at once.
+      const wanted = new Set();
+      for (const d of married) {
+        wanted.add(String(d.uid));
+        if (d.spouse) wanted.add(String(d.spouse));
+      }
+      for (const r of ships) { wanted.add(String(r.a)); wanted.add(String(r.b)); }
+      const docs = wanted.size
+        ? (await User.find({ uid: { $in: [...wanted] } }).select('uid name spouse marriedAt').lean()
+          .catch(() => [])) || []
+        : [];
+      const exists = (uid) => docs.some((u) => u.uid === String(uid));
+
+      // ── rows ────────────────────────────────────────────────────────
       const seen = new Set();
-      const pairs = [];
-      for (const d of docs) {
-        const partner = await User.findOne({ uid: String(d.spouse) }).catch(() => null);
-        if (!partner) continue;
-        const key = [String(d.uid), String(partner.uid)].sort().join('|');
+      const wedded = [];
+      for (const d of married) {
+        const partner = String(d.spouse || '');
+        // A spouse who never signed up, or a uid that no longer resolves, is
+        // not a couple — printing half of one is worse than printing neither.
+        if (!partner || !exists(partner)) continue;
+        const key = [String(d.uid), partner].sort().join('|');
         if (seen.has(key)) continue;
         seen.add(key);
-        const days = d.marriedAt ? Math.max(0, Math.floor((Date.now() - new Date(d.marriedAt).getTime()) / 86400000)) : 0;
-        pairs.push({ a: d.uid, b: partner.uid, score: days });
+        const days = d.marriedAt
+          ? Math.max(0, Math.floor((Date.now() - new Date(d.marriedAt).getTime()) / 86400000))
+          : 0;
+        wedded.push({ a: String(d.uid), b: partner, days, married: true, score: days });
       }
 
-      if (!pairs.length) {
-        await reply('💑 **Nobody is married.** 10,000 a divorce and still zero couples. Impressive.', event.messageID);
+      // A pair that is married and shipped is one row, not two. Married wins,
+      // because it is the one with a date on it.
+      //
+      // Both uids stay even when the profile behind one is gone: the group
+      // document is the record of the ship, and dropping the row would quietly
+      // delete somebody's score because their account was deleted.
+      const shipped = ships
+        .map((r) => ({
+          a: String(r.a || ''), b: String(r.b || ''), score: clamp(r.score), married: false, days: 0,
+        }))
+        .filter((r) => r.a && r.b && r.a !== r.b && !seen.has([r.a, r.b].sort().join('|')))
+        .sort((x, y) => y.score - x.score);
+
+      const rows = [...wedded, ...shipped];
+      if (!rows.length) {
+        await reply(
+          '💑 **NOBODY IS COUPLED UP.**\n'
+          + '· · · · · · ·\n'
+          + '10,000 a divorce and still zero couples. Impressive.\n'
+          + `💘 \`!marry @user\` or \`!ship @a @b\` fixes that.`,
+          event.messageID,
+        );
         return;
       }
+
+      // Names resolved once per uid, so a couple appearing on both sides of two
+      // rows is looked up once.
+      const names = new Map();
+      const nameFor = async (uid) => {
+        if (!names.has(uid)) names.set(uid, await nameOf(uid, api));
+        return names.get(uid);
+      };
 
       // Both partners' real photos, with real Facebook names.
       const card = await cards.pairCard({
         emoji: '💑',
         title: 'THE COUPLES',
-        subtitle: `${pairs.length} married pair(s) in this chat`,
-        pairs,
+        subtitle: group
+          ? `${wedded.length} married · ${shipped.length} shipped in this chat`
+          : `${wedded.length} married across the server`,
+        pairs: rows,
         api,
-        value: (p) => `${num(p.score)} day(s)`,
+        value: (p) => (p.married
+          ? (p.days > 0 ? `${num(p.days)} day(s)` : 'today')
+          : `${num(p.score)} 💘`),
         limit: 10,
       });
+
+      // The asker's own row, named the same way on both paths. This read the
+      // raw stored name before, so the text fallback could answer "you are
+      // married to Facebook User" — the placeholder ws3-fca invents.
+      const mine = userDoc.spouse
+        ? `💖 You are married to ${await nameFor(String(userDoc.spouse))}.`
+        : '💔 You are single. 5,000 fixes that.';
+
       if (card) {
-        const mine = userDoc.spouse
-          ? `💖 You are married to ${await nameOf(userDoc.spouse, api)}.`
-          : '💔 You are single. 5,000 fixes that.';
         await reply({
-          body: `💑 **THE COUPLES (${pairs.length})**\n${mine}`,
+          body: `💑 **THE COUPLES (${rows.length})**\n${mine}`,
           attachment: { type: 'image', data: { url: card } },
         }, event.messageID);
         return;
       }
 
-      const rows = [];
-      for (const p of pairs) {
-        const [an, bn] = await Promise.all([nameOf(p.a, api), nameOf(p.b, api)]);
-        rows.push(`💍 **${an}** + **${bn}** — ${num(p.score)} day(s)`);
-      }
-
-      const mine = userDoc.spouse
-        ? await User.findOne({ uid: String(userDoc.spouse) }).catch(() => null)
-        : null;
+      const lines = await Promise.all(rows.slice(0, 15).map(async (p) => {
+        const [an, bn] = await Promise.all([nameFor(p.a), nameFor(p.b)]);
+        const tail = p.married
+          ? (p.days > 0 ? `${num(p.days)} day(s)` : 'married today')
+          : `${num(p.score)} ship pts`;
+        return `${p.married ? '💍' : '💘'} **${an}** ${p.married ? '+' : 'x'} **${bn}** — ${tail}`;
+      }));
 
       await reply(
         `💑 **THE COUPLES (${rows.length})**\n`
         + '· · · · · · ·\n'
-        + `${rows.slice(0, 15).join('\n')}\n`
+        + `${lines.join('\n')}\n`
         + (rows.length > 15 ? `…and ${rows.length - 15} more.\n` : '')
-        + (mine ? `\n💖 You are married to ${mine.name}.` : '\n💔 You are single. 5,000 fixes that.'),
+        + (shipped.length
+          ? `\n💘 ${shipped.length} of those ${shipped.length === 1 ? 'is a' : 'are'} \`!ship\` pair${shipped.length === 1 ? '' : 's'} from this chat.\n`
+          : '')
+        + `\n${mine}`,
         event.messageID,
       );
     }),
