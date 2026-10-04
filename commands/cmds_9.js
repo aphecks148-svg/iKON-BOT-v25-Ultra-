@@ -49,6 +49,7 @@ const canvasKit = require('../bot/canvas');
 const cards = require('../bot/cards');
 const profile = require('../bot/profile');
 const userTarget = require('../bot/target');
+const gcs = require('../bot/gcs');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -426,6 +427,38 @@ async function nameOf(uid, api) {
   return `Hunter ${String(uid).slice(-4)}`;
 }
 
+
+/**
+ * Both names on a social card, asked of Facebook rather than trusted.
+ *
+ * `pick()` refreshes a target's name from the chat's own member list — but only
+ * when the list actually carries one. A member whose entry came back thin keeps
+ * whatever was stored, and what is stored is the literal "Facebook User" that
+ * ws3-fca's createDefaultUser() writes. So a chat could show a card with two real
+ * faces and their real names under them, sitting directly above the reply
+ * "Facebook User HUGGED Facebook User". The picture was honest and the message
+ * was not.
+ *
+ * Live first, then the stored name if it is not the placeholder, then a short
+ * id — `nameOf()`'s order, and the one the boards and the couples board use.
+ * Both documents are updated so the next command to print either of them starts
+ * from a real name, and the handler's own `save()` persists it.
+ *
+ * @param {object} actorDoc the person who acted
+ * @param {object|null} targetDoc the person they acted on
+ * @param {object} api ws3-fca client
+ * @returns {Promise<{actor:string, target:string}>}
+ */
+async function faces(actorDoc, targetDoc, api) {
+  const [actor, target] = await Promise.all([
+    nameOf(actorDoc && actorDoc.uid, api),
+    targetDoc ? nameOf(targetDoc.uid, api) : Promise.resolve(''),
+  ]);
+  if (actorDoc) actorDoc.name = actor;
+  if (targetDoc) targetDoc.name = target;
+  return { actor, target };
+}
+
 // ───────────────────────────────────────────────────────────
 // PETS
 // ───────────────────────────────────────────────────────────
@@ -483,6 +516,24 @@ async function withThumb(person, threadID, api) {
 }
 
 /**
+ * A chat's real name for a card footer, or '' when it cannot be read.
+ *
+ * @param {string|number} threadID
+ * @param {object} api ws3-fca client
+ * @returns {Promise<string>}
+ */
+async function chatNameOf(threadID, api) {
+  if (!threadID || !api) return '';
+  try {
+    const info = await userTarget.threadInfo({ threadID }, api);
+    const name = info && (info.threadTitle || info.threadName || info.name || info.title);
+    return name ? String(name) : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Draw a social card. Returns a data URL, or null when the native canvas binary
  * is missing so the caller can fall back to text.
  *
@@ -512,10 +563,15 @@ async function card({
   title, subtitle = '', body = '', footer = '',
   accent = canvasKit.theme.accent, api, left, right = null, threadID,
 }) {
-  // People card: real photos, real names, and the thread id.
+  // People card: real photos, real names, and the chat they happened in.
   if (api && left) {
     const art2 = await cards.duoCard({
       title, subtitle, body, footer, threadID,
+      // The chat's NAME, not its id. The corner of the picture used to read
+      // "chat t_9xKq2mZ" — the same identifier-as-content mistake boardCard was
+      // printing a uid under every hunter on. Cached for 20s, so this is
+      // usually free: the target resolver just read the same thread.
+      chatName: await chatNameOf(threadID, api),
       left: await withThumb(left, threadID, api),
       right: await withThumb(right, threadID, api),
       api,
@@ -674,6 +730,11 @@ const commands = [];
       const who = await pick(reply, event.messageID, userDoc, args, event, 'hug', api);
       if (!who) return;
 
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
+
       const paid = await fee(userDoc, FEES.hug, 'fun:hug');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
@@ -742,6 +803,11 @@ const commands = [];
       const who = await pick(reply, event.messageID, userDoc, args, event, 'slap', api);
       if (!who) return;
 
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
+
       const paid = await fee(userDoc, FEES.slap, 'fun:slap');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
@@ -798,6 +864,11 @@ const commands = [];
       await react('💋');
       const who = await pick(reply, event.messageID, userDoc, args, event, 'kiss', api);
       if (!who) return;
+
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
 
       const paid = await fee(userDoc, FEES.kiss, 'fun:kiss');
       if (!paid.ok) {
@@ -883,6 +954,9 @@ const commands = [];
         return;
       }
 
+      // Two strangers to each other, so both names are resolved the same way.
+      await faces(a, b, api);
+
       const paid = await fee(userDoc, FEES.ship, 'fun:ship');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
@@ -939,6 +1013,11 @@ const commands = [];
       const who = await pick(reply, event.messageID, userDoc, args, event, 'pat', api);
       if (!who) return;
 
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
+
       const paid = await fee(userDoc, FEES.pat, 'fun:pat');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
@@ -982,6 +1061,11 @@ const commands = [];
       await react('🧸');
       const who = await pick(reply, event.messageID, userDoc, args, event, 'cuddle', api);
       if (!who) return;
+
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
 
       const paid = await fee(userDoc, FEES.cuddle, 'fun:cuddle');
       if (!paid.ok) {
@@ -1031,6 +1115,11 @@ const commands = [];
       const who = await pick(reply, event.messageID, userDoc, args, event, 'punch', api);
       if (!who) return;
 
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
+
       const paid = await fee(userDoc, FEES.punch, 'fun:punch');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
@@ -1079,6 +1168,11 @@ const commands = [];
       const who = await pick(reply, event.messageID, userDoc, args, event, 'bonk', api);
       if (!who) return;
 
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
+
       const paid = await fee(userDoc, FEES.bonk, 'fun:bonk');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
@@ -1126,6 +1220,11 @@ const commands = [];
       await react('🔪');
       const who = await pick(reply, event.messageID, userDoc, args, event, 'stab', api);
       if (!who) return;
+
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
 
       const paid = await fee(userDoc, FEES.stab, 'fun:stab');
       if (!paid.ok) {
@@ -1176,6 +1275,11 @@ const commands = [];
       await react('💀');
       const who = await pick(reply, event.messageID, userDoc, args, event, 'kill', api);
       if (!who) return;
+
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
 
       const paid = await fee(userDoc, FEES.kill, 'fun:kill');
       if (!paid.ok) {
@@ -1244,6 +1348,11 @@ const commands = [];
       const who = await pick(reply, event.messageID, userDoc, args, event, 'kickout', api);
       if (!who) return;
 
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
+
       const paid = await fee(userDoc, FEES.kickout, 'fun:kickout');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
@@ -1295,6 +1404,11 @@ const commands = [];
       const who = await pick(reply, event.messageID, userDoc, args, event, 'yeet', api);
       if (!who) return;
 
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
+
       const paid = await fee(userDoc, FEES.yeet, 'fun:yeet');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
@@ -1339,6 +1453,11 @@ const commands = [];
       await react('🔥');
       const who = await pick(reply, event.messageID, userDoc, args, event, 'roast', api);
       if (!who) return;
+
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
 
       const paid = await fee(userDoc, FEES.roast, 'fun:roast');
       if (!paid.ok) {
@@ -1386,6 +1505,11 @@ const commands = [];
       const who = await pick(reply, event.messageID, userDoc, args, event, 'compliment', api);
       if (!who) return;
 
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
+
       const paid = await fee(userDoc, FEES.compliment, 'fun:compliment');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
@@ -1429,6 +1553,11 @@ const commands = [];
       await react('🕵️');
       const who = await pick(reply, event.messageID, userDoc, args, event, 'expose', api);
       if (!who) return;
+
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
 
       const paid = await fee(userDoc, FEES.expose, 'fun:expose');
       if (!paid.ok) {
@@ -1485,6 +1614,11 @@ const commands = [];
       await react('💍');
       const who = await pick(reply, event.messageID, userDoc, args, event, 'marry', api);
       if (!who) return;
+
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
 
       const t = f(userDoc);
 
@@ -1602,6 +1736,11 @@ const commands = [];
       await react('💔');
       const who = await pick(reply, event.messageID, userDoc, args, event, 'divorce', api);
       if (!who) return;
+
+      // Both names are resolved before anything is printed: the reply sits
+      // directly above the card, and it used to say "Facebook User HUGGED
+      // Facebook User" under two real faces.
+      await faces(userDoc, who, api);
 
       if (!userDoc.spouse || String(userDoc.spouse) !== String(who.uid)) {
         await reply(`💔 You are not married to ${who.name}. Nothing to end.`, event.messageID);
@@ -1804,6 +1943,107 @@ const commands = [];
         + `\n${mine}`,
         event.messageID,
       );
+    }),
+  });
+
+  commands.push({
+    name: 'pair',
+    aliases: ['pairup', 'matchmake', 'shipme', 'pairme', 'pair2'],
+    category: 'fun',
+    description: '💘 Let the bot pair two people in this chat — it picks, you find out',
+    usage: '!pair',
+    hint: 'Needs a group with two members other than the bot. The pair it makes is a real `!ship`, so `!couple` shows it.',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pair', async () => {
+      await react('💘');
+
+      const group = await groupOf(event);
+      if (!group) {
+        await reply('💘 Pairing needs a group chat and a database. This is neither.', event.messageID);
+        return;
+      }
+
+      // The roster comes from getThreadInfo, the one endpoint this build of
+      // ws3-fca actually implements — getThreadMembers and getParticipantInfo are
+      // not on the client, which is where "!gcmembers says 0 members" came from.
+      const info = await userTarget.threadInfo({ threadID: event.threadID }, api).catch(() => null);
+      const everyone = [
+        ...new Set([...((info && info.participantIDs) || [])].map(String).filter(Boolean)),
+      ];
+
+      // The bot is not eligible to be paired with itself, and neither is a DM.
+      const exempt = new Set(await gcs.exemptIds(api, event.threadID));
+      const pool = everyone.filter((uid) => !exempt.has(uid));
+
+      if (pool.length < 2) {
+        await reply(
+          `💘 **NOBODY TO PAIR.**\n`
+          + '· · · · · · ·\n'
+          + `This chat has ${pool.length} member${pool.length === 1 ? '' : 's'} other than the bot, and pairing needs two.\n`
+          + 'Get more people in here, or tag them yourself with `!ship @a @b`.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // A real ship, not a throwaway: it goes into this chat's scoreboard, so the
+      // pair it makes is one `!ship` later adds to and `!couple` will show.
+      const shuffled = pool.slice();
+      for (let i = shuffled.length - 1; i > 0; i -= 1) {
+        const j = rand(0, i);
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      const [aUid, bUid] = shuffled;
+
+      // Both faces, both names — the same resolution every other social command
+      // does, so the card and the reply agree.
+      const docs = await User.find({ uid: { $in: [aUid, bUid] } }).select('uid name').lean().catch(() => []);
+      const docFor = (uid) => docs.find((d) => String(d.uid) === uid) || { uid, name: '' };
+      const a = docFor(aUid);
+      const b = docFor(bUid);
+      await faces(a, b, api);
+
+      const added = rand(20, 60);
+      const scored = await score(group, 'ships', aUid, bUid, added, userDoc.uid);
+      f(userDoc).shipped += 1;
+      await save(userDoc);
+
+      // If either of them is already married, say so rather than announcing it as
+      // a surprise. The pairing still happens — the scoreboard is this chat's,
+      // and a married pair being shipped is half the point of the command.
+      const married = [];
+      for (const d of [a, b]) {
+        if (!d.spouse) continue;
+        // eslint-disable-next-line no-await-in-loop
+        const partner = await User.findOne({ uid: String(d.spouse) }).catch(() => null);
+        married.push(`${d.name} is already married to ${partner ? partner.name : 'somebody'}`);
+      }
+
+      await react('💞');
+      await reply(
+        `💘 **THE BOT HAS SPOKEN**\n`
+        + '· · · · · · ·\n'
+        + `**${a.name}** + **${b.name}**\n`
+        + `💘 Ship score: ${num(scored.score)}${scored.score > added ? ` (+${num(added)})` : ''}\n`
+        + (married.length ? `⚠️ ${married.join(' · ')}\n` : '')
+        + (userDoc.uid === aUid || userDoc.uid === bUid
+          ? '📖 _You are in this one. The bot does not take requests._\n'
+          : '📖 _Two strangers to each other five seconds ago._'),
+        event.messageID,
+      );
+
+      await art(reply, event.messageID, {
+        title: '💘 THE BOT HAS SPOKEN',
+        subtitle: `${a.name} + ${b.name}`,
+        api,
+        threadID: event.threadID,
+        left: { uid: a.uid, name: a.name },
+        right: { uid: b.uid, name: b.name },
+        body: `Ship score ${num(scored.score)}. It counts now, same as any other pair in here.`,
+        footer: 'PAIRED BY THE BOT · NOT BY EITHER OF THEM',
+        accent: canvasKit.theme.accent2,
+      });
     }),
   });
 

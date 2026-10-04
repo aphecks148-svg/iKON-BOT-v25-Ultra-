@@ -1413,7 +1413,10 @@ function query(doc) {
   await step('cmds_9 carries no "ultra" in any command name', () => {
     const loaded = loader.loadCommands(path.resolve(__dirname, '../commands'));
     const c9 = [...loaded.registry.values()].filter((c) => c.module === 'cmds_9');
-    assert.strictEqual(c9.length, 35, 'cmds_9 should still hold 35 commands');
+    // 35 after the rename, 36 since !pair landed. A count here is a
+    // change-detector: a command added on purpose should be the only thing that
+    // moves it, and adding one silently should fail.
+    assert.strictEqual(c9.length, 36, 'cmds_9 should hold 36 commands (35 + !pair)');
 
     const dirty = c9.filter((c) => /ultra/i.test(c.name) || (c.aliases || []).some((a) => /ultra/i.test(a)));
     assert.deepStrictEqual(dirty.map((c) => c.name), [], 'these still say ultra');
@@ -5093,6 +5096,274 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(/Ash Ketchum/.test(live), `a live name is preferred, got: ${live}`);
     profile.clear();
     return 'live name when Facebook answers, short id when it does not';
+  });
+
+  await step('every contact command names its people and sends a card', async () => {
+    // The cards were already honest — real photo, real name — while the reply
+    // sitting directly above each one read `${userDoc.name} HUGGED ${who.name}`
+    // off the stored document. With no name in the chat's member list to refresh
+    // it, that document holds the literal "Facebook User" that ws3-fca's
+    // createDefaultUser() writes, so a chat showed two real faces under
+    // "Facebook User HUGGED Facebook User".
+    const cmds9 = require('../commands/cmds_9');
+    const PAIR = [
+      'hug', 'slap', 'kiss', 'pat', 'cuddle', 'punch', 'bonk', 'stab', 'kill',
+      'kickout', 'yeet', 'roast', 'compliment', 'expose', 'marry', 'ship', 'pair',
+    ];
+    // Every command that takes a tag and acts on a person. A new one added here
+    // fails until it names its people, which is the point of the list.
+    for (const name of PAIR) {
+      assert.ok(cmds9.find((c) => c.name === name), `${name} is registered`);
+    }
+
+    const User = require('../models/User');
+    const Group = require('../models/Group');
+    const Economy = require('../models/Economy');
+    const realFind = User.find;
+    const realFindOne = User.findOne;
+    const realGroupFindOne = Group.findOne;
+    const realLedger = Economy.prototype.save;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    // Every transfer writes a ledger row; without this each one waits out the
+    // mongoose buffer timeout and the step takes minutes.
+    Economy.prototype.save = async function stubLedger() { return this; };
+
+    const mk = (uid) => ({
+      uid,
+      // The worst case: a lookup that failed once and wrote the failure down.
+      name: 'Facebook User',
+      coins: 90000, bank: 0, level: 5, spouse: '', marriedAt: null, transient: false,
+      fun: {
+        shipped: 0, hugs: 0, slaps: 0, kills: 0, giftsIn: 0, giftsOut: 0,
+        besties: [], enemies: [], ships: [], hugsMap: {},
+      },
+      rpg: { className: '', titles: [], stamina: 10, skills: [], equipped: {}, lastStamina: new Date(), stats: {} },
+      gta: { started: true, level: 1 },
+      async save() { return this; }, markModified() {},
+    });
+    const people = [mk('111111111'), mk('222222222'), mk('333333333'), mk('444444444')];
+    const dig = (row, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), row);
+    const matches = (d, cond) => Object.entries(cond || {}).every(([k, c]) => {
+      if (c && c.$in) return c.$in.some((x) => String(x) === String(dig(d, k)));
+      if (c && c.$gt !== undefined) return dig(d, k) > c.$gt;
+      if (c && c.$nin) return !c.$nin.includes(dig(d, k));
+      return dig(d, k) === c;
+    });
+    const mem = (rows) => {
+      const q = {
+        sort: () => q, select: () => q, lean: () => q, limit: (n) => { q._n = n; return q; },
+        then: (a, b) => Promise.resolve(q._n ? rows.slice(0, q._n) : rows.slice()).then(a, b),
+        catch: (j) => Promise.resolve(rows).catch(j),
+      };
+      return q;
+    };
+    User.find = (cond) => mem(people.filter((d) => matches(d, cond)));
+    User.findOne = (cond) => Promise.resolve(people.find((d) => matches(d, cond)) || null);
+    Group.findOne = () => Promise.resolve({
+      tid: 't_faces',
+      fun: { ships: [], besties: [], enemies: [], hugs: 0, slaps: 0, kills: 0, hugsMap: {} },
+      async save() { return this; }, markModified() {},
+    });
+
+    const api = {
+      async getCurrentUserID() { return '555555555'; }, // the bot, never eligible
+      async getUserInfo(uid) { return { id: uid, name: `Rosa Real ${String(uid).slice(-2)}` }; },
+      async getThreadInfo() {
+        return {
+          threadTitle: 'The Fun Chat', isGroup: true,
+          participantIDs: ['111111111', '222222222', '333333333', '444444444', '555555555'],
+          // No names and no pictures in the member list at all: the shape that
+          // leaves the stored name in charge.
+          userInfo: [],
+        };
+      },
+    };
+
+    try {
+      for (const name of PAIR) {
+        const cmd = cmds9.find((c) => c.name === name);
+        // The target resolver hands back the first two eligible people, in order.
+        const queue = [people[1], people[2]];
+        const target = require('../bot/target');
+        const realResolveArgs = target.resolveArgs;
+        target.resolveArgs = async () => ({ target: queue.shift() || people[1], consumed: 1 });
+        profile.clear();
+        const sent = [];
+        let cardsSent = 0;
+        try {
+          await cmd.execute({
+            api,
+            args: name === 'ship' ? ['@a', '@b'] : name === 'pair' ? [] : ['@b'],
+            config,
+            event: {
+              threadID: 't_faces', isGroup: true, messageID: `m_${name}`,
+              senderID: '111111111', mentions: {},
+            },
+            userDoc: people[0],
+            reply: async (m) => {
+              if (m && typeof m === 'object' && m.attachment) cardsSent += 1;
+              else sent.push(String(m));
+            },
+            react: async () => true,
+          });
+        } finally {
+          target.resolveArgs = realResolveArgs;
+        }
+        const said = sent.join('\n');
+        assert.ok(!/Facebook User/.test(said),
+          `!${name} printed the stored placeholder over its own card: ${said}`);
+        assert.ok(/Rosa Real/.test(said), `!${name} must name its people, got: ${said}`);
+        assert.strictEqual(cardsSent, 1, `!${name} must send exactly one card, got ${cardsSent}`);
+        profile.clear();
+      }
+    } finally {
+      User.find = realFind;
+      User.findOne = realFindOne;
+      Group.findOne = realGroupFindOne;
+      Economy.prototype.save = realLedger;
+      mongo.isReady = realReady;
+      profile.clear();
+    }
+
+    return `${PAIR.length} contact commands name their people and send a card`;
+  });
+
+  await step('!pair makes a real pair out of two members, never the bot', async () => {
+    const cmds9 = require('../commands/cmds_9');
+    const pair = cmds9.find((c) => c.name === 'pair');
+    assert.ok(pair, 'the pair command exists');
+    for (const alias of ['pairup', 'matchmake', 'shipme', 'pairme']) {
+      assert.ok(pair.aliases.includes(alias), `!${alias} must resolve to !pair`);
+    }
+
+    const User = require('../models/User');
+    const Group = require('../models/Group');
+    const realFind = User.find;
+    const realFindOne = User.findOne;
+    const realGroupFindOne = Group.findOne;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+
+    const mk = (uid) => ({
+      uid, name: 'Facebook User', coins: 1000, spouse: '', marriedAt: null, transient: false,
+      fun: { shipped: 0, hugs: 0, slaps: 0, kills: 0, giftsIn: 0, giftsOut: 0, besties: [], enemies: [], ships: [], hugsMap: {} },
+      rpg: { className: '', titles: [], stamina: 10, skills: [], equipped: {}, lastStamina: new Date(), stats: {} },
+      gta: { started: true, level: 1 },
+      async save() { return this; }, markModified() {},
+    });
+    const people = [mk('111111111'), mk('222222222'), mk('333333333')];
+    const group = {
+      tid: 't_pair',
+      fun: { ships: [], besties: [], enemies: [], hugs: 0, slaps: 0, kills: 0, hugsMap: {} },
+      async save() { return this; }, markModified() {},
+    };
+    User.find = () => ({ select: () => ({ lean: () => Promise.resolve(people) }) });
+    User.findOne = () => Promise.resolve(null);
+    Group.findOne = () => Promise.resolve(group);
+
+    const BOT = '555555555';
+    const api = {
+      async getCurrentUserID() { return BOT; },
+      async getUserInfo(uid) { return { id: uid, name: `Rosa Real ${String(uid).slice(-2)}` }; },
+      async getThreadInfo() {
+        return {
+          threadTitle: 'The Fun Chat', isGroup: true,
+          // The bot is in its own chat. Pairing it with a human is the joke the
+          // command must not tell.
+          participantIDs: [...people.map((p) => p.uid), BOT],
+          userInfo: [],
+        };
+      },
+    };
+
+    try {
+      profile.clear();
+      const sent = [];
+      let cardsSent = 0;
+      await pair.execute({
+        api, args: [], config,
+        event: { threadID: 't_pair', isGroup: true, messageID: 'm_pair', senderID: '111111111', mentions: {} },
+        userDoc: people[0],
+        reply: async (m) => {
+          if (m && typeof m === 'object' && m.attachment) cardsSent += 1;
+          else sent.push(String(m));
+        },
+        react: async () => true,
+      });
+      const said = sent.join('\n');
+      assert.ok(!/Facebook User/.test(said), `the pair must be named, got: ${said}`);
+      assert.ok(/Rosa Real/.test(said), `real names, got: ${said}`);
+      assert.ok(!said.includes(BOT), `the bot must never be paired, got: ${said}`);
+      assert.strictEqual(cardsSent, 1, 'the pair gets a card of its own');
+      // And it is a REAL ship, so `!couple` shows it and a later `!ship` adds to
+      // the same score rather than starting a rival pair.
+      assert.strictEqual(group.fun.ships.length, 1, `the pair must be recorded, got ${JSON.stringify(group.fun.ships)}`);
+      const row = group.fun.ships[0];
+      assert.ok(row.score > 0, 'with a score on it');
+      assert.strictEqual(row.a, [row.a, row.b].sort()[0], 'a is the smaller uid, like every other ship');
+    } finally {
+      User.find = realFind;
+      User.findOne = realFindOne;
+      Group.findOne = realGroupFindOne;
+      mongo.isReady = realReady;
+      profile.clear();
+    }
+    return 'two members, the bot excluded, a real ship on the board, one card';
+  });
+
+  await step('!pair says so when there is nobody to pair', async () => {
+    const cmds9 = require('../commands/cmds_9');
+    const pair = cmds9.find((c) => c.name === 'pair');
+    const Group = require('../models/Group');
+    const realGroupFindOne = Group.findOne;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    // A group, but one human in it and the bot. Pairing needs two humans.
+    Group.findOne = () => Promise.resolve({
+      tid: 't_solo', fun: { ships: [], besties: [], enemies: [], hugs: 0, slaps: 0, kills: 0, hugsMap: {} },
+      async save() { return this; }, markModified() {},
+    });
+    const api = {
+      async getCurrentUserID() { return '555555555'; },
+      async getUserInfo() { return { name: 'Rosa Real 11' }; },
+      async getThreadInfo() {
+        return { threadTitle: 'Solo', isGroup: true, participantIDs: ['111111111', '555555555'], userInfo: [] };
+      },
+    };
+    const sent = [];
+    try {
+      await pair.execute({
+        api, args: [], config,
+        event: { threadID: 't_solo', isGroup: true, messageID: 'm_solo', senderID: '111111111', mentions: {} },
+        userDoc: { uid: '111111111', name: 'Solo', async save() { return this; } },
+        reply: async (m) => sent.push(String(m)), react: async () => true,
+      });
+    } finally {
+      Group.findOne = realGroupFindOne;
+      mongo.isReady = realReady;
+    }
+    const said = sent.join('\n');
+    assert.ok(/NOBODY TO PAIR/i.test(said), `it must say why, got: ${said}`);
+    assert.ok(/1 member/i.test(said), `and how many there are, got: ${said}`);
+    assert.ok(!/Rosa Real 55/.test(said), 'the bot is not counted as an eligible partner');
+    return 'one human and the bot is nobody to pair';
+  });
+
+  await step('a social card prints the chat name, never the chat id', () => {
+    // The corner of every card read `chat t_9xKq2mZ`. The picture already has
+    // two real faces and two real names on it; finishing with an identifier is
+    // the same mistake boardCard made printing a uid under every hunter.
+    const src = require('fs').readFileSync(
+      path.join(path.resolve(__dirname, '..'), 'bot', 'cards.js'), 'utf8',
+    );
+    const start = src.indexOf('async function duoCard');
+    const end = src.indexOf('async function userCard');
+    const block = src.slice(start, end);
+    assert.ok(start > 0 && end > start, 'duoCard must be locatable');
+    assert.ok(!/chat \$\{threadID\}/.test(block), 'duoCard must not draw the thread id');
+    assert.ok(/chatName/.test(block), 'it draws the chat name instead');
+    return 'the corner says the chat name';
   });
 
   // The rule the audit exists to enforce, checked against the source: a fallback

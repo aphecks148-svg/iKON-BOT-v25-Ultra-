@@ -223,7 +223,7 @@ async function realName(row, api) {
  * @param {object} opts.api ws3-fca client
  * @returns {Promise<string|null>} PNG data URL, or null without the canvas binary
  */
-async function duoCard({ title, emoji = '', subtitle = '', threadID, left, right = null, body = '', footer = '', api }) {
+async function duoCard({ title, emoji = '', subtitle = '', threadID, chatName = '', left, right = null, body = '', footer = '', api }) {
   if (!canvasKit.available()) return null;
   if (!left) return null;
 
@@ -325,11 +325,17 @@ async function duoCard({ title, emoji = '', subtitle = '', threadID, left, right
     ctx.font = 'bold 19px sans-serif';
     ctx.fillStyle = '#ffcc00';
     ctx.fillText(fit(ctx, footer || 'NONE OF THIS IS REAL', 560), 48, H - 20);
-    if (threadID) {
+    // The chat's name, not its id.
+    //
+    // This corner used to read "chat t_9xKq2mZ". The picture already carries two
+    // real faces and two real names; finishing with an internal identifier is the
+    // same mistake boardCard made printing a uid under every hunter, and it is
+    // the one part of this card a viewer cannot do anything with.
+    if (chatName) {
       ctx.textAlign = 'right';
       ctx.font = '17px sans-serif';
       ctx.fillStyle = 'rgba(154,160,181,0.9)';
-      ctx.fillText(`chat ${threadID}`, W2 - 48, H - 20);
+      ctx.fillText(fit(ctx, `in ${chatName}`, 420), W2 - 48, H - 20);
     }
 
     return cv.canvas.toDataURL('image/png');
