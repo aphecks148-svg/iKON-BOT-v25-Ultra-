@@ -6035,6 +6035,32 @@ const PIKACHU = dex.find('pikachu');
     return 'declared string, unique and sparse';
   });
 
+  // `rebirth` was a second copy of `prestige`: the same level gate,
+  // the same bonus formula, the same mutations, and the same cooldown —
+  // only the emoji and one informational line differed. Two commands
+  // doing one task means two cooldowns to watch, two help entries, and
+  // a board that can disagree with itself about who rebirthed. It is
+  // now an alias, so the name survives and the task lives once.
+  await step('rebirth is an alias of prestige, not a second command', async () => {
+    const loader = require('./loader');
+    const loaded = loader.loadCommands(path.join(__dirname, '..', 'commands'));
+    assert.ok(!loaded.registry.has('rebirth'), 'rebirth must not be a command of its own');
+    assert.strictEqual(loaded.aliases.get('rebirth'), 'prestige', 'rebirth resolves to prestige');
+    assert.strictEqual(loaded.aliases.get('reborn'), 'prestige', 'and so does reborn');
+    const prestige = loaded.registry.get('prestige');
+    assert.ok(prestige.aliases.includes('rebirth'), 'prestige carries rebirth as an alias');
+
+    // The engine keys the cooldown on the RESOLVED name, so the two
+    // spellings cannot be run twice: `!rebirth` looks up the alias,
+    // lands on prestige, and is charged prestige's bucket.
+    cooldown.clear('u_pr', 'prestige');
+    cooldown.set('u_pr', 'prestige', 60);
+    assert.ok(cooldown.check('u_pr', 'prestige') > 0, 'prestige is on cooldown');
+    assert.strictEqual(cooldown.check('u_pr', 'rebirth'), 0, 'and the alias has no bucket of its own');
+    cooldown.clear('u_pr', 'prestige');
+    return 'one rebirth, one cooldown bucket';
+  });
+
 // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;

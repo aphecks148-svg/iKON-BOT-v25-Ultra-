@@ -693,10 +693,11 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'prestige',
-    aliases: [],
+    aliases: ['rebirth', 'reborn'],
     category: 'rpg',
     description: '👑 Rebirth to level 1 but keep +10% coin bonus forever - For true legends',
     usage: '!prestige',
+    hint: 'Also `!rebirth` — the same rebirth, one name. Level 10+ and one per day.',
     cooldown: 86400,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'prestige', async () => {
@@ -1883,51 +1884,6 @@ module.exports = [
           ? '✅ Fully rested. Go burn it on something.'
           : `⏳ +1 stamina in ${fmt.dur(Math.ceil(untilNext / 1000))}`)
         + `\n🥾 Spent by \`!adventure\` and \`!quest\`.\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
-    }),
-  },
-
-  // ─────────────────────────────────────────────────────────
-  // 30
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'rebirth',
-    aliases: [],
-    category: 'rpg',
-    description: '🔄 Same as prestige - Reset to 1 with permanent bonus',
-    usage: '!rebirth',
-    cooldown: 86400,
-    permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'rebirth', async () => {
-      await react('🔄');
-      const level = userDoc.level || 1;
-      if (level < 10) {
-        await reply(
-          `🔄 Too early to be reborn. The academy wants **Level 10+**; you are Level ${level}.\n`
-          + `🎯 ${num(xpToNext(level, userDoc.xp))} XP to go.\n`
-          + `📖 ${story()}`,
-          event.messageID,
-        );
-        return;
-      }
-
-      const bonus = 10000 * (clamp(userDoc.prestige) + 1);
-      const oldLevel = level;
-      userDoc.level = 1;
-      userDoc.xp = 0;
-      userDoc.prestige = clamp(userDoc.prestige) + 1;
-      userDoc.coins = clamp((userDoc.coins || 0) + bonus);
-      await save(userDoc);
-
-      await reply(
-        `🔄 **REBIRTH ${userDoc.prestige}**\n`
-        + '· · · · · · ·\n'
-        + `📉 Level ${oldLevel} → 1, XP cleared.\n`
-        + `💰 Rebirth grant: ${kc(bonus)}\n`
-        + `📈 Permanent income: +${Math.round((prestigeBonus(userDoc) - 1) * 100)}%\n`
-        + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + `📖 ${story()}`,
         event.messageID,
       );
