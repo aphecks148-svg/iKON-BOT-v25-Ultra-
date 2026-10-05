@@ -6061,6 +6061,26 @@ const PIKACHU = dex.find('pikachu');
     return 'one rebirth, one cooldown bucket';
   });
 
+  // A command that describes itself as "same as" another is a
+  // duplicate that should have been merged into an alias. Two
+  // such descriptions lived here: `rebirth` (now an alias of
+  // `prestige`) and `pvp`, whose arena stakes, odds and entry
+  // fee are all different from `duel`'s — it just said so.
+  await step('no command describes itself as a copy of another', async () => {
+    const loader = require('./loader');
+    const loaded = loader.loadCommands(path.join(__dirname, '..', 'commands'));
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    for (const cmd of loaded.registry.values()) {
+      const text = `${cmd.description} ${cmd.hint || ''}`.toLowerCase();
+      for (const other of loaded.registry.keys()) {
+        if (other === cmd.name) continue;
+        const claim = new RegExp(`(same as|identical to)\\s+!??\`?${esc(other)}\`?`);
+        assert.ok(!claim.test(text), `${cmd.name} claims to be ${other}`);
+      }
+    }
+    return 'every command describes its own task';
+  });
+
 // ── summary ───────────────────────────────────────────────
   console.log('\n=== SUMMARY ===');
   const passed = results.filter((r) => r.pass).length;
