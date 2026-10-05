@@ -669,6 +669,33 @@ function query(doc) {
       return `name="${u.name}" cached`;
     });
 
+    // ── a new account survives a legacy unique index ─────────
+    // The live log showed a brand-new member failing with
+    // "E11000 duplicate key error collection: test.users
+    //  index: facebookId_1 dup key: { facebookId: null }".
+    // The User schema has no facebookId field, so that index is a
+    // leftover from an older build. A unique index that is NOT
+    // sparse indexes every document missing the field as null, so
+    // the second account to ever join collided with the first and
+    // the insert died — which is why a new user's profile never
+    // persisted while everyone already in the database kept working.
+    await step('a new user is created with a distinct facebookId', async () => {
+      cache.clear();
+      const api = mockApi();
+      const fresh = `u_${Date.now()}`;
+      const u = await cache.getUser(fresh, api);
+      assert.ok(u, 'getUser returned null');
+      // The value is the uid, which in this bot IS the Facebook id,
+      // and being distinct is the whole point: two accounts can no
+      // longer both index as null.
+      assert.strictEqual(u.facebookId, u.uid, 'facebookId must equal the uid');
+      const second = await cache.getUser(`${fresh}b`, api);
+      assert.strictEqual(second.facebookId, second.uid, 'and so must the next one');
+      assert.notStrictEqual(second.facebookId, u.facebookId, 'two accounts never share one');
+      cache.clear();
+      return 'every new account carries its own facebookId';
+    });
+
     await step('unique indexes enforced (uid, tid)', async () => {
       let dupUser = false;
       try { await User.create({ uid, name: 'dupe' }); } catch { dupUser = true; }
@@ -4068,15 +4095,52 @@ const PIKACHU = dex.find('pikachu');
     return 'never / soon / overdue / boundary, none of them in the past';
   });
 
-  await step('the thread list asks for 100 chats, not 10', async () => {
+  await step('the thread list asks for 100 chats, in ws3-fca\'s argument order', async () => {
     const gcs = require('./gcs');
     assert.strictEqual(gcs.THREAD_LIMIT, 100, 'ten chats is fewer groups than the bot is in');
-    let askedLimit = null;
-    const api = { async getThreadList(type, limit) { askedLimit = limit; return [{ threadID: 't_1' }]; } };
+    const calls = [];
+    // ws3-fca's real signature is getThreadList(limit, timestamp, tags).
+    // The first argument is the COUNT — not a chat type. Passing 'gchat'
+    // there threw "limit must be a positive integer" on every single
+    // call, so the boot sweep, !gclist and !gccleanup all read an empty
+    // list and reported nothing, silently, forever.
+    const api = {
+      async getThreadList(limit, timestamp, tags) {
+        calls.push({ limit, timestamp, tags });
+        return [
+          { threadID: 'g_1', isGroup: true },
+          { threadID: 'dm_1', isGroup: false },
+          { threadID: 'g_2', isGroup: true },
+        ];
+      },
+    };
     const listed = await gcs.listThreads(api);
-    assert.strictEqual(askedLimit, 100, 'getThreadList was called with the wrong limit');
-    assert.strictEqual(listed.length, 1);
-    return `getThreadList('gchat', ${askedLimit})`;
+    assert.strictEqual(calls.length, 1, 'one call, not one per chat');
+    assert.strictEqual(calls[0].limit, 100, 'the limit is the first argument');
+    assert.strictEqual(calls[0].timestamp, null, 'null means "most recent"');
+    assert.deepStrictEqual(calls[0].tags, ['INBOX'], 'the tag filter is an array');
+    // Direct messages are dropped: this is the group-chat sweep, and
+    // 'gchat' — the old first argument — was asking for exactly that.
+    assert.strictEqual(listed.length, 2, 'only the two group chats come back');
+    assert.deepStrictEqual(listed.map((t) => t.threadID), ['g_1', 'g_2']);
+    return `getThreadList(100, null, ['INBOX']) — groups only`;
+  });
+
+  await step('a nonsense limit falls back to 100 instead of throwing', async () => {
+    const gcs = require('./gcs');
+    const api = {
+      async getThreadList(limit) {
+        // The library itself rejects anything that is not a positive
+        // integer, so a bad limit from a caller must never reach it.
+        if (!Number.isInteger(limit) || limit <= 0) throw new Error('limit must be a positive integer.');
+        return [{ threadID: 'g_1', isGroup: true }];
+      },
+    };
+    for (const bad of [undefined, 0, -5, 'gchat', 2.5, null]) {
+      const listed = await gcs.listThreads(api, bad);
+      assert.strictEqual(listed.length, 1, `limit ${String(bad)} must fall back to 100`);
+    }
+    return 'undefined, 0, negative, a string and a fraction all become 100';
   });
 
   await step('a dead account is recognised, and a live one is not', async () => {
@@ -4098,7 +4162,7 @@ const PIKACHU = dex.find('pikachu');
     const gcs = require('./gcs');
     const removed = [];
     const api = {
-      async getThreadList() { return [{ threadID: 't_1' }]; },
+      async getThreadList() { return [{ threadID: 't_1', isGroup: true }]; },
       async getThreadInfo() {
         return {
           adminIDs: ['chat_admin'],
@@ -4155,7 +4219,7 @@ const PIKACHU = dex.find('pikachu');
   await step('a refused removal is reported, not swallowed', async () => {
     const gcs = require('./gcs');
     const api = {
-      async getThreadList() { return [{ threadID: 't_1' }]; },
+      async getThreadList() { return [{ threadID: 't_1', isGroup: true }]; },
       async getThreadInfo() { return { adminIDs: [], userInfo: [{ id: 'd', name: 'Facebook User', thumbSrc: 'x' }] }; },
       async gcmember() { throw new Error('not allowed'); },
     };
@@ -5888,6 +5952,87 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(/flood\.sweep\(\)/.test(src), 'the 60s tick must sweep flood state');
     assert.ok(/moderation\.sweep\(\)/.test(src), 'and the moderation cache');
     return 'one gate, first, with one parse and a real sweep';
+  });
+
+  // A duplicate key on create is recovered, not reported as a
+  // failure. This runs without a database: the model is stubbed, and
+  // only the readiness flag is borrowed, exactly as the other
+  // database-free sections do.
+  await step('a duplicate key on create is recovered, not reported as a failure', async () => {
+    const cache = require('./cache');
+    const User = require('../models/User');
+    const mongo = require('./mongo');
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    cache.clear();
+    const realCreate = User.create;
+    const realFindOne = User.findOne;
+    let creates = 0;
+    let finds = 0;
+    const winner = { uid: 'u_race', name: 'Race Winner', save: async () => {} };
+    User.create = async () => {
+      creates += 1;
+      // The exact shape the live log produced. Only the first attempt
+      // fails: the retry re-reads, and the winner's document is
+      // already there.
+      if (creates === 1) {
+        const err = new Error('E11000 duplicate key error collection: test.users index: facebookId_1 dup key: { facebookId: null }');
+        err.code = 11000;
+        throw err;
+      }
+      return winner;
+    };
+    // First read misses (so the create is attempted), second read
+    // finds the winner.
+    User.findOne = async () => {
+      finds += 1;
+      return finds === 1 ? null : winner;
+    };
+    try {
+      const u = await cache.getUser('u_race');
+      assert.ok(u, 'getUser must recover, not return null');
+      assert.strictEqual(u.uid, 'u_race', 'and hand back the winner');
+      assert.strictEqual(creates, 1, 'one create attempt, then a re-read');
+      assert.strictEqual(finds, 2, 'miss, then the re-read that recovers');
+    } finally {
+      User.create = realCreate;
+      User.findOne = realFindOne;
+      mongo.isReady = realReady;
+      cache.clear();
+    }
+    // An error that is NOT a duplicate key must still surface, or a
+    // genuinely broken insert would be silently papered over.
+    User.create = async () => {
+      const err = new Error('connection refused');
+      err.code = 'ECONNREFUSED';
+      throw err;
+    };
+    // A clean miss, so the failure is the create itself rather than a
+    // ten-second buffer timeout against a database that is not there.
+    User.findOne = async () => null;
+    try {
+      const u = await cache.getUser('u_other');
+      assert.strictEqual(u, null, `a non-duplicate failure must return null, got ${u}`);
+    } finally {
+      User.create = realCreate;
+      User.findOne = realFindOne;
+      cache.clear();
+    }
+    return 'E11000 becomes a re-read; anything else still fails honestly';
+  });
+
+  // The schema half of the same fix, which needs no database: the
+  // field must be declared, and declared sparse, so a fresh
+  // install builds the index correctly instead of repeating the
+  // legacy mistake.
+  await step('facebookId is declared on the user schema, and sparse', async () => {
+    const User = require('../models/User');
+    const path = User.schema.path('facebookId');
+    assert.ok(path, 'facebookId is not on the schema at all');
+    assert.strictEqual(path.instance, 'String', 'it is a string');
+    assert.strictEqual(path.options.unique, true, 'and unique');
+    assert.strictEqual(path.options.sparse, true, 'and sparse — a non-sparse unique index is the bug');
+    return 'declared string, unique and sparse';
   });
 
 // ── summary ───────────────────────────────────────────────

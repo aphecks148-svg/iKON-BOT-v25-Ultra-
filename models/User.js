@@ -5,6 +5,23 @@ const mongoose = require('mongoose');
 const UserSchema = new mongoose.Schema(
   {
     uid: { type: String, required: true, unique: true, index: true },
+    // The Facebook account id. In practice this is `uid` — every
+    // sender arrives as a Facebook uid — and it is declared here for
+    // a reason that has nothing to do with the schema's own shape.
+    //
+    // Older builds created a UNIQUE index on `facebookId` that was
+    // NOT sparse. A unique index that is not sparse indexes every
+    // document missing the field as null, so the SECOND account to
+    // join collides with the first and the insert dies with
+    // E11000 "dup key: { facebookId: null }". That is exactly the
+    // failure a brand-new member produces, and it is why a new
+    // user's profile never persisted while everybody already in the
+    // database kept working.
+    //
+    // Keeping the field populated with a distinct value makes that
+    // legacy index harmless, and declaring it sparse means a fresh
+    // install builds the index correctly in the first place.
+    facebookId: { type: String, sparse: true, unique: true },
     name: { type: String, default: 'Unknown' },
 
     level: { type: Number, default: 1, min: 1 },

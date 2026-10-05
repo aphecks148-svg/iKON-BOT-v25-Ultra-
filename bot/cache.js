@@ -122,11 +122,26 @@ async function getUser(uid, api) {
     const liveName = await fetchName(id, api);
 
     if (!user) {
-      user = await User.create({
-        uid: id,
-        name: liveName || `User ${id.slice(-4)}`,
-        money: STARTING_MONEY,
-      });
+      try {
+        user = await User.create({
+          uid: id,
+          // A distinct value here, not a default. See
+          // models/User.js: a legacy non-sparse UNIQUE index on
+          // facebookId indexes an absent field as null, so every
+          // new account after the first collided with it.
+          facebookId: id,
+          name: liveName || `User ${id.slice(-4)}`,
+          money: STARTING_MONEY,
+        });
+      } catch (dup) {
+        // Two messages from the same brand-new account can land
+        // together, and both miss the findOne above. The loser of
+        // that race gets a duplicate key; the winner's document is
+        // already there, so read it instead of failing.
+        if (!/duplicate key/i.test(dup.message)) throw dup;
+        user = await User.findOne({ uid: id });
+        if (!user) throw dup;
+      }
       log(`[CACHE] New user ${id} (${user.name})`);
     } else if (liveName && liveName !== user.name) {
       user.name = liveName;

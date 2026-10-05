@@ -138,9 +138,22 @@ function isDeadAccount(member) {
  */
 async function listThreads(api, limit = THREAD_LIMIT) {
   if (!api || typeof api.getThreadList !== 'function') return [];
+  // A caller may hand us anything; the API only takes a positive
+  // integer, so fall back rather than throw on every chat.
+  const ask = Number.isInteger(limit) && limit > 0 ? limit : THREAD_LIMIT;
   try {
-    const list = await api.getThreadList('gchat', limit, {});
-    return Array.isArray(list) ? list : [];
+    // ws3-fca's signature is getThreadList(limit, timestamp, tags):
+    // the FIRST argument is the count, not a chat type. Passing
+    // 'gchat' there made every call throw "limit must be a positive
+    // integer", so the boot sweep, !gclist and !gccleanup each read
+    // an empty list and reported nothing — silently, because the
+    // failure was caught and logged where only a deploy log looks.
+    const list = await api.getThreadList(ask, null, ['INBOX']);
+    // The API returns every inbox thread, direct messages included.
+    // This module is the group-chat sweep, so keep the groups: the
+    // 'gchat' that used to be passed as the type was asking for
+    // exactly this filter.
+    return (Array.isArray(list) ? list : []).filter((t) => t && t.isGroup);
   } catch (err) {
     error(`[GCS] getThreadList failed: ${err.message}`);
     return [];
