@@ -143,12 +143,17 @@ module.exports = [
           await react(loose.emoji);
           const list = byCategory.get(loose.key) || [];
           const pages = menu.paginate(list, prefix);
+          // A deck found by subject paginates exactly like one found by
+          // name. Without this, `!help settings 2` kept serving page 1 —
+          // "settings" is a System Core lookfor word, not the deck's
+          // label, so the exact-match branch above never saw it.
+          const page = Math.min(Math.max(1, Number.parseInt(args[1], 10) || 1), pages.length);
           await reply(
             menu.categoryPage({
               cat: loose,
-              commands: pages[0],
+              commands: pages[page - 1],
               prefix,
-              page: 1,
+              page,
               pages: pages.length,
               collidesWith: registry.has(loose.key),
             }),
