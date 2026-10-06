@@ -129,7 +129,7 @@ function groupDoc(over = {}) {
       slaps: { [UIDS[0]]: 1 },
       kills: {},
     },
-    gameBomb: { holderUid: null, holderName: '', amount: 0, passes: 0, expires: null },
+    gameBomb: { holderUid: null, holderName: '', amount: 0, passes: 0, fuse: 0, litBy: '', litByName: '', passedFrom: '', passedFromName: '', expires: null },
     gc: { msgs: 10, level: 1 },
     cartel: { name: 'Vault', founder: UIDS[0], vault: 10, members: [] },
     petArena: { battles: 0, wins: 0, steals: 0 },

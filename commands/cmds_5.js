@@ -203,6 +203,78 @@ async function recordLoss(userDoc, action) {
   await ledger(userDoc.uid, action, 0, userDoc.coins, { lost: true });
 }
 
+/**
+ * Resolve a lit bomb: the holder is blown up and the pot is paid out.
+ *
+ * A bot cannot promise a background timer will survive a restart, so
+ * the bomb has no clock of its own. It is resolved the next time
+ * anybody looks at it — a pass, a fresh light, or the expiry check —
+ * which is also what stops the pot from silently vanishing, the thing
+ * it used to do: a stake was taken by wager() and never paid to
+ * anyone.
+ *
+ * The pot goes to whoever passed it last. A bomb that goes off before
+ * it was ever passed is refunded to the hunter who lit it, so no
+ * stake is ever dropped on the floor.
+ */
+async function detonateBomb(group, reason) {
+  const bomb = group.gameBomb;
+  if (!bomb) return null;
+
+  const pot = clamp(bomb.amount);
+  const holderUid = String(bomb.holderUid || '');
+  const holderName = bomb.holderName || 'someone';
+  const passerUid = bomb.passedFrom ? String(bomb.passedFrom) : '';
+  const passerName = bomb.passedFromName || '';
+  const litUid = bomb.litBy ? String(bomb.litBy) : holderUid;
+  const litName = bomb.litByName || holderName;
+  const litCount = clamp(bomb.passes);
+
+  group.gameBomb = undefined;
+  await save(group);
+
+  const wonByPasser = Boolean(passerUid) && passerUid !== holderUid;
+  const winnerUid = wonByPasser ? passerUid : litUid;
+  const winnerName = wonByPasser ? passerName : litName;
+
+  if (pot > 0 && winnerUid) {
+    const winner = await User.findOne({ uid: winnerUid });
+    if (winner) {
+      // A refund hands the stake back without counting as a win;
+      // a pot won from a pass does.
+      if (wonByPasser) {
+        await payout(winner, pot, 'game:bomb_pot', { holderUid, holderName, reason });
+      } else {
+        winner.coins = clamp((winner.coins || 0) + pot);
+        await save(winner);
+        await ledger(winner.uid, 'game:bomb_refund', pot, winner.coins, { reason });
+      }
+    }
+  }
+
+  return { pot, holderUid, holderName, winnerUid, winnerName, wonByPasser, litCount };
+}
+
+/** The blast report, shared by the fuse, expiry and re-light paths. */
+function boomMessage(done, headline) {
+  if (!done) return '💣 Nothing to report.';
+  const lines = [
+    '💣 **BOOM**',
+    '· · · · · · ·',
+    headline,
+    `📮 It blew up in ${done.holderName}'s hands.`,
+  ];
+  if (done.pot > 0) {
+    if (done.wonByPasser) {
+      lines.push(`🏆 ${done.winnerName} ditched it in time and takes the ${kc(done.pot)} pot.`);
+    } else {
+      lines.push(`↩️ It never moved — ${done.winnerName}'s ${kc(done.pot)} stake is returned.`);
+    }
+  }
+  lines.push(`📖 ${story()}`);
+  return lines.join('\n');
+}
+
 /** Permanent luck bonus, as a probability nudge. Capped so it stays a nudge. */
 function luck(userDoc) {
   return Math.min(0.15, clamp(g(userDoc).luckyCharm) * 0.01);
@@ -699,6 +771,24 @@ const commands = [];
         return;
       }
 
+      // One bomb at a time. A bomb already ticking is resolved
+      // before a new one is lit, otherwise a second stake would
+      // be wagered and then dropped — the old code kept the old
+      // pot and threw the new stake away.
+      if (group.gameBomb && group.gameBomb.holderUid) {
+        const cold = group.gameBomb.expires && new Date(group.gameBomb.expires).getTime() < Date.now();
+        if (!cold) {
+          await reply(
+            `💣 A bomb is already ticking in ${group.gameBomb.holderName}'s hands.\n`
+            + `⏱️ ${clamp(group.gameBomb.fuse)} pass(es) left before it blows. Pass it with \`!passbomb\` first.`,
+            event.messageID,
+          );
+          return;
+        }
+        const done = await detonateBomb(group, 'expired');
+        await reply(boomMessage(done, 'The old bomb cooled off and blew up where it sat.'), event.messageID);
+      }
+
       const bet = betArg(args, 1000);
       const staked = await wager(userDoc, bet, 'game:bomb');
       if (!staked.ok) {
@@ -706,14 +796,18 @@ const commands = [];
         return;
       }
 
-      const holds = Number.isFinite(group.gameBomb && group.gameBomb.passes) ? group.gameBomb.passes : 0;
-      const passes = holds + 1;
-      const ticks = rand(2, 5);
+      const fuse = rand(2, 5);
+      const litBefore = group.gameBomb ? clamp(group.gameBomb.passes) : 0;
       group.gameBomb = {
         holderUid: String(event.senderID),
         holderName: userDoc.name,
-        amount: (group.gameBomb && group.gameBomb.amount) || bet,
-        passes,
+        amount: bet,
+        passes: litBefore + 1,
+        fuse,
+        litBy: String(event.senderID),
+        litByName: userDoc.name,
+        passedFrom: '',
+        passedFromName: '',
         expires: new Date(Date.now() + 10 * 60 * 1000),
       };
       try {
@@ -727,10 +821,11 @@ const commands = [];
       await reply(
         `💣 **THE BOMB IS LIT**\n`
         + '· · · · · · ·\n'
-        + `⏱️ It ticks down from ${ticks}. Nobody can defuse it — only pass it.\n`
-        + `📮 ${userDoc.name}, you are holding it. Pass it with \`!passbomb\`.\n`
-        + `🔁 Times lit in this chat: ${passes}\n`
-        + `💵 It carries ${kc(group.gameBomb.amount)}\n`
+        + `⏱️ It blows after ${fuse} pass(es). Nobody can defuse it — only pass it.\n`
+        + `📮 ${userDoc.name}, you are holding it. Pass it with \`!passbomb @user\`.\n`
+        + `🪙 Add to the pot when you pass: \`!passbomb @user [amount]\`.\n`
+        + `🔁 Bombs lit in this chat: ${group.gameBomb.passes}\n`
+        + `💵 It carries ${kc(bet)}\n`
         + `📖 ${story()}`,
         event.messageID,
       );
@@ -758,13 +853,18 @@ const commands = [];
         await reply('💣 Nothing is ticking. Light it with `!bombgame`.', event.messageID);
         return;
       }
-      if (String(group.gameBomb.holderUid) !== String(event.senderID)) {
-        await reply(`💣 ${group.gameBomb.holderName} is holding it. Not you.`, event.messageID);
+
+      // Out of time: it blows up where it sits and the pot
+      // is paid out, instead of rolling under the seats with
+      // nobody paid and the stake gone.
+      if (group.gameBomb.expires && new Date(group.gameBomb.expires).getTime() < Date.now()) {
+        const done = await detonateBomb(group, 'expired');
+        await reply(boomMessage(done, 'It cooled off and blew up where it sat.'), event.messageID);
         return;
       }
-      if (group.gameBomb.expires && new Date(group.gameBomb.expires).getTime() < Date.now()) {
-        group.gameBomb = undefined;
-        await reply('💣 It cooled off and rolled under the seats. Nobody pays.', event.messageID);
+
+      if (String(group.gameBomb.holderUid) !== String(event.senderID)) {
+        await reply(`💣 ${group.gameBomb.holderName} is holding it. Not you.`, event.messageID);
         return;
       }
 
@@ -775,8 +875,38 @@ const commands = [];
         return;
       }
 
+      // The passer may raise the pot. The top-up is
+      // collected before the bomb moves, so it is at risk
+      // from the moment it leaves their hands.
+      const topUp = args[1] ? betArg(args.slice(1), 0) : 0;
+      if (topUp > 0) {
+        if ((userDoc.coins || 0) < topUp) {
+          await reply(`❌ Not enough K-Cash to add ${kc(topUp)}. Wallet: ${kc(userDoc.coins)}`, event.messageID);
+          return;
+        }
+        userDoc.coins = clamp(userDoc.coins - topUp);
+        await save(userDoc);
+        await ledger(userDoc.uid, 'game:bomb_topup', -topUp, userDoc.coins, { topUp });
+        group.gameBomb.amount = clamp(group.gameBomb.amount) + topUp;
+      }
+
+      // Remember who handed it over, then move it and tick
+      // the fuse down. The passer is recorded before the
+      // holder moves, so a blast on this pass pays them.
+      group.gameBomb.passedFrom = String(event.senderID);
+      group.gameBomb.passedFromName = userDoc.name;
       group.gameBomb.holderUid = String(target.uid);
       group.gameBomb.holderName = target.name;
+      group.gameBomb.fuse = clamp(group.gameBomb.fuse) - 1;
+
+      // The fuse ran out on this pass: it blows up in the
+      // recipient's hands and the pot goes to the passer.
+      if (group.gameBomb.fuse <= 0) {
+        const done = await detonateBomb(group, 'fuse');
+        await reply(boomMessage(done, `It blew up in ${done.holderName}'s hands.`), event.messageID);
+        return;
+      }
+
       try {
         await group.save();
       } catch {
@@ -787,7 +917,7 @@ const commands = [];
       await reply(
         `💣 **PASSED**\n`
         + '· · · · · · ·\n'
-        + `📮 ${target.name}, it is yours now. Pass it with \`!passbomb\`.\n`
+        + `📮 ${target.name}, it is yours now. ${clamp(group.gameBomb.fuse)} pass(es) left before it blows.\n`
         + `💵 It carries ${kc(group.gameBomb.amount)}\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1819,8 +1949,30 @@ const commands = [];
       const value = () => rand(1, 13);
       const suit = () => pick(['♠', '♥', '♦', '♣']);
       const card = () => ({ v: value(), s: suit() });
-      const label = (c) => (c.v === 1 ? 'A' : String(c.v - 1));
-      const totalOf = (hand) => hand.reduce((sum, c) => sum + Math.min(c.v === 1 ? 11 : c.v, 10), 0);
+      // Ranks run 1..13: A, 2..10, then the three faces. The old
+      // label subtracted one from every value, so a King printed as
+      // "12" and no face card ever appeared.
+      const label = (c) => {
+        if (c.v === 1) return 'A';
+        if (c.v === 11) return 'J';
+        if (c.v === 12) return 'Q';
+        if (c.v === 13) return 'K';
+        return String(c.v);
+      };
+      // A proper blackjack total: faces are worth ten, an ace is
+      // eleven while it fits and one when it would bust the hand.
+      // Math.min(ace, 10) used to score every ace as ten.
+      const totalOf = (hand) => {
+        let total = 0;
+        let aces = 0;
+        for (const c of hand) {
+          if (c.v === 1) { aces += 1; total += 11; }
+          else if (c.v > 10) { total += 10; }
+          else { total += c.v; }
+        }
+        while (total > 21 && aces > 0) { total -= 10; aces -= 1; }
+        return total;
+      };
 
       let hand = [card(), card()];
       let dealer = [card(), card()];
@@ -1845,7 +1997,13 @@ const commands = [];
       while (totalOf(dealer) < 17) dealer.push(card());
       const theirs = totalOf(dealer);
 
-      const won = mine > theirs || (mine <= 21 && theirs > 21);
+      const bust = mine > 21;
+      const dealerBust = theirs > 21;
+      // A busted hand loses outright, whatever the dealer drew.
+      // The old check `mine > theirs` crowned a 26 over a 20.
+      const won = !bust && (dealerBust || mine > theirs);
+      const push = !bust && !dealerBust && mine === theirs;
+
       if (won) {
         await payout(userDoc, bet * 2, 'game:bj_win', { bet, mine, theirs });
         await reply(
@@ -1859,10 +2017,24 @@ const commands = [];
         return;
       }
 
+      if (push) {
+        // Nobody busted and the totals match: the stake comes home.
+        await payout(userDoc, bet, 'game:bj_push', { bet, mine, theirs });
+        await reply(
+          `🎴 You: ${show(hand)} = ${mine}\n`
+          + `🃏 Dealer: ${show(dealer)} = ${theirs}\n`
+          + '· · · · · · ·\n'
+          + `🤝 PUSH — ${kc(bet)} returned\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}`,
+          event.messageID,
+        );
+        return;
+      }
+
       await recordLoss(userDoc, 'game:bj_loss');
       await reply(
-        `🎴 You: ${show(hand)} = ${mine}\n`
-        + `🃏 Dealer: ${show(dealer)} = ${theirs}\n`
+        `🎴 You: ${show(hand)} = ${mine}${bust ? ' — BUST' : ''}\n`
+        + `🃏 Dealer: ${show(dealer)} = ${theirs}${dealerBust ? ' — BUST' : ''}\n`
         + '· · · · · · ·\n'
         + `💸 -${kc(bet)}\n`
         + `📖 ${story()}`,

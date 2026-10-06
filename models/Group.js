@@ -205,11 +205,26 @@ const GroupSchema = new mongoose.Schema(
     },
 
     // module 5 — the hot potato. Exactly one bomb per chat at a time.
+    //
+    // `fuse` is how many passes are left before it blows. It is
+    // stored, not merely shown, because the countdown is the whole
+    // game: a bot cannot promise a background timer will survive a
+    // restart, so the fuse ticks down on each !passbomb and the bomb
+    // is resolved the moment it reaches zero.
+    //
+    // `litBy` funds the refund when a bomb goes off before it was
+    // ever passed. `passedFrom` is the last passer, who wins the pot
+    // when it blows up in the next pair of hands.
     gameBomb: {
       holderUid: { type: String, default: null },
       holderName: { type: String, default: '' },
       amount: { type: Number, default: 0 },
       passes: { type: Number, default: 0 },
+      fuse: { type: Number, default: 0 },
+      litBy: { type: String, default: '' },
+      litByName: { type: String, default: '' },
+      passedFrom: { type: String, default: '' },
+      passedFromName: { type: String, default: '' },
       expires: { type: Date, default: null },
     },
   },

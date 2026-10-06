@@ -671,6 +671,10 @@ module.exports = [
       const triple = reels[0] === reels[1] && reels[1] === reels[2];
       const pair = !triple && new Set(reels).size === 2;
 
+      // The coin is in the slot before the reels turn. A jackpot is
+      // paid on top of that stake, not on top of a returned one.
+      await debit(userDoc, bet, 'slots', { bet, reels, stake: true });
+
       if (triple) {
         const win = bet * 5;
         await credit(userDoc, win, 'slots', { bet, reels, win });
@@ -688,14 +692,13 @@ module.exports = [
         await credit(userDoc, win, 'slots', { bet, reels, win });
         await reply(
           `🍒 ${reels.join(' ')} — pair!\n`
-          + `🎰 Paid ${kc(win)}\n`
+          + `🎰 Paid ${kc(win)} (stake ${kc(bet)} back with it)\n`
           + `👛 Wallet: ${kc(userDoc.coins)}`,
           event.messageID,
         );
         return;
       }
 
-      await debit(userDoc, bet, 'slots', { bet, reels });
       await reply(
         `🍒 ${reels.join(' ')}\n`
         + `💸 Lost ${kc(bet)}\n`
@@ -730,6 +733,11 @@ module.exports = [
       }
 
       const guess = String(args[1] || 'heads').toLowerCase().startsWith('t') ? 'tails' : 'heads';
+
+      // The stake is down before the coin leaves the thumb, so a
+      // correct call pays winnings on top of a placed bet.
+      await debit(userDoc, bet, 'coinflip', { bet, guess, stake: true });
+
       const landed = Math.random() < 0.5 ? 'heads' : 'tails';
 
       if (landed === guess) {
@@ -737,7 +745,7 @@ module.exports = [
         await credit(userDoc, win, 'coinflip', { bet, guess, landed, win });
         await reply(
           `🪙 ${landed.toUpperCase()}! You called it.\n`
-          + `💰 Won ${kc(win)} (double your ${kc(bet)})\n`
+          + `💰 Won ${kc(win)} (your ${kc(bet)} stake rides again)\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
           + `📖 ${story()}`,
           event.messageID,
@@ -745,7 +753,6 @@ module.exports = [
         return;
       }
 
-      await debit(userDoc, bet, 'coinflip', { bet, guess, landed });
       await reply(
         `🪙 ${landed.toUpperCase()}. You called ${guess}. Wrong.\n`
         + `💸 Lost ${kc(bet)}\n`
@@ -1418,6 +1425,12 @@ module.exports = [
 
       const raw = String(args[1] || 'red').toLowerCase();
       const choice = raw.startsWith('b') ? 'black' : 'red';
+
+      // The stake leaves the wallet before the wheel spins. Paying
+      // winnings on top of a bet the house never collected made every
+      // win the full payout on top of a returned stake — a free edge.
+      await debit(userDoc, bet, 'roulette', { bet, choice, stake: true });
+
       const landed = Math.random() < 0.5 ? 'black' : 'red';
 
       if (choice === landed) {
@@ -1425,7 +1438,7 @@ module.exports = [
         await credit(userDoc, win, 'roulette', { bet, choice, landed, win });
         await reply(
           `🎡 Wheel stops on **${landed.toUpperCase()}**. You called ${choice}.\n`
-          + `💰 Paid ${kc(win)}\n`
+          + `💰 Paid ${kc(win)} (your ${kc(bet)} stake rides again)\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
           + `📖 ${story()}`,
           event.messageID,
@@ -1433,7 +1446,8 @@ module.exports = [
         return;
       }
 
-      await debit(userDoc, bet, 'roulette', { bet, choice, landed });
+      // The stake was already taken before the wheel spun,
+      // so a loss only needs the report.
       await reply(
         `🎡 Wheel stops on **${landed.toUpperCase()}**. You called ${choice}.\n`
         + `💸 Lost ${kc(bet)}\n`
@@ -1473,12 +1487,16 @@ module.exports = [
       const d2 = rand(1, 6);
       const sum = d1 + d2;
 
+      // The stake is called before the bones land, so a win pays
+      // winnings on top of a placed bet, not a returned one.
+      await debit(userDoc, bet, 'dice', { bet, d1, d2, sum, stake: true });
+
       if (sum >= 9) {
         const win = bet * 2;
         await credit(userDoc, win, 'dice', { bet, d1, d2, sum, win });
         await reply(
           `🎲 ${faces[d1 - 1]} ${faces[d2 - 1]} — ${d1} + ${d2} = **${sum}**\n`
-          + `✅ Nine or more. You win ${kc(win)}.\n`
+          + `✅ Nine or more. You win ${kc(win)} (stake ${kc(bet)} back with it).\n`
           + `👛 Wallet: ${kc(userDoc.coins)}\n`
           + `📖 The old bones knock twice for luck. ${story()}`,
           event.messageID,
@@ -1486,7 +1504,8 @@ module.exports = [
         return;
       }
 
-      await debit(userDoc, bet, 'dice', { bet, d1, d2, sum });
+      // The stake was already called before the bones
+      // landed, so a loss only needs the report.
       await reply(
         `🎲 ${faces[d1 - 1]} ${faces[d2 - 1]} — ${d1} + ${d2} = **${sum}**\n`
         + `❌ Short of nine. Lost ${kc(bet)}.\n`
