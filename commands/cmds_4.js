@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 4 — DANGEROUS PETS (35 commands)
+ * MODULE 4 — DANGEROUS PETS (40 commands)
  *
  * iKON-BOT v2 Ultra. Pets in iKON City are not decoration, they are assets.
  * Fifteen species of them are genuinely dangerous, they evolve through
@@ -30,6 +30,7 @@ const config = require('../config');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const profile = require('../bot/profile');
+const pb = require('../bot/petbattler');
 const { fmt } = require('../bot/helpers');
 const userTarget = require('../bot/target');
 const rarity = require('../bot/content');
@@ -380,10 +381,16 @@ function powerOf(pet, owner) {
   return Math.floor(power);
 }
 
-/** The strongest living pet a hunter owns. */
+/**
+ * The strongest living pet a hunter owns.
+ * Prefers the equipped pet, falls back to the strongest by basePower/level.
+ */
 async function mainPet(uid) {
   if (!mongo.isReady()) return null;
-  const pets = await Pet.find({ ownerUid: String(uid), isDead: false }).sort({ basePower: -1, level: -1 });
+  const filter = { ownerUid: String(uid), isDead: false };
+  const equipped = await Pet.findOne({ ...filter, equipped: true }).sort({ basePower: -1, level: -1 });
+  if (equipped) return equipped;
+  const pets = await Pet.find(filter).sort({ basePower: -1, level: -1 });
   return pets[0] || null;
 }
 
@@ -551,91 +558,56 @@ function bleedLine(pet) {
 }
 
 /**
- * Turn-by-turn pet fight.
+ * Turn-by-turn pet battle, powered by the petbattler engine.
  *
- * Loop 3-5 turns. Each turn both pets pick a random skill and trade damage:
- *   dmg = (attackerPower * skillMult) - (defenderPower * 0.3)
- * Battle HP = power * 2. When a pet's HP hits zero it DIES and needs a revive.
+ * Consumes 1 stamina from the attacker's pet before the fight starts.
+ * Payouts differ by mode:
+ *   'arena' — house pays the winner 500 coins; loser stats are NOT persisted.
+ *   'pvp'   — winner takes 20% of loser's coins; loser loses hunger, may die;
+ *             loser stats are persisted.
+ *   'hunt'  — the defender is a wild pet; no coin exchange; winner may catch.
  *
  * @param {Function} reply bound reply
  * @param {{attacker:{user:object,pet:object},defender:{user:object,pet:object},mode:string,event:object}} cfg
+ * @param {object} [opts] — { wild, catchable }
  */
-async function runFight(reply, { attacker, defender, mode, event }) {
+async function runBattle(reply, { attacker, defender, mode, event }, opts = {}) {
   const atkPet = attacker.pet;
   const defPet = defender.pet;
 
-  const atkPower = powerOf(atkPet);
-  const defPower = powerOf(defPet);
-  let atkHP = atkPower * 2;
-  let defHP = defPower * 2;
-
-  const turns = rand(3, 5);
-  // Each side tracks its own skill cooldowns.
-  const atkCd = {};
-  const defCd = {};
-
-  atkPet.stats.battles = clamp(atkPet.stats.battles) + 1;
-  defPet.stats.battles = clamp(defPet.stats.battles) + 1;
-  atkPet.lastBattleAt = new Date();
-  defPet.lastBattleAt = new Date();
-
-  await reply(
-    `⚔️ **${mode === 'arena' ? 'ARENA FIGHT' : 'HUNT'}**\n`
-    + '· · · · · · ·\n'
-    + `🔴 ${atkPet.emoji} ${atkPet.name} ⚡${num(atkPower)} · HP ${num(Math.ceil(atkHP))}\n`
-    + `🔵 ${defPet.emoji} ${defPet.name} ⚡${num(defPower)} · HP ${num(Math.ceil(defHP))}\n`
-    + `🔁 ${turns} turns. ${story()}`,
-    event.messageID,
-  );
-  await wait(800);
-
-  /** Pick a skill that is off cooldown. */
-  const chooseSkill = (cds) => {
-    const ready = SKILLS.filter((s) => (cds[s.id] || 0) <= 0);
-    const skill = ready.length ? pick(ready) : SKILLS[0];
-    cds[skill.id] = skill.cooldown;
-    // Tick everything else down.
-    for (const k of Object.keys(cds)) cds[k] = Math.max(0, (cds[k] || 0) - 1);
-    return skill;
-  };
-
-  for (let turn = 1; turn <= turns; turn += 1) {
-    if (atkHP <= 0 || defHP <= 0) break;
-
-    const atkSkill = chooseSkill(atkCd);
-    const defSkill = chooseSkill(defCd);
-    const atkDmg = Math.max(1, (atkPower * atkSkill.mult) - (defPower * 0.3));
-    const defDmg = Math.max(1, (defPower * defSkill.mult) - (atkPower * 0.3));
-
-    atkHP -= defDmg;
-    defHP -= atkDmg;
-
+  // ── stamina gate ──
+  if (!pb.canBattle(atkPet)) {
+    const missing = 1 - pb.staminaOf(atkPet);
     await reply(
-      `**Turn ${turn}**\n`
-      + `${atkPet.emoji} ${atkPet.name} → ${atkSkill.emoji} ${atkSkill.name} (-${num(Math.round(atkDmg))})\n`
-      + `${defPet.emoji} ${defPet.name} → ${defSkill.emoji} ${defSkill.name} (-${num(Math.round(defDmg))})\n`
-      + `🔴 HP ${num(Math.max(0, Math.ceil(atkHP)))} · 🔵 HP ${num(Math.max(0, Math.ceil(defHP)))}`,
+      `⚡ ${atkPet.name} has no stamina.\n`
+      + `⏳ ${missing} charge${missing > 1 ? 's' : ''} regenerate in ${missing} hour${missing > 1 ? 's' : ''}.\n`
+      + `🍖 Feed it: \`!petfeed\` to refill.`,
       event.messageID,
     );
-    await wait(800);
+    return null;
   }
+  pb.spendStamina(atkPet);
 
-  const attackerWon = atkHP > 0 && defHP <= 0;
-  const defenderWon = defHP > 0 && atkHP <= 0;
-  const decided = attackerWon || defenderWon;
+  const atkPower = powerOf(atkPet);
+  const defPower = defPet ? powerOf(defPet) : 0;
 
-  // ── who takes it ──
-  // A knockout is decided; otherwise the stronger pet takes a time-out.
-  let finalWinner;
-  let finalLoser;
+  // ── run the simulation ──
+  const result = pb.simulateBattle(
+    { pet: atkPet, name: atkPet.name, emoji: atkPet.emoji || '🐉' },
+    { pet: defPet, name: defPet ? defPet.name : 'Wild', emoji: defPet ? (defPet.emoji || '🐉') : '🦍' },
+    { wild: opts.wild === true, maxRounds: 20 },
+  );
+
+  const attackerWon = result.winner === 'a';
+  const defenderWon = result.winner === 'b';
+
+  let finalWinner = attackerWon ? attacker : defenderWon ? defender : attacker;
+  let finalLoser = attackerWon ? defender : defenderWon ? attacker : defender;
   let verdict;
+
   if (attackerWon) {
-    finalWinner = attacker;
-    finalLoser = defender;
     verdict = `🏆 **${atkPet.name} WINS**`;
   } else if (defenderWon) {
-    finalWinner = defender;
-    finalLoser = attacker;
     verdict = `🏆 **${defPet.name} WINS**`;
   } else {
     finalWinner = atkPower >= defPower ? attacker : defender;
@@ -646,41 +618,71 @@ async function runFight(reply, { attacker, defender, mode, event }) {
   const winnerPet = finalWinner.pet;
   const loserPet = finalLoser.pet;
 
-  // ── payouts ──
-  const loot = Math.floor(clamp(finalLoser.user.coins) * 0.2);
-  finalLoser.user.coins = clamp((finalLoser.user.coins || 0) - loot);
-  await earn(finalWinner.user, loot, 'pet:battle', {
-    loser: String(finalLoser.user.uid), loot, mode,
-  });
-  const xpGained = 100;
-  const levelsGained = await petXp(winnerPet, xpGained);
+  atkPet.stats = atkPet.stats || {};
+  atkPet.stats.battles = clamp(atkPet.stats.battles) + 1;
+  if (loserPet && loserPet.stats) {
+    loserPet.stats.battles = clamp(loserPet.stats.battles) + 1;
+  }
+  atkPet.lastBattleAt = new Date();
 
-  // ── record the result exactly once per side ──
+  // ── payouts ──
+  let payoutText = '';
+  if (mode === 'arena') {
+    const house = 500;
+    await earn(finalWinner.user, house, 'pet:arena', {
+      opponent: String(finalLoser.user.uid), mode,
+    });
+    payoutText = `💸 House pays: ${kc(house)}\n👛 ${finalWinner.user.name || 'Winner'} wallet: ${kc(finalWinner.user.coins)}\n`;
+  } else if (mode === 'pvp') {
+    const loot = Math.floor(clamp(finalLoser.user.coins) * 0.2);
+    finalLoser.user.coins = clamp((finalLoser.user.coins || 0) - loot);
+    await earn(finalWinner.user, loot, 'pet:battle', {
+      loser: String(finalLoser.user.uid), loot, mode,
+    });
+    await ledger(finalLoser.user.uid, 'pet:battle', -loot, finalLoser.user.coins, {
+      winner: String(finalWinner.user.uid), mode,
+    });
+    payoutText = `💸 Loot taken: ${kc(loot)}\n👛 Winner wallet: ${kc(finalWinner.user.coins)}\n`;
+
+    // Persist loser stats (only in pvp mode)
+    loserPet.stats.wins = clamp(loserPet.stats.wins || 0);
+    loserPet.stats.losses = clamp(loserPet.stats.losses) + 1;
+    loserPet.hunger = Math.max(0, clamp(loserPet.hunger) - 50);
+    const loserIsDead = loserPet.hunger <= 0;
+    if (loserIsDead) {
+      loserPet.isDead = true;
+      loserPet.diedAt = new Date();
+    }
+    if (loserIsDead) {
+      payoutText += `💀 **${loserPet.name} IS DEAD.** Revive it: \`!petrevive\` (48h before it is gone).\n`;
+    }
+  }
+
+  // ── winner XP + evolution ──
+  const xpGained = 100;
+  const levelsGained = pb.grantXp(winnerPet, xpGained);
+  const evolved = pb.evolveIfReady(winnerPet);
+  if (levelsGained || evolved) {
+    await save(winnerPet);
+  }
+
+  // ── record wins ──
   winnerPet.stats.wins = clamp(winnerPet.stats.wins) + 1;
   winnerPet.stats.kills = clamp(winnerPet.stats.kills) + 1;
-  loserPet.stats.losses = clamp(loserPet.stats.losses) + 1;
-
-  // ── the loser bleeds out ──
-  loserPet.hunger = Math.max(0, clamp(loserPet.hunger) - 50);
-  const loserIsDead = loserPet.hunger <= 0;
-  if (loserIsDead) {
-    loserPet.isDead = true;
-    loserPet.diedAt = new Date();
-  }
 
   await save(atkPet);
   await save(defPet);
   await save(attacker.user);
-  await save(defender.user);
-  await ledger(finalLoser.user.uid, 'pet:battle', -loot, finalLoser.user.coins, {
-    winner: String(finalWinner.user.uid), mode,
-  });
+  if (finalLoser.user) {
+    await save(finalLoser.user);
+  }
 
   // Group-level arena tally for this chat.
   if (mongo.isReady() && event.threadID) {
     try {
       const g = await Group.findOne({ tid: String(event.threadID) });
       if (g) {
+        g.petArena = g.petArena || {};
         g.petArena.battles = clamp(g.petArena.battles) + 1;
         g.petArena.wins = clamp(g.petArena.wins) + (String(finalWinner.user.uid) === String(attacker.user.uid) ? 1 : 0);
         await g.save();
@@ -688,19 +690,53 @@ async function runFight(reply, { attacker, defender, mode, event }) {
     } catch { /* the arena tally is decorative */ }
   }
 
-  await reply(
-    `${verdict}\n`
-    + '· · · · · · ·\n'
-    + `🏆 ${winnerPet.emoji || '🐉'} ${winnerPet.name} ⚡${num(powerOf(winnerPet))} (+${num(xpGained)} XP${levelsGained ? ` → Lv ${winnerPet.level}` : ''})\n`
-    + `💀 ${loserPet.name} ⚡${num(powerOf(loserPet))} — hunger ${clamp(loserPet.hunger)}/100\n`
-    + `💸 Loot taken: ${kc(loot)}\n`
-    + `👛 Winner wallet: ${kc(finalWinner.user.coins)}\n`
-    + (loserIsDead
-      ? `💀 **${loserPet.name} IS DEAD.** Revive it: \`!petrevive\` (48h before it is gone).\n`
-      : '')
-    + `📖 ${story()}`,
-    event.messageID,
-  );
+  // ── render the battle result ──
+  const card = pb.battleCard(result, { name: atkPet.name, emoji: atkPet.emoji || '🐉' }, { name: defPet ? defPet.name : 'Wild', emoji: defPet ? (defPet.emoji || '🐉') : '🦍' });
+
+  const aStats = result.aStats;
+  const bStats = result.bStats;
+  let evoLine = '';
+  if (evolved) evoLine = `🔮 **${winnerPet.name} evolved!**\n`;
+
+  if (card) {
+    await reply({
+      body: `${verdict}\n`
+        + evoLine
+        + `🏆 ${winnerPet.emoji || '🐉'} ${winnerPet.name} ⚡${num(powerOf(winnerPet))} (+${num(xpGained)} XP${levelsGained ? ` → Lv ${winnerPet.level}` : ''})\n`
+        + `${defPet ? `💀 ${loserPet.name} ⚡${num(powerOf(loserPet))} — hunger ${clamp(loserPet.hunger)}/100\n` : ''}`
+        + payoutText
+        + `📖 ${story()}`,
+      attachment: card,
+    }, event.messageID);
+  } else {
+    let battleLog = '';
+    const rounds = result.log.slice(0, 8);
+    for (const line of rounds) {
+      battleLog += `${String(line).replace(/^\*\*/, '').replace(/\*\*$/, '')}\n`;
+    }
+    battleLog += `\n${hpBarLine(result.aFinal.hp, aStats.hp, atkPet)}\n${hpBarLine(result.bFinal.hp, bStats.hp, defPet)}\n`;
+
+    await reply(
+      `${verdict}\n`
+      + evoLine
+      + '· · · · · · ·\n'
+      + battleLog
+      + `🏆 ${winnerPet.emoji || '🐉'} ${winnerPet.name} ⚡${num(powerOf(winnerPet))} (+${num(xpGained)} XP${levelsGained ? ` → Lv ${winnerPet.level}` : ''})\n`
+      + `${defPet ? `💀 ${loserPet.name} ⚡${num(powerOf(loserPet))} — hunger ${clamp(loserPet.hunger)}/100\n` : ''}`
+      + payoutText
+      + `📖 ${story()}`,
+      event.messageID,
+    );
+  }
+
+  return result;
+}
+
+/** Render a one-line HP bar for text fallback. */
+function hpBarLine(hp, maxHp, pet) {
+  const emoji = pet ? (pet.emoji || '🐉') : '🦍';
+  const name = pet ? (pet.name || 'Wild') : 'Wild';
+  return `${emoji} ${name} ${pb.hpBar(hp, maxHp)} ${Math.max(0, hp)}/${maxHp} HP`;
 }
 
 module.exports = [
@@ -729,17 +765,25 @@ module.exports = [
       }
 
       const power = powerOf(pet);
+      const elem = pet.element || pb.elementFor(pet.type);
+      const stam = `${'⚡'.repeat(pb.staminaOf(pet))}${'◯'.repeat(pb.STAMINA_MAX - pb.staminaOf(pet))}`;
+      const evo = pet.form >= 1 ? ' 🔮 EVOLVED' : '';
+      const skills = pb.skillList(pet);
+      const skillStr = skills.map((s) => `${s.emoji}${s.name}`).join(' / ');
       const stones = Object.keys(STONES)
         .filter((id) => clamp(pet.stones[id]) > 0)
         .map((id) => `${STONES[id].emoji} ${clamp(pet.stones[id])}`)
         .join(' ') || 'none';
 
       await reply(
-        `🐾 **${pet.emoji || '🐉'} ${pet.name}**\n`
+        `🐾 **${pet.emoji || '🐉'} ${pet.name}**${evo}\n`
         + '· · · · · · ·\n'
         + `⚡ Power: ${num(power)}\n`
         + `📊 Level ${pet.level} · ${num(pet.xp)} XP\n`
         + `🍖 Hunger: ${clamp(pet.hunger)}/100\n`
+        + `🔮 Element: ${pb.elementLabel(elem)}\n`
+        + `⚡ Stamina: ${stam} (${pb.staminaOf(pet)}/${pb.STAMINA_MAX})\n`
+        + `⚔️ Skills: ${skillStr}\n`
         + `🛡️ Safe mode: ${pet.isSafe ? 'ON ✅' : 'OFF ⚠️ EXPOSED'}\n`
         + `💀 State: ${pet.isDead ? 'DEAD' : 'alive'}\n`
         + `💎 Stones: ${stones}\n`
@@ -795,6 +839,7 @@ module.exports = [
           ownerUid: String(userDoc.uid),
           ownerName: ownerNameOf(userDoc),
           name: 'Tiny Dragon', type: 'dragon',
+          element: 'fire',
           basePower: 100, level: 1, hunger: 100, isSafe: true,
         });
         await reply(
@@ -857,6 +902,7 @@ module.exports = [
         ownerName: ownerNameOf(userDoc),
         name: spec.name,
         type: spec.id,
+        element: pb.elementFor(spec.id),
         basePower: spec.power,
         level: 1,
         hunger: 100,
@@ -1335,6 +1381,15 @@ module.exports = [
         return;
       }
 
+      if (!pb.canBattle(myPet)) {
+        await reply(
+          `⚡ ${myPet.name} has no stamina — you must feed it first.\n`
+          + `🍖 \`!petfeed\` refills stamina faster.`,
+          event.messageID,
+        );
+        return;
+      }
+
       const target = await targetOr(reply, event.messageID, args[0], event, 'petbattle', api);
       if (!target) return;
       if (String(target.uid) === String(event.senderID)) {
@@ -1362,6 +1417,7 @@ module.exports = [
         fromName: userDoc.name,
         threadID: event.threadID,
         expires: Date.now() + 2 * 60 * 1000,
+        mode: 'pvp',
       });
       if (!parked) {
         await reply(`⏳ ${target.name} already has a pending challenge. Tell them to answer it.`, event.messageID);
@@ -1371,8 +1427,8 @@ module.exports = [
       await reply(
         `⚔️ **CHALLENGE SENT**\n`
         + '· · · · · · ·\n'
-        + `🐾 ${myPet.emoji} ${myPet.name} (⚡${num(powerOf(myPet))})\n`
-        + `🎯 vs ${theirPet.emoji} ${theirPet.name} (⚡${num(powerOf(theirPet))})\n`
+        + `🐾 ${myPet.emoji || '🐉'} ${myPet.name} ⚡${num(powerOf(myPet))} ${pb.elementLabel(myPet.element)}\n`
+        + `🎯 vs ${theirPet.emoji || '🐉'} ${theirPet.name} ⚡${num(powerOf(theirPet))} ${pb.elementLabel(theirPet.element)}\n`
         + `⏳ ${target.name} has **2 minutes** to answer with \`!petaccept\` or \`!petdeny\`.\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1427,11 +1483,11 @@ module.exports = [
         return;
       }
 
-      await runFight(reply, {
+      await runBattle(reply, {
         attacker: { user: challenger, pet: theirPet },
         defender: { user: userDoc, pet: myPet },
         quiet: false,
-        mode: 'arena',
+        mode: 'pvp',
         event,
       });
     }),
@@ -1682,20 +1738,20 @@ module.exports = [
     name: 'petfeed',
     aliases: [],
     category: 'pets',
-    description: '🍖 Feed your pet — +25 hunger for 100 coins, or free scraps if desperate',
-    usage: '!petfeed [name]',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petfeed', async () => {
-      await react('🍖');
-      const pet = await getPet(userDoc.uid, args[0]);
-      if (!pet) {
-        await reply('🐾 No pet to feed. Adopt one with `!adopt`.', event.messageID);
-        return;
-      }
+     description: '🍖 Feed your pet — +25 hunger for 100 coins, or free scraps if desperate. Also refills 1 stamina.',
+     usage: '!petfeed [name]',
+     cooldown: 60,
+     permission: 'all',
+     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petfeed', async () => {
+       await react('🍖');
+       const pet = await getPet(userDoc.uid, args[0]);
+       if (!pet) {
+         await reply('🐾 No pet to feed. Adopt one with `!adopt`.', event.messageID);
+         return;
+       }
       if (clamp(pet.hunger) >= 100) {
-        await reply(`🍖 ${pet.name} is stuffed. Full bar, no appetite.`, event.messageID);
-        return;
+         await reply(`🍖 ${pet.name} is stuffed. Full bar, no appetite.`, event.messageID);
+         return;
       }
 
       const broke = (userDoc.coins || 0) < 100;
@@ -1704,6 +1760,15 @@ module.exports = [
 
       pet.hunger = Math.min(100, clamp(pet.hunger) + 25);
       pet.lastFeed = new Date();
+
+      // Feed bonus: +1 stamina (capped at STAMINA_MAX).
+      const beforeStam = pb.staminaOf(pet);
+      pb.restoreStamina(pet, 1);
+      const afterStam = pb.staminaOf(pet);
+      const stamLine = afterStam > beforeStam
+        ? `⚡ Stamina: ${beforeStam} → ${afterStam}/${pb.STAMINA_MAX}\n`
+        : '';
+
       await save(pet);
 
       const line = cost
@@ -1713,6 +1778,7 @@ module.exports = [
       await reply(
         `${line}\n`
         + `🍖 Hunger: ${clamp(pet.hunger)}/100\n`
+        + stamLine
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + `📖 ${story()}`,
         event.messageID,
@@ -1799,7 +1865,10 @@ module.exports = [
       // Every owner is named before any of them is printed, so a name that could
       // not be resolved is visible as such rather than hidden behind the board.
       const owners = await Promise.all(top.map((p) => ownerLabel(p, api)));
-      const lines = top.map((p, i) => `${medals[i] || `${i + 1}.`} ${p.emoji || '🐉'} ${p.name} — ${owners[i]} (⚡${num(powerOf(p))})`);
+      const lines = top.map((p, i) => {
+        const elem = p.element || pb.elementFor(p.type);
+        return `${medals[i] || `${i + 1}.`} ${p.emoji || '🐉'} ${p.name} ${pb.ELEMENT_EMOJI[elem] || '❓'} — ${owners[i]} (⚡${num(powerOf(p))})`;
+      });
 
       await reply(
         `🏆 **STRONGEST PETS IN iKON CITY**\n`
@@ -2067,6 +2136,7 @@ module.exports = [
 
         hatching.name = spec.name;
         hatching.type = spec.id;
+        hatching.element = pb.elementFor(spec.id);
         hatching.basePower = spec.power;
         hatching.emoji = spec.emoji;
         hatching.level = 1;
@@ -2135,41 +2205,116 @@ module.exports = [
         return;
       }
 
-      const last = pet.lastBattleAt ? new Date(pet.lastBattleAt).getTime() : 0;
-      if (last && Date.now() - last < 1800 * 1000) {
+      // Stamina gate — one charge per hunt.
+      if (!pb.canBattle(pet)) {
         await reply(
-          `😴 ${pet.name} is still out hunting. Back in ${fmt.dur(Math.ceil(1800 - (Date.now() - last) / 1000))}.\n`
-          + `📖 ${story()}`,
+          `⚡ ${pet.name} has no stamina — you must feed it first.\n`
+          + `🍖 \`!petfeed\` refills stamina faster.`,
           event.messageID,
         );
         return;
       }
 
-      // Stronger pets hunt better. Hunger gates the run.
-      const power = powerOf(pet);
-      const loot = rand(200, 800) + Math.floor(power * 0.4);
-      const xp = rand(40, 180) + Math.floor(power * 0.15);
-      const hurt = Math.random() < 0.3;
+      // Spawn a wild species scaled to the hunter.
+      const wild = pb.wildSpecies(pet);
+      const wildPet = {
+        name: wild.name,
+        emoji: wild.emoji,
+        element: wild.element,
+        basePower: wild.basePower,
+        level: wild.level,
+        type: wild.type,
+        stats: { battles: 0, wins: 0, losses: 0, kills: 0, explores: 0 },
+        skillTier: 0,
+        form: 0,
+      };
 
-      pet.lastBattleAt = new Date();
-      pet.hunger = clamp(pet.hunger) - 25;
-      pet.stats.kills = clamp(pet.stats.kills) + 1;
-      const levels = await petXp(pet, xp);
-      await earn(userDoc, loot, 'pet:hunt', { pet: pet.name, power, xp });
-      if (hurt) pet.hunger = clamp(pet.hunger) - 20;
-      await save(pet);
-
-      const prey = pick(['a gullet rat', 'a neon hound', 'a vault sprite', 'a pigeon golem', 'a sewer troll']);
       await reply(
-        `🗡️ **${pet.name} hunted ${prey}**\n`
+        `🔍 **${pet.name} ${pet.emoji || '🐉'} encountered ${wild.emoji} ${wild.name}**\n`
         + '· · · · · · ·\n'
-        + `💰 +${kc(loot)}\n`
-        + `✨ +${num(xp)} XP${levels ? ` (**LEVEL UP!** → Level ${pet.level})` : ''}\n`
-        + `🍖 Hunger: ${clamp(pet.hunger)}/100${hurt ? ' (hunted something bigger — injured)' : ''}\n`
-        + `👛 Wallet: ${kc(userDoc.coins)}\n`
-        + `📖 ${story()}`,
+        + `⚡ Your power: ${num(powerOf(pet))} (${pb.ELEMENT_EMOJI[pet.element] || '❓'})\n`
+        + `🦹 Wild power: ${num(pb.battlePower(wildPet))} (${pb.ELEMENT_EMOJI[wild.element] || '❓'})\n`
+        + `🔥 Engaging...`,
         event.messageID,
       );
+      await wait(800);
+
+      pb.spendStamina(pet);
+      // Brief cooldown so it's not spammable.
+      pet.lastBattleAt = new Date();
+      await save(pet);
+
+      // Run the battle — wild pet may flee.
+      const result = await runBattle(reply, {
+        attacker: { user: userDoc, pet },
+        defender: { user: { uid: '', name: 'Wild', coins: 0 }, pet: wildPet },
+        mode: 'hunt',
+        event,
+      }, { wild: true });
+
+      if (!result) {
+        await reply('⚔️ The wild ' + wild.name + ' got away!', event.messageID);
+        return;
+      }
+
+      if (result.winner === 'a') {
+        // Victory — try to catch the wild pet.
+        const chance = pb.catchChance(pet, wild);
+        const didCatch = Math.random() < chance;
+
+        pet.stats = pet.stats || {};
+        pet.stats.kills = clamp(pet.stats.kills) + 1;
+        const xpGained = 100;
+        const levels = pb.grantXp(pet, xpGained);
+        const evolved = pb.evolveIfReady(pet);
+
+        let msg = `🗡️ **Hunt complete!** ${didCatch ? 'CAUGHT ' + wild.emoji + ' ' + wild.name + '!' : wild.emoji + ' ' + wild.name + ' escaped.'}\n`;
+        msg += '· · · · · · ·\n';
+        msg += `✨ +${num(xpGained)} XP${levels ? ` (**LEVEL UP!** → Level ${pet.level})` : ''}\n`;
+        if (evolved) msg += `🔮 **${pet.name} evolved!**\n`;
+        msg += `⚡ Stamina: ${pb.staminaOf(pet)}/${pb.STAMINA_MAX}\n`;
+
+        if (didCatch) {
+          const caught = await Pet.create({
+            ownerUid: String(userDoc.uid),
+            ownerName: ownerNameOf(userDoc),
+            name: wild.name,
+            type: wild.type,
+            element: wild.element,
+            basePower: wild.basePower,
+            level: wild.level,
+            hunger: 80,
+            isSafe: true,
+            isDead: false,
+          });
+          msg += `🐾 **${caught.emoji || wild.emoji} ${caught.name}** joined your menagerie!\n`;
+          await earn(userDoc, 300, 'pet:hunt', { pet: wild.name, caught: true });
+        } else {
+          const loot = rand(200, 800) + Math.floor(powerOf(pet) * 0.4);
+          await earn(userDoc, loot, 'pet:hunt', { pet: pet.name, wild: wild.name });
+          msg += `💰 Loot: ${kc(loot)}\n`;
+        }
+        msg += `👛 Wallet: ${kc(userDoc.coins)}\n`;
+        msg += `📖 ${story()}`;
+
+        await save(pet);
+        await reply(msg, event.messageID);
+      } else {
+        // Lost the hunt.
+        const catchChance = pb.catchChance(pet, wild);
+        const loot = rand(50, 200);
+        await earn(userDoc, loot, 'pet:hunt_fail', { pet: pet.name, wild: wild.name });
+        pet.hunger = Math.max(0, clamp(pet.hunger) - 30);
+        await save(pet);
+        await reply(
+          `💀 ${pet.emoji || '🐉'} ${pet.name} was bested by ${wild.emoji} ${wild.name}!\n`
+          + '· · · · · · ·\n'
+          + `💰 Scrounged ${kc(loot)} from the fight.\n`
+          + `🍖 Hunger: ${clamp(pet.hunger)}/100\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+      }
     }),
   },
 
@@ -2442,7 +2587,11 @@ module.exports = [
 
       const lines = pets.map((p) => {
         const mark = p.isDead ? '💀' : (p.isSafe ? '🛡️' : '⚠️');
-        return `${mark} ${p.emoji || '🐉'} ${p.name} — Lv ${p.level} ⚡${num(powerOf(p))} 🍖${clamp(p.hunger)}`;
+        const elem = p.element || pb.elementFor(p.type);
+        const stam = `${'⚡'.repeat(pb.staminaOf(p))}${'◯'.repeat(pb.STAMINA_MAX - pb.staminaOf(p))}`;
+        const evo = p.form >= 1 ? '🔮' : '';
+        const tier = p.skillTier > 0 ? `+${p.skillTier}` : '';
+        return `${mark} ${p.emoji || '🐉'} ${p.name} Lv ${p.level} ${pb.ELEMENT_EMOJI[elem] || '❓'} ⚡${num(powerOf(p))} 🍖${clamp(p.hunger)} ${stam} ${evo}${tier}`;
       });
 
       await reply(
@@ -2737,32 +2886,124 @@ module.exports = [
     name: 'petarena',
     aliases: ['arenastats'],
     category: 'pets',
-    description: '🏟️ Chat-wide pet arena record — battles fought here',
-    usage: '!petarena',
-    cooldown: 20,
+    description: '🏟️ Auto-matchmaking pet battle — house pays, no stake for the loser',
+    usage: '!petarena [user]',
+    cooldown: 180,
     permission: 'all',
-    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'petarena', async () => {
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petarena', async () => {
       await react('🏟️');
       if (!mongo.isReady()) {
         await reply('💾 The arena scoreboard is offline.', event.messageID);
         return;
       }
 
-      const g = await Group.findOne({ tid: String(event.threadID) });
-      const battles = g ? clamp(g.petArena.battles) : 0;
-      const wins = g ? clamp(g.petArena.wins) : 0;
-      const pending = cache.battleCount();
+      // If used without a target and no pending battle, show arena stats.
+      if (!args[0]) {
+        const g = await Group.findOne({ tid: String(event.threadID) });
+        const battles = g ? clamp(g.petArena && g.petArena.battles) : 0;
+        const wins = g ? clamp(g.petArena && g.petArena.wins) : 0;
+        const pending = cache.battleCount();
+
+        await reply(
+          `🏟️ **iKON PET ARENA — THIS CHAT**\n`
+          + '· · · · · · ·\n'
+          + `⚔️ Battles fought: ${num(battles)}\n`
+          + `🏆 Challenger wins: ${num(wins)}\n`
+          + `⏳ Live challenges pending: ${num(pending)}\n`
+          + (battles ? `📉 Challenger win rate: ${wins ? Math.round((wins / battles) * 100) : 0}%\n` : '')
+          + `⚡ Use \`!petarena <user>\` to auto-fight a random hunter, or \`!petbattle <user>\` to challenge someone directly.\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const myPet = await mainPet(userDoc.uid);
+      if (!myPet) {
+        await reply('🐾 You need a pet to fight with. Adopt one with `!adopt`.', event.messageID);
+        return;
+      }
+
+      if (!pb.canBattle(myPet)) {
+        await reply(
+          `⚡ ${myPet.name} has no stamina.\n`
+          + `🍖 \`!petfeed\` refills stamina faster.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // Auto-matchmaking: scan equipped pets of other hunters in this chat.
+      let target = null;
+      let theirPet = null;
+      if (args[0]) {
+        target = await resolveTarget(args[0], event, api);
+        if (!target || String(target.uid) === String(event.senderID)) {
+          await reply('❌ Tag another hunter to fight.', event.messageID);
+          return;
+        }
+        theirPet = await mainPet(target.uid);
+      } else {
+        // Scan all users who have an equipped pet for the closest power match.
+        const candidates = await User.find({ uid: { $ne: String(event.senderID) } })
+          .limit(50)
+          .lean();
+        const myPower = powerOf(myPet);
+        let best = null;
+        let bestDiff = Infinity;
+        for (const c of candidates) {
+          const cp = await Pet.findOne({ ownerUid: String(c.uid), isDead: false, equipped: true });
+          if (!cp || cp.isSafe) continue;
+          const cpPower = powerOf(cp);
+          const diff = Math.abs(myPower - cpPower);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            best = c;
+            theirPet = cp;
+            target = c;
+          }
+        }
+        if (!target || !theirPet) {
+          await reply(
+            `🐾 No suitable opponent found nearby.\n`
+            + `🎯 Try \`!petbattle <user>\` to challenge someone directly.`,
+            event.messageID,
+          );
+          return;
+        }
+      }
+
+      if (!theirPet) {
+        await reply(`🐾 ${target.name || 'That hunter'} has no pet to fight.`, event.messageID);
+        return;
+      }
+      if (theirPet.isSafe) {
+        await reply(
+          `🛡️ ${theirPet.name} is in SAFE mode.\n`
+          + `💡 Use \`!petbattle <user>\` to send a formal challenge they can accept.`,
+          event.messageID,
+        );
+        return;
+      }
 
       await reply(
-        `🏟️ **iKON PET ARENA — THIS CHAT**\n`
+        `🏟️ **MATCHMAKING**\n`
         + '· · · · · · ·\n'
-        + `⚔️ Battles fought: ${num(battles)}\n`
-        + `🏆 Challenger wins: ${num(wins)}\n`
-        + `⏳ Live challenges pending: ${num(pending)}\n`
-        + (battles ? `📉 Challenger win rate: ${wins ? Math.round((wins / battles) * 100) : 0}%\n` : '')
+        + `🐾 ${myPet.emoji || '🐉'} ${myPet.name} ⚡${num(powerOf(myPet))} ${pb.elementLabel(myPet.element)}\n`
+        + `🎯 vs ${theirPet.emoji || '🐉'} ${theirPet.name} ⚡${num(powerOf(theirPet))} ${pb.elementLabel(theirPet.element)}\n`
+        + `💰 House pays the winner 500 — no stake for the loser.\n`
         + `📖 ${story()}`,
         event.messageID,
       );
+
+      await wait(800);
+
+      await runBattle(reply, {
+        attacker: { user: userDoc, pet: myPet },
+        defender: { user: target, pet: theirPet },
+        mode: 'arena',
+        event,
+      });
     }),
   },
 
@@ -2909,10 +3150,10 @@ module.exports = [
         return;
       }
 
-      await runFight(reply, {
+      await runBattle(reply, {
         attacker: { user: userDoc, pet: myPet },
         defender: { user: target, pet: theirPet },
-        mode: 'arena',
+        mode: 'pvp',
         event,
       });
     }),
@@ -2964,6 +3205,309 @@ module.exports = [
         + `📖 ${story()}`,
         event.messageID,
       );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 36
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'petequip',
+    aliases: ['petactive'],
+    category: 'pets',
+    description: '🎯 Equip one of your living pets as your active battle pet',
+    usage: '!petequip <name>',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petequip', async () => {
+      await react('🎯');
+      const name = args[0];
+      if (!name) {
+        await reply('❌ Usage: `!petequip <name>` — pick a living pet from `!petinventory`.', event.messageID);
+        return;
+      }
+      const pet = await getPet(userDoc.uid, args[0]);
+      if (!pet) {
+        await reply(`🐾 No living pet called \`${name}\`. Check \`!petinventory\`.`, event.messageID);
+        return;
+      }
+
+      // Unequip everything first.
+      await Pet.updateMany(
+        { ownerUid: String(userDoc.uid), equipped: true },
+        { $set: { equipped: false } },
+      );
+
+      pet.equipped = true;
+      await save(pet);
+
+      const elem = pet.element || pb.elementFor(pet.type);
+      await reply(
+        `🎯 **${pet.emoji || '🐉'} ${pet.name} equipped!**\n`
+        + '· · · · · · ·\n'
+        + `⚔️ Active in \`!petbattle\`, \`!petarena\`, \`!pethunt\` and \`!petgym\`.\n`
+        + `⚡ Power: ${num(powerOf(pet))}  ${pb.elementLabel(elem)}\n`
+        + `⚡ Stamina: ${pb.staminaOf(pet)}/${pb.STAMINA_MAX}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 37
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'petunequip',
+    aliases: [],
+    category: 'pets',
+    description: '🔓 Unequip your active battle pet — they go back to the roster',
+    usage: '!petunequip [name]',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petunequip', async () => {
+      await react('🔓');
+      const pet = await getPet(userDoc.uid, args[0]);
+      if (!pet) {
+        await reply('🐾 No living pet found. Check `!petinventory`.', event.messageID);
+        return;
+      }
+
+      if (!pet.equipped) {
+        const equipped = await Pet.findOne({ ownerUid: String(userDoc.uid), equipped: true });
+        if (!equipped) {
+          await reply('🐾 No pet is currently equipped.', event.messageID);
+          return;
+        }
+        equipped.equipped = false;
+        await save(equipped);
+        await reply(`🔓 Unequipped **${equipped.name}**.`, event.messageID);
+        return;
+      }
+
+      pet.equipped = false;
+      await save(pet);
+      await reply(`🔓 Unequipped **${pet.name}**.`, event.messageID);
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 38
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'petskill',
+    aliases: ['petskills'],
+    category: 'pets',
+    description: '📜 List a pet\'s combat skills and their tier',
+    usage: '!petskill [name]',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petskill', async () => {
+      await react('📜');
+      const pet = await getPet(userDoc.uid, args[0]);
+      if (!pet) {
+        await reply('🐾 No pet to inspect. Adopt one with `!adopt`.', event.messageID);
+        return;
+      }
+
+      const elem = pet.element || pb.elementFor(pet.type);
+      const skills = pb.skillList(pet);
+      const tier = Number(pet.skillTier) || 0;
+      const tierMult = pb.skillTierMult(tier);
+      const tierLabel = tier === pb.SKILL_TIER_MAX ? 'MAX' : `${tier}/${pb.SKILL_TIER_MAX}`;
+
+      const lines = skills.map((s) => {
+        const rel = pb.resolveElement(elem, elem);  // self = neutral
+        return `${s.emoji} **${s.name}** — ${s.mult}× damage · ${s.desc}`;
+      });
+
+      await reply(
+        `📜 **${pet.emoji || '🐉'} ${pet.name}**'s Combat Skills\n`
+        + '· · · · · · ·\n'
+        + `🔮 Element: ${pb.elementLabel(elem)}\n`
+        + `⚔️ Tier: ${tierLabel} (×${tierMult.toFixed(1)} damage)\n`
+        + `${lines.join('\n')}\n`
+        + `🔼 \`!petskillup <name> <skill>\` to upgrade (500×tier coins).\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 39
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'petskillup',
+    aliases: ['petskillup', 'skillup'],
+    category: 'pets',
+    description: '🔼 Upgrade a pet\'s skill tier — amplifies all skill damage',
+    usage: '!petskillup <name> <skill>',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petskillup', async () => {
+      await react('🔼');
+      if (!args[0]) {
+        await reply('❌ Usage: `!petskillup <name> <skill> \` — check \`!petskill <name>\` first.', event.messageID);
+        return;
+      }
+      const pet = await getPet(userDoc.uid, args[0]);
+      if (!pet) {
+        await reply('🐾 No living pet to upgrade. Adopt one with `!adopt`.', event.messageID);
+        return;
+      }
+
+      const currentTier = Number(pet.skillTier) || 0;
+      if (currentTier >= pb.SKILL_TIER_MAX) {
+        await reply(
+          `🔝 ${pet.name}'s skills are already at MAX tier (${pb.SKILL_TIER_MAX}).\n`
+          + `🔮 Further growth comes from evolving at level 25.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const nextTier = currentTier + 1;
+      const cost = 500 * nextTier;
+      if ((userDoc.coins || 0) < cost) {
+        await reply(
+          `💸 Upgrading to tier ${nextTier} costs ${kc(cost)} (500 × ${nextTier}).\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // The skill argument is informational — tier is global to the pet.
+      const skillArg = args[1] || '';
+      const skills = pb.skillList(pet);
+      const validSkill = skills.find((s) => s.id === skillArg || s.name.toLowerCase() === String(skillArg).toLowerCase());
+
+      if (skillArg && !validSkill) {
+        await reply(
+          `❌ \`${skillArg}\` is not a skill your pet knows.\n`
+          + `📜 Use \`!petskill ${pet.name}\` to see available skills.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await spend(userDoc, cost, 'pet:skillup', { pet: pet.name, tier: nextTier, skill: validSkill ? validSkill.id : 'all' });
+      pet.skillTier = nextTier;
+      await save(pet);
+
+      const skillName = validSkill ? `${validSkill.emoji} ${validSkill.name}` : 'all skills';
+      await reply(
+        `🔼 **${pet.name}'s ${skillName} upgraded to Tier ${nextTier}!**\n`
+        + '· · · · · · ·\n'
+        + `⚔️ All skills now deal ×${pb.skillTierMult(nextTier).toFixed(1)} damage.\n`
+        + `💸 Cost: ${kc(cost)}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 40
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'petgym',
+    aliases: ['gymboss', 'petboss'],
+    category: 'pets',
+    description: '🏋️🏽 Daily guild boss — all hunters chip away at a shared health pool',
+    usage: '!petgym',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ event, userDoc, reply, react }) => guard(reply, event.messageID, 'petgym', async () => {
+      await react('🏋️🏽');
+      if (!mongo.isReady()) {
+        await reply('💾 The gym is locked — database offline.', event.messageID);
+        return;
+      }
+
+      const pet = await mainPet(userDoc.uid);
+      if (!pet) {
+        await reply('🐾 You need a pet to challenge the guild boss. Adopt one with `!adopt`.', event.messageID);
+        return;
+      }
+
+      // Stamina gate.
+      if (!pb.canBattle(pet)) {
+        await reply(
+          `⚡ ${pet.name} has no stamina — you must feed it first.\n`
+          + `🍖 \`!petfeed\` refills stamina faster.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // Get or initialise the guild boss.
+      const g = await Group.findOne({ tid: String(event.threadID) });
+      if (!g) {
+        await reply('🏋️🏽 No guild hall registered for this chat.', event.messageID);
+        return;
+      }
+
+      const now = Date.now();
+      let boss = pb.gymBoss(g, now);
+
+      // Daily reset check.
+      if (pb.gymNeedsReset(boss, now)) {
+        boss = pb._resetGym(boss);
+        boss.active = true;
+      }
+
+      // First attacker of the day starts it.
+      if (!boss.active) {
+        boss.active = true;
+        boss.lastReset = new Date();
+      }
+
+      // Spend stamina.
+      pb.spendStamina(pet);
+      await save(pet);
+
+      // Volley the boss.
+      const volley = pb.gymVolley(pet, boss);
+      boss.hp = volley.bossHp;
+
+      // Rewards.
+      const reward = pb.gymRewards(volley.damage, 0, pb.battlePower(pet));
+
+      // Bonus XP for the pet.
+      const xpGained = Math.floor(reward.xp / 5);
+      const levels = pb.grantXp(pet, xpGained);
+      const evolved = pb.evolveIfReady(pet);
+
+      await earn(userDoc, reward.coins, 'pet:gym', { boss: boss.name, damage: volley.damage });
+
+      // Save boss state.
+      g.gymBoss = boss;
+      await g.save();
+      await save(pet);
+
+      const bossPct = Math.max(0, Math.round((boss.hp / boss.maxHp) * 100));
+      const killed = boss.hp <= 0;
+
+      let msg = `🏋️🏽 **${pet.emoji || '🐉'} ${pet.name} vs ${boss.emoji} ${boss.name}**\n`;
+      msg += '· · · · · · ·\n';
+      msg += `${volley.crit ? '💥 CRIT! ' : ''}${pb.elementLabel(pet.element || pb.elementFor(pet.type))} ${pet.name} dealt **${num(volley.damage)}** damage`;
+      msg += ` (${volley.elementMult}× element) — boss at **${bossPct}%**\n`;
+      msg += `💰 +${kc(reward.coins)}  ✨ +${num(xpGained)} XP${levels ? ` (**LEVEL UP!** → Lv ${pet.level})` : ''}\n`;
+      msg += `⚡ Stamina: ${pb.staminaOf(pet)}/${pb.STAMINA_MAX}\n`;
+      if (evolved) msg += `🔮 **${pet.name} evolved!**\n`;
+      if (killed) {
+        msg += `💀 **THE BOSS IS DOWN!** All hunters get bonus rewards tomorrow.\n`;
+        pb.clearGymBoss(boss);
+        g.gymBoss = boss;
+        await g.save();
+      } else {
+        msg += `📖 ${story()}`;
+      }
+
+      await reply(msg, event.messageID);
     }),
   },
 ];

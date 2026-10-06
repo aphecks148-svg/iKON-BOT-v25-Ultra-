@@ -114,6 +114,18 @@ const GroupSchema = new mongoose.Schema(
       steals: { type: Number, default: 0 },
     },
 
+    // Daily guild boss — shared health pool that resets each day.
+    gymBoss: {
+      name: { type: String, default: 'The Vault Cannon' },
+      emoji: { type: String, default: '💥' },
+      element: { type: String, default: 'dark' },
+      basePower: { type: Number, default: 5000 },
+      hp: { type: Number, default: 5000 },
+      maxHp: { type: Number, default: 5000 },
+      active: { type: Boolean, default: false },
+      lastReset: { type: Date, default: null },
+    },
+
     // module 6 — group administration. Every moderator tool the chat needs.
     gc: {
       // Announced policy text, shown by !gcpolicy.
