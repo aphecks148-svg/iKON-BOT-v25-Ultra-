@@ -104,7 +104,7 @@ function oneLiner(text, max) {
   let s = clean(text).split('\n').join(' ').replace(/\s{2,}/g, ' ');
   s = s.replace(/^["'“‘]+/, '').replace(/["'”’]+$/, '');
   if (s.length < 3 || s.length > max) return null;
-  if (/^(sorry|i can'?t|i cannot|as an ai|i am an ai|i'?m sorry)\b/i.test(s)) return null;
+  if (/^(sorry|i can'?t|i cannot|as an ai|i am an ai|i('?m| am) sorry)\b/i.test(s)) return null;
   return s;
 }
 
