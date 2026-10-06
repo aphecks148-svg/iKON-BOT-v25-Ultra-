@@ -50,6 +50,7 @@ const cards = require('../bot/cards');
 const profile = require('../bot/profile');
 const userTarget = require('../bot/target');
 const gcs = require('../bot/gcs');
+const aifun = require('../bot/aifun');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -81,7 +82,7 @@ const STAB_WAYS = [
   'a broken bottle and poor judgment',
 ];
 
-/** Roasts. No AI anywhere in this module, by design — these are hand-written. */
+/** Roasts. The offline fallback — the AI writes them when Groq answers. */
 const ROASTS = [
   'Your personality is a filename called "final_v2_FINAL".',
   'You are proof that a group chat can be a crime scene.',
@@ -1131,7 +1132,7 @@ const commands = [];
     name: 'roast',
     aliases: ['roast2'],
     category: 'fun',
-    description: '🔥 Roast somebody using 20 hand-written roasts. No AI, on purpose',
+    description: '🔥 Roast somebody — written fresh by the AI, hand-written when it is away',
     usage: '!roast @user',
     cooldown: 10,
     permission: 'all',
@@ -1151,9 +1152,11 @@ const commands = [];
         return;
       }
 
-      // Hand-written on purpose: an AI roast is either milquetoast or invents a
-      // fact about a real person, and both are worse than a bit about punctuation.
-      const line = pick1(ROASTS);
+      // Fresh from the AI when Groq answers, hand-written when it does
+      // not. The prompt hands the model nothing but the target's name, so
+      // it has no facts to invent about a real person.
+      const aiLine = await aifun.genRoast(who.name);
+      const line = aiLine || aifun.pickFresh(ROASTS, 'roast');
       f(userDoc).roasts += 1;
       await save(userDoc);
 
@@ -1163,7 +1166,7 @@ const commands = [];
         + '· · · · · · ·\n'
         + `${line}\n\n`
         + `👛 Your wallet: ${kc(userDoc.coins)}\n`
-        + '📖 _Pre-written. No AI was involved in this one._',
+        + `📖 _${aiLine ? 'Written this second, and still about you.' : 'Pre-written. No AI was involved in this one.'}_`,
         event.messageID,
       );
     await art(reply, event.messageID, {
@@ -1172,7 +1175,7 @@ const commands = [];
       threadID: event.threadID,
       left: { uid: userDoc.uid, name: userDoc.name },
       right: { uid: who.uid, name: who.name },
-      footer: 'PRE-WRITTEN. NO AI WAS INVOLVED IN THIS ONE.',
+      footer: aiLine ? 'WRITTEN THIS SECOND.' : 'PRE-WRITTEN. NO AI WAS INVOLVED IN THIS ONE.',
     });
 
     }),
@@ -1202,7 +1205,8 @@ const commands = [];
         return;
       }
 
-      const line = pick1(BACKHANDED);
+      const aiLine = await aifun.genCompliment(who.name);
+      const line = aiLine || aifun.pickFresh(BACKHANDED, 'compliment');
       f(userDoc).compliments += 1;
       await save(userDoc);
 
@@ -2314,7 +2318,7 @@ const commands = [];
         return;
       }
 
-      const dare = pick1(DARES);
+      const dare = (await aifun.genDare()) || aifun.pickFresh(DARES, 'dare');
       // setPendingGame refuses to overwrite, so one person cannot be spammed
       // with dares while an old one is still open.
       const opened = cache.setPendingGame('dare', event.threadID, String(who.uid), {
@@ -2353,7 +2357,7 @@ const commands = [];
     permission: 'all',
     execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'truth', async () => {
       await react('🫢');
-      const q = pick1(TRUTHS);
+      const q = (await aifun.genTruth()) || aifun.pickFresh(TRUTHS, 'truth');
 
       // Thread-scoped with an empty uid, so the newest question replaces the old
       // one and two groups never collide.
@@ -2422,7 +2426,7 @@ const commands = [];
         return;
       }
 
-      const pair = pick1(WYR);
+      const pair = (await aifun.genWyr()) || aifun.pickFresh(WYR, 'wyr');
       cache.putPendingGame('wyr', event.threadID, '', { pair, votes: {} });
       await reply(
         `🤔 **WOULD YOU RATHER**\n`
@@ -2466,7 +2470,9 @@ const commands = [];
         return;
       }
 
-      const item = args.length ? args.join(' ').trim() : pick1(NEVER);
+      const item = args.length
+        ? args.join(' ').trim()
+        : ((await aifun.genNever()) || aifun.pickFresh(NEVER, 'never'));
       cache.putPendingGame('nhi', event.threadID, '', { item, by: userDoc.name, answered: 0 });
       await reply(
         `🍻 **NEVER HAVE I EVER**\n`
@@ -2509,7 +2515,12 @@ const commands = [];
         'You have never flexed. (Deeply implausible.)',
         'You have never been bonked.',
       ];
-      const line = pick1(lies);
+      // The AI writes the lie from the player's own counters, so it sits
+      // plausibly between two statements that are true by construction.
+      // The hand-written list is the offline fallback.
+      const stats = `roasts run: ${t.roasts}, hugs given: ${t.giftsOut}, kills: ${t.kills}, `
+        + `coins held: ${userDoc.coins}, dares failed: ${t.daresFailed}, cuddles: ${t.cuddles}`;
+      const line = (await aifun.genLie(stats)) || aifun.pickFresh(lies, 'lie');
       const order = [...picked, line].sort(() => Math.random() - 0.5);
 
       cache.putPendingGame('2t1l', event.threadID, '', { order, truths: picked, lie: line });
@@ -2578,13 +2589,14 @@ const commands = [];
         return;
       }
 
-      const line = pick1(PICKUP_LINES);
+      const aiLine = await aifun.genPickup();
+      const line = aiLine || aifun.pickFresh(PICKUP_LINES, 'pickup');
       await reply(
         `💘 **${userDoc.name} → ${who.name}**\n`
         + '· · · · · · ·\n'
         + `"${line}"\n\n`
         + `👛 Your wallet: ${kc(userDoc.coins)}\n`
-        + '📖 _Pre-written. There is no AI in this module._',
+        + `📖 _${aiLine ? 'Written this second, just for them.' : 'Pre-written. There is no AI in this module.'}_`,
         event.messageID,
       );
     }),

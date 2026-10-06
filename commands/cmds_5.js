@@ -29,6 +29,7 @@ const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const userTarget = require('../bot/target');
+const aifun = require('../bot/aifun');
 
 const CASH = 'K-Cash';
 const ULTRA = 'iKON-BOT v2 Ultra';
@@ -2198,7 +2199,12 @@ const commands = [];
         return;
       }
 
-      await reply(`😂 **${pick(JOKES)}**\n━━━━━━━━━━━━━━━\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`, event.messageID);
+      // Fresh from the AI when Groq answers, the hand-written table when
+      // it does not. Either way the stake is already taken, so a game is
+      // never skipped over a slow model.
+      const text = (await aifun.genJoke()) || aifun.pickFresh(JOKES, 'joke');
+
+      await reply(`😂 **${text}**\n━━━━━━━━━━━━━━━\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`, event.messageID);
     }),
   });
 
@@ -2221,7 +2227,7 @@ const commands = [];
         return;
       }
 
-      const q = pick(QUOTES);
+      const q = (await aifun.genQuote()) || aifun.pickFresh(QUOTES, 'quote');
       cache.setGameState(event.senderID, 'quote', { author: q.author, bet }, 90 * 1000);
       await reply(
         `💬 **WHO SAID THIS?**\n`
@@ -2300,7 +2306,7 @@ const commands = [];
         return;
       }
 
-      const r = pick(RIDDLES);
+      const r = (await aifun.genRiddle()) || aifun.pickFresh(RIDDLES, 'riddle');
       cache.setGameState(event.senderID, 'riddle', { answer: r.a, bet }, 120 * 1000);
       await reply(
         `🧩 **RIDDLE**\n`
@@ -2336,7 +2342,9 @@ const commands = [];
       cache.clearGameState(event.senderID);
       const bet = state.payload.bet;
 
-      const right = state.payload.answer.some((a) => a === guess);
+      // Word-level matching: an AI riddle may accept "a keyboard" where
+      // the player typed "keyboard", but "mars" must not hit "marseille".
+      const right = aifun.answerHits(guess, state.payload.answer);
       if (right) {
         await payout(userDoc, bet * 2, 'game:riddle_win', { bet });
         await reply(
@@ -2378,7 +2386,7 @@ const commands = [];
         return;
       }
 
-      const t = pick(TRIVIA);
+      const t = (await aifun.genTrivia()) || aifun.pickFresh(TRIVIA, 'trivia');
       cache.setGameState(event.senderID, 'trivia', { answer: t.a, bet }, 30 * 1000);
       await reply(
         `🧠 **TRIVIA SPRINT** — ${kc(bet)} on the line\n`
@@ -2412,7 +2420,7 @@ const commands = [];
       const guess = String(args.join(' ')).toLowerCase().trim();
       cache.clearGameState(event.senderID);
       const bet = state.payload.bet;
-      const right = state.payload.answer.includes(guess);
+      const right = aifun.answerHits(guess, state.payload.answer);
 
       if (right) {
         await payout(userDoc, bet * 2, 'game:trivia_win', { bet });
