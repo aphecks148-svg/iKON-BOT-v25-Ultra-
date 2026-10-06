@@ -227,6 +227,27 @@ const GroupSchema = new mongoose.Schema(
       passedFromName: { type: String, default: '' },
       expires: { type: Date, default: null },
     },
+
+    // module 2 — the chat lottery. One draw at a time,
+    // settled lazily: a bot cannot promise a timer will
+    // survive a restart, so the draw is resolved the next
+    // time anybody buys a ticket or asks for the board,
+    // rather than left to a clock nobody is guaranteed to
+    // still be running.
+    lottery: {
+      pot: { type: Number, default: 0, min: 0 },
+      tickets: {
+        type: [{
+          uid: { type: String, default: '' },
+          name: { type: String, default: '' },
+          count: { type: Number, default: 0, min: 0 },
+        }],
+        default: [],
+      },
+      endsAt: { type: Date, default: null },
+      lastDrawAt: { type: Date, default: null },
+      lastWinner: { uid: { type: String, default: '' }, name: { type: String, default: '' }, amount: { type: Number, default: 0 } },
+    },
   },
   { timestamps: true },
 );

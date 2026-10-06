@@ -22,6 +22,7 @@
 const User = require('../models/User');
 const Economy = require('../models/Economy');
 const Inventory = require('../models/Inventory');
+const Group = require('../models/Group');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
 const cards = require('../bot/cards');
@@ -283,6 +284,114 @@ async function targetOr(reply, messageID, ref, event, label, api) {
   }
   return target;
 }
+
+// ───────────────────────────────────────────────────────────
+// LOTTERY & CRATES
+// ───────────────────────────────────────────────────────────
+
+/** One lottery ticket, in the scaled economy. */
+const LOTTERY_PRICE = k(50); // 500 K-Cash
+/** A draw an hour, settled when someone next looks. */
+const LOTTERY_PERIOD_MS = 60 * 60 * 1000;
+/** A full board ends the draw early, so a busy chat is not left waiting on the clock. */
+const LOTTERY_MAX_TICKETS = 200;
+/** At most ten tickets in one buy, so a typo cannot empty a wallet. */
+const LOTTERY_MAX_BUY = 10;
+
+/**
+ * Settle a finished lottery draw.
+ *
+ * A bot cannot promise a background timer will survive a
+ * restart, so the lottery has no clock of its own. The
+ * draw is settled the next time anybody buys a ticket or
+ * asks for the board, which is also what keeps the pot
+ * from sitting unclaimed forever.
+ *
+ * The winner is drawn weighted by ticket count — more
+ * tickets, more chances — and takes the whole pot.
+ *
+ * @returns {Promise<{pot:number, winUid:string, winName:string, full:boolean}|null>}
+ */
+async function settleLottery(group) {
+  const lot = group.lottery;
+  if (!lot || !lot.endsAt) return null;
+
+  const now = Date.now();
+  const due = new Date(lot.endsAt).getTime() <= now;
+  // The tickets are captured before the board is cleared,
+  // because the draw reads them and clearing first would
+  // leave the winner undefined and the pot unpaid.
+  const tickets = lot.tickets || [];
+  const total = tickets.reduce((s, t) => s + (t.count || 0), 0);
+  const full = total >= LOTTERY_MAX_TICKETS;
+  if (!due && !full) return null;
+
+  const pot = clamp(lot.pot);
+  group.lottery.tickets = [];
+  group.lottery.pot = 0;
+  group.lottery.lastDrawAt = new Date();
+  group.lottery.endsAt = new Date(now + LOTTERY_PERIOD_MS);
+
+  // Nothing was sold: roll the board forward and pay nobody.
+  if (!total) {
+    group.lottery.lastWinner = { uid: '', name: '', amount: 0 };
+    await save(group);
+    return null;
+  }
+
+  // Weighted draw: every ticket is one entry.
+  let roll = rand(1, total);
+  let winner = tickets[0];
+  for (const t of tickets) {
+    roll -= (t.count || 0);
+    if (roll <= 0) { winner = t; break; }
+  }
+  const winUid = String(winner.uid || '');
+  const winName = winner.name || 'someone';
+  group.lottery.lastWinner = { uid: winUid, name: winName, amount: pot };
+  await save(group);
+
+  if (pot > 0 && winUid) {
+    const userDoc = await User.findOne({ uid: winUid });
+    if (userDoc) {
+      userDoc.coins = clamp((userDoc.coins || 0) + pot);
+      await save(userDoc);
+      await ledger(userDoc.uid, 'lottery_win', pot, userDoc.coins, { pot });
+    }
+  }
+
+  return { pot, winUid, winName, full };
+}
+
+/** Roll a rarity out of a weighted crate table. */
+function rollRarity(table) {
+  const total = table.reduce((s, [, w]) => s + w, 0);
+  let roll = rand(1, total);
+  for (const [key, w] of table) {
+    roll -= w;
+    if (roll <= 0) return key;
+  }
+  return table[table.length - 1][0];
+}
+
+/** The black-market crates. Each opens into a real shop item. */
+const CRATES = {
+  basic: {
+    emoji: '🟫', name: 'Basic Crate', price: k(150),
+    desc: 'Mostly common, with a rare treat inside.',
+    table: [['common', 62], ['uncommon', 28], ['rare', 10]],
+  },
+  rare: {
+    emoji: '🟦', name: 'Rare Crate', price: k(500),
+    desc: 'A fair shot at Epic, a slim one at Legendary.',
+    table: [['uncommon', 24], ['rare', 38], ['epic', 28], ['legendary', 10]],
+  },
+  epic: {
+    emoji: '🟪', name: 'Epic Crate', price: k(1500),
+    desc: 'Legendary is within reach, and Mythic glints.',
+    table: [['rare', 26], ['epic', 40], ['legendary', 26], ['mythic', 8]],
+  },
+};
 
 module.exports = [
   // ─────────────────────────────────────────────────────────
@@ -1779,6 +1888,192 @@ module.exports = [
         + `📊 Average net worth: ${kc(avg)}\n`
         + `👑 Tycoons (100k+): ${Number(row.rich).toLocaleString('en-US')}\n`
         + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 36
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'lottery',
+    aliases: ['lotto'],
+    category: 'economy',
+    description: '🎫 iKON Lottery — one draw an hour, winner takes the whole pot',
+    usage: '!lottery [buy <count>]',
+    hint: 'Tickets are 500 each and every ticket is one chance. The board also closes when it fills.',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'lottery', async () => {
+      await react('🎫');
+      if (!mongo.isReady()) {
+        await reply('💾 Database offline — the lottery board is unavailable.', event.messageID);
+        return;
+      }
+      const group = await Group.findOne({ gid: String(event.threadID) });
+      if (!group) {
+        await reply('❌ No arcade record for this chat yet.', event.messageID);
+        return;
+      }
+
+      const sub = (args[0] || '').toLowerCase();
+
+      // ── buy tickets ──────────────────────────────────
+      if (sub === 'buy') {
+        // Settle an old draw before selling into a new one,
+        // so the pot a hunter just joined is the live one.
+        const settled = await settleLottery(group);
+        if (settled) {
+          await reply(
+            `🎫 **LOTTERY DRAW**\n`
+            + '· · · · · · ·\n'
+            + `🏆 ${settled.winName} takes the ${kc(settled.pot)} pot${settled.full ? ' — the board was full' : ''}.\n`,
+            event.messageID,
+          );
+        }
+
+        const count = Math.min(amountArg(args.slice(1), 1), LOTTERY_MAX_BUY);
+        const cost = LOTTERY_PRICE * count;
+        if (cost > (userDoc.coins || 0)) {
+          await reply(`❌ ${count} ticket${count === 1 ? '' : 's'} cost ${kc(cost)} and you have ${kc(userDoc.coins)}.`, event.messageID);
+          return;
+        }
+
+        await debit(userDoc, cost, 'lottery_buy', { count, cost });
+
+        const lot = group.lottery;
+        lot.pot = clamp(lot.pot) + cost;
+        let mine = (lot.tickets || []).find((t) => String(t.uid) === String(userDoc.uid));
+        if (!mine) {
+          mine = { uid: String(userDoc.uid), name: userDoc.name, count: 0 };
+          lot.tickets = lot.tickets || [];
+          lot.tickets.push(mine);
+        }
+        mine.count = clamp(mine.count) + count;
+        if (!lot.endsAt) lot.endsAt = new Date(Date.now() + LOTTERY_PERIOD_MS);
+        await save(group);
+
+        const total = lot.tickets.reduce((s, t) => s + (t.count || 0), 0);
+        const left = lot.endsAt ? Math.max(0, new Date(lot.endsAt).getTime() - Date.now()) : 0;
+        await reply(
+          `🎫 Bought ${count} ticket${count === 1 ? '' : 's'} for ${kc(cost)}.\n`
+          + '· · · · · · ·\n'
+          + `💰 Pot: ${kc(lot.pot)}\n`
+          + `🎟️ Your tickets: ${mine.count} of ${total}\n`
+          + `⏱️ Draw in: ${left > 0 ? fmt.dur(Math.ceil(left / 1000)) : 'settling…'}\n`
+          + `🏆 Every ticket is one chance. ${kc(LOTTERY_PRICE)} each.\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // ── the board ────────────────────────────────────
+      const settled = await settleLottery(group);
+      if (settled) {
+        await reply(
+          `🎫 **LOTTERY DRAW**\n`
+          + '· · · · · · ·\n'
+          + `🏆 ${settled.winName} takes the ${kc(settled.pot)} pot${settled.full ? ' — the board was full' : ''}.\n`,
+          event.messageID,
+        );
+      }
+
+      const lot = group.lottery;
+      const total = (lot.tickets || []).reduce((s, t) => s + (t.count || 0), 0);
+      const mine = (lot.tickets || []).find((t) => String(t.uid) === String(userDoc.uid));
+      const left = lot.endsAt ? Math.max(0, new Date(lot.endsAt).getTime() - Date.now()) : 0;
+
+      await reply(
+        `🎫 **iKON LOTTERY**\n`
+        + '· · · · · · ·\n'
+        + `💰 Pot: ${kc(lot.pot || 0)}\n`
+        + `🎫 Tickets sold: ${total}${total >= LOTTERY_MAX_TICKETS ? ' — board full' : ''}\n`
+        + `⏱️ Draw in: ${left > 0 ? fmt.dur(Math.ceil(left / 1000)) : 'settling…'}\n`
+        + `🎟️ Your tickets: ${mine ? mine.count : 0}\n`
+        + (lot.lastWinner && lot.lastWinner.uid
+          ? `🏆 Last draw: ${lot.lastWinner.name} won ${kc(lot.lastWinner.amount)}\n`
+          : '')
+        + `🛒 \`${config.PREFIX}lottery buy <count>\` — ${kc(LOTTERY_PRICE)} a ticket, max ${LOTTERY_MAX_BUY}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 37
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'crate',
+    aliases: ['crates', 'box'],
+    category: 'economy',
+    description: '🎁 iKON Crates — buy a box, roll a random item off a rarity shelf',
+    usage: '!crate [open <type>]',
+    hint: 'Every crate opens straight into your inventory. Rarer crates reach rarer shelves.',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'crate', async () => {
+      await react('🎁');
+      const sub = (args[0] || '').toLowerCase();
+
+      // ── open a crate ─────────────────────────────────
+      if (sub === 'open') {
+        const type = String(args[1] || '').toLowerCase();
+        const crate = CRATES[type];
+        if (!crate) {
+          await reply(
+            `❌ No crate called \`${type}\`. Crates: ${Object.keys(CRATES).map((c) => `\`${c}\``).join(', ')}\n`
+            + `🎁 \`${config.PREFIX}crate\` lists every box.`,
+            event.messageID,
+          );
+          return;
+        }
+        if (crate.price > (userDoc.coins || 0)) {
+          await reply(`❌ A ${crate.name} costs ${kc(crate.price)} and you have ${kc(userDoc.coins)}.`, event.messageID);
+          return;
+        }
+
+        await debit(userDoc, crate.price, 'crate_open', { type, price: crate.price });
+
+        // Roll the rarity, then a random item off that
+        // shelf. A table typo falls back to the common
+        // shelf rather than opening an empty box.
+        const rolled = rollRarity(crate.table);
+        let shelf = Object.entries(SHOP_ITEMS).filter(([, it]) => it.rarity === rolled);
+        if (!shelf.length) shelf = Object.entries(SHOP_ITEMS).filter(([, it]) => it.rarity === 'common');
+        const [itemId, item] = shelf[rand(0, shelf.length - 1)];
+
+        const inv = await getInv(userDoc.uid);
+        await addItem(inv, itemId, 1);
+
+        await reply(
+          `🎁 **${crate.name} OPENED**\n`
+          + '· · · · · · ·\n'
+          + `🎉 You pulled ${item.emoji} **${item.name}** — ${rarity.label(item.rarity)}\n`
+          + `🗒️ ${item.desc}\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `🎒 Check it with \`${config.PREFIX}inventory\`\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // ── the shelves ──────────────────────────────────
+      const lines = Object.entries(CRATES).map(([key, crate]) => {
+        const weight = crate.table.reduce((s, [, w]) => s + w, 0);
+        const odds = crate.table.map(([rk, w]) => `${rarity.symbol(rk)} ${Math.round((w / weight) * 100)}%`).join(' ');
+        return `${crate.emoji} **${crate.name}** — ${kc(crate.price)}\n   ${crate.desc}\n   ${odds}\n   \`${config.PREFIX}crate open ${key}\``;
+      });
+      await reply(
+        `🎁 **iKON CRATES** — ${Object.keys(CRATES).length} boxes\n`
+        + '· · · · · · ·\n'
+        + `${lines.join('\n\n')}\n`
+        + '· · · · · · ·\n'
+        + `🎒 Every crate opens straight into your inventory.\n`
+        + `⚖️ Resale is 50% — the market is greedy.`,
         event.messageID,
       );
     }),

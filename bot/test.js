@@ -6290,10 +6290,22 @@ const PIKACHU = dex.find('pikachu');
       // The whole point: the war MOVES coins, it does not make them.
       const after = store[0].treasury + store[1].treasury;
       assert.strictEqual(after, before, `a war conserves coins — ${before} before, ${after} after`);
-      // One treasury grew by the pot, the other shrank by its wager.
-      const treasuries = store.map((k) => k.treasury).sort((a, b) => a - b);
-      assert.strictEqual(treasuries[0], 1000, 'the loser paid its 2,000 wager');
-      assert.strictEqual(treasuries[1], 6000, 'the winner banked the 4,000 pot');
+      // The outcome is a coin flip weighted by power, so the
+      // test reads who won off the reply instead of assuming
+      // it. Either way the loser pays its wager and the winner
+      // banks the pot — that is the invariant, not who won.
+      const alphaWon = /Alpha WINS/.test(said);
+      const wager = 2000;
+      const pot = 4000;
+      const alpha = store.find((k) => k.name === 'Alpha');
+      const beta = store.find((k) => k.name === 'Beta');
+      if (alphaWon) {
+        assert.strictEqual(alpha.treasury, 3000 - wager + pot, 'Alpha, the winner, banked the pot');
+        assert.strictEqual(beta.treasury, 4000 - wager, 'Beta, the loser, paid its wager');
+      } else {
+        assert.strictEqual(beta.treasury, 4000 - wager + pot, 'Beta, the winner, banked the pot');
+        assert.strictEqual(alpha.treasury, 3000 - wager, 'Alpha, the loser, paid its wager');
+      }
       // The war is on the record, and neither side may fight again for an hour.
       assert.ok(store.every((k) => k.lastWarAt), 'both kingdoms recorded the war');
       assert.ok(
