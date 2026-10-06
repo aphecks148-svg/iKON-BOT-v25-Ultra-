@@ -3,7 +3,7 @@
 /**
  * Registry validation — shared by `node bot/check.js` and the `!check` command.
  *
- * Verifies the cmds_1..10 contract:
+ * Verifies the cmds_1..11 contract:
  *   - every file exports a plain array
  *   - every command has name/aliases/category/description/usage/cooldown/permission/execute
  *   - names and aliases are unique
@@ -17,7 +17,7 @@ const loader = require('./loader');
 const config = require('../config');
 
 const SHAPE = ['name', 'aliases', 'category', 'description', 'usage', 'cooldown', 'permission', 'execute'];
-const MODULES = 10;
+const MODULES = 11;
 const TARGET_PER_MODULE = 35;
 
 /**
@@ -57,7 +57,7 @@ function validate(registry, loaderResult) {
   return { problems, categories: new Set([...registry.values()].map((c) => c.category)).size };
 }
 
-/** Command count per module key (cmds_1 … cmds_10). */
+/** Command count per module key (cmds_1 … cmds_11). */
 function perModule(registry) {
   const all = [...registry.values()];
   const out = [];

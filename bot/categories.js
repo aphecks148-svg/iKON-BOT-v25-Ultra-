@@ -120,6 +120,15 @@ const CATEGORIES = [
     hint: 'Farm first, hunt second — hunting costs energy that farming earns back.',
     lookfor: ['farming', 'farm', 'hunt', 'mine', 'fish', 'farm & hunt'],
   },
+  {
+    key: 'kingdom',
+    label: 'Kingdoms',
+    emoji: '🏰',
+    symbol: '✦',
+    blurb: 'Found a kingdom, raise a treasury and wage war for it.',
+    hint: 'Found with `!kingdom create <name>` — the treasury is the whole game.',
+    lookfor: ['kingdom', 'kingdoms', 'guild', 'crew', 'war', 'monarch'],
+  },
 ];
 
 const BY_KEY = new Map(CATEGORIES.map((c) => [c.key, c]));

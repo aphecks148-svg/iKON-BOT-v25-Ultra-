@@ -1443,7 +1443,7 @@ function query(doc) {
     // 35 after the rename, 36 since !pair landed. A count here is a
     // change-detector: a command added on purpose should be the only thing that
     // moves it, and adding one silently should fail.
-    assert.strictEqual(c9.length, 36, 'cmds_9 should hold 36 commands (35 + !pair)');
+    assert.strictEqual(c9.length, 30, 'cmds_9 should hold 30 commands (36 minus the 6 retired social verbs)');
 
     const dirty = c9.filter((c) => /ultra/i.test(c.name) || (c.aliases || []).some((a) => /ultra/i.test(a)));
     assert.deepStrictEqual(dirty.map((c) => c.name), [], 'these still say ultra');
@@ -1454,13 +1454,15 @@ function query(doc) {
       assert.ok(loaded.registry.has(keep), `${keep} should be untouched`);
     }
     // And the renamed ones are reachable by their short names.
-    for (const now of ['hug', 'slap', 'kiss', 'ship', 'kickout', 'marry', 'besties', 'auramax']) {
+    for (const now of ['hug', 'slap', 'kiss', 'ship', 'marry', 'besties', 'auramax']) {
       assert.ok(loaded.registry.has(now), `${now} is missing after the rename`);
     }
 
-    // The rename must not have collided with anything, which is why kickultra
-    // became kickout: cmds_6 already owns `kick` for group administration.
-    assert.ok(loaded.registry.has('kickout'));
+    // kickultra was renamed kickout and then retired with the other
+    // cosmetic action verbs, so neither spelling is a command any more.
+    assert.ok(!loaded.registry.has('kickout'), 'kickout was retired');
+    // The rename must not have collided with anything: cmds_6 owns
+    // `kick` for group administration, and still does.
     const owner = [...loaded.registry.values()].filter((c) => c.name === 'kick');
     assert.strictEqual(owner.length, 1, '`kick` must still be cmds_6\'s group command');
     assert.strictEqual(owner[0].module, 'cmds_6');
@@ -1670,7 +1672,7 @@ function query(doc) {
       labels.add(cat.label.toLowerCase());
       emojis.add(cat.emoji);
     }
-    assert.strictEqual(decks.CATEGORIES.length, 10, 'ten decks, one per module');
+    assert.strictEqual(decks.CATEGORIES.length, 11, 'eleven decks, one per module');
     return `${labels.size} unique labels, ${emojis.size} unique emojis`;
   });
 
@@ -1685,7 +1687,7 @@ function query(doc) {
     for (const key of decks.ORDER) {
       assert.ok((byCat.get(key) || []).length > 0, `deck "${key}" is advertised but holds nothing`);
     }
-    return 'all ten decks resolve to a name and hold commands';
+    return 'all eleven decks resolve to a name and hold commands';
   });
 
   await step('a deck is findable by its key, its name and a loose word', () => {
@@ -4429,8 +4431,8 @@ const PIKACHU = dex.find('pikachu');
 
   await step('every social command passes api into the target resolver', () => {
     // pick() referenced `api` without it being a parameter, so hug, slap, kiss
-    // and two dozen others threw "api is not defined" on the first tagged
-    // person — and guard() turned that into "`hug` failed: api is not defined".
+    // and the rest of the tagging commands threw "api is not defined" on
+    // the first tagged person — and guard() turned that into a crash.
     const fs2 = require('fs');
     const path2 = require('path');
     const src = fs2.readFileSync(path2.join(__dirname, '..', 'commands', 'cmds_9.js'), 'utf8');
@@ -4439,7 +4441,7 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(/\bapi\b/.test(sig), `pick() must take api — got: ${sig}`);
 
     const calls = src.split('\n').filter((l) => /await pick\(reply/.test(l));
-    assert.ok(calls.length >= 25, `expected the whole module to call pick(), found ${calls.length}`);
+    assert.ok(calls.length >= 20, `expected the tagging commands to call pick(), found ${calls.length}`);
     const missing = calls.filter((l) => !/\bpick\([^)]*,\s*api\)/.test(l));
     assert.strictEqual(missing.length, 0, `pick() called without api:\n${missing.join('\n')}`);
     return `${calls.length} call sites, all pass api`;
@@ -5171,8 +5173,8 @@ const PIKACHU = dex.find('pikachu');
     // "Facebook User HUGGED Facebook User".
     const cmds9 = require('../commands/cmds_9');
     const PAIR = [
-      'hug', 'slap', 'kiss', 'pat', 'cuddle', 'punch', 'bonk', 'stab', 'kill',
-      'kickout', 'yeet', 'roast', 'compliment', 'expose', 'marry', 'ship', 'pair',
+      'hug', 'slap', 'kiss', 'bonk', 'kill', 'roast', 'compliment', 'expose',
+      'marry', 'ship', 'pair',
     ];
     // Every command that takes a tag and acts on a person. A new one added here
     // fails until it names its people, which is the point of the list.
@@ -6079,6 +6081,279 @@ const PIKACHU = dex.find('pikachu');
       }
     }
     return 'every command describes its own task';
+  });
+
+  // ── the kingdom system ──────────────────────────────
+  // Ten commands, one crew system. These tests mock the
+  // Kingdom store in memory, the same way the contact tests
+  // mock User and Group, and assert the two invariants the
+  // whole economy is built on: a treasury only ever grows by
+  // what was paid into it, and a war moves coins rather than
+  // minting them.
+  await step('the kingdom system is registered', async () => {
+    const loader = require('./loader');
+    const loaded = loader.loadCommands(path.join(__dirname, '..', 'commands'));
+    const names = ['kingdom', 'kingdomjoin', 'kingdomleave', 'kingdominvite',
+      'kingdomkick', 'kingdominfo', 'kingdomdonate', 'kingdommembers',
+      'kingdomwar', 'kingdoms'];
+    for (const n of names) {
+      assert.ok(loaded.registry.has(n), `!${n} is registered`);
+      assert.strictEqual(loaded.registry.get(n).category, 'kingdom', `!${n} is in the kingdom deck`);
+    }
+    for (const [alias, owner] of [['kjoin', 'kingdomjoin'], ['kleave', 'kingdomleave'],
+      ['kinvite', 'kingdominvite'], ['kkick', 'kingdomkick'], ['kinfo', 'kingdominfo'],
+      ['kdonate', 'kingdomdonate'], ['kmembers', 'kingdommembers'], ['kwar', 'kingdomwar'],
+      ['kings', 'kingdoms'], ['kleaderboard', 'kingdoms']]) {
+      assert.strictEqual(loaded.aliases.get(alias), owner, `!${alias} resolves to !${owner}`);
+    }
+    return 'ten kingdom commands, ten aliases, one deck';
+  });
+
+  // A shared in-memory Kingdom store for the behaviour tests.
+  // findOne is handed a RegExp by kingdomOf(), so the mock has
+  // to test the pattern, not compare it to a string.
+  function kingdomStore() {
+    const Kingdom = require('../models/Kingdom');
+    const User = require('../models/User');
+    const Economy = require('../models/Economy');
+    const mongo = require('./mongo');
+    const realFindOne = Kingdom.findOne;
+    const realFind = Kingdom.find;
+    const realDelete = Kingdom.deleteOne;
+    const realSave = Kingdom.prototype.save;
+    const realUserFindOne = User.findOne;
+    const realLedger = Economy.prototype.save;
+    const realReady = mongo.isReady;
+    const store = [];
+    mongo.isReady = () => true;
+    Economy.prototype.save = async function stub() { return this; };
+    // `new Kingdom({...})` builds a real mongoose document, and its
+    // save() would buffer against a database that is not there. Route
+    // it into the in-memory store instead, so a founded kingdom lands
+    // somewhere the lookups can find it.
+    Kingdom.prototype.save = function stubSave() {
+      const i = store.findIndex((k) => String(k._id) === String(this._id));
+      if (i >= 0) store[i] = this;
+      else store.push(this);
+      return Promise.resolve(this);
+    };
+    Kingdom.findOne = (cond) => {
+      const re = cond && cond.name;
+      if (re instanceof RegExp) {
+        return Promise.resolve(store.find((k) => re.test(k.name)) || null);
+      }
+      return Promise.resolve(null);
+    };
+    Kingdom.find = () => {
+      const q = {
+        sort: () => q, limit: () => q,
+        then: (a, b) => Promise.resolve(store.slice()).then(a, b),
+        catch: () => Promise.resolve(store.slice()),
+      };
+      return q;
+    };
+    Kingdom.deleteOne = (cond) => {
+      const i = store.findIndex((k) => String(k._id) === String(cond._id));
+      if (i >= 0) store.splice(i, 1);
+      return Promise.resolve({ deletedCount: 1 });
+    };
+    return {
+      store,
+      restore() {
+        Kingdom.findOne = realFindOne;
+        Kingdom.find = realFind;
+        Kingdom.deleteOne = realDelete;
+        Kingdom.prototype.save = realSave;
+        User.findOne = realUserFindOne;
+        Economy.prototype.save = realLedger;
+        mongo.isReady = realReady;
+      },
+    };
+  }
+
+  await step('a kingdom is founded, joined and paid for', async () => {
+    const cmds11 = require('../commands/cmds_11');
+    const { store, restore } = kingdomStore();
+    const User = require('../models/User');
+    const realUserFindOne = User.findOne;
+
+    const mkUser = (uid, name) => ({
+      uid, name, coins: 5000, bank: 0, kingdom: '', transient: false,
+      async save() { return this; }, markModified() {},
+    });
+    const founder = mkUser('111111111', 'Ada Lovelace');
+    const recruit = mkUser('222222222', 'Grace Hopper');
+    User.findOne = (cond) => Promise.resolve(
+      [founder, recruit].find((u) => String(u.uid) === String(cond.uid)) || null,
+    );
+
+    const api = {
+      async getThreadInfo() {
+        return {
+          threadTitle: 'Kingdom Chat', participantIDs: ['111111111', '222222222'],
+          userInfo: [
+            { id: '111111111', name: 'Ada Lovelace' },
+            { id: '222222222', name: 'Grace Hopper' },
+          ],
+        };
+      },
+    };
+    const run = async (cmd, args, userDoc) => {
+      const out = [];
+      await cmd.execute({
+        api, args, userDoc,
+        event: { threadID: 't_k', isGroup: true, messageID: 'm1', senderID: userDoc.uid, mentions: {} },
+        reply: async (m) => out.push(String(m)), react: async () => true,
+      });
+      return out.join('\n');
+    };
+
+    try {
+      const kingdom = cmds11.find((c) => c.name === 'kingdom');
+      const join = cmds11.find((c) => c.name === 'kingdomjoin');
+      const donate = cmds11.find((c) => c.name === 'kingdomdonate');
+
+      const founded = await run(kingdom, ['create', 'Lovelace'], founder);
+      assert.ok(/KINGDOM FOUNDED: Lovelace/.test(founded), founded);
+      assert.strictEqual(founder.coins, 4000, 'the founding fee left the wallet');
+      assert.strictEqual(founder.kingdom, 'Lovelace', 'the founder is in the kingdom');
+      const k = store[0];
+      assert.ok(k, 'the kingdom was persisted');
+      assert.strictEqual(k.treasury, 1000, 'the founding fee seeds the treasury');
+      assert.strictEqual(k.members.length, 1, 'the founder is the first member');
+      assert.strictEqual(String(k.leaderUid), '111111111', 'the founder is the monarch');
+
+      const joined = await run(join, ['Lovelace'], recruit);
+      assert.ok(/WELCOME TO Lovelace/.test(joined), joined);
+      assert.strictEqual(recruit.kingdom, 'Lovelace', 'the recruit joined');
+      assert.strictEqual(k.members.length, 2, 'the roster grew');
+
+      const gave = await run(donate, ['500'], recruit);
+      assert.ok(/DONATION TO Lovelace/.test(gave), gave);
+      assert.strictEqual(recruit.coins, 4500, 'the donation left the wallet');
+      assert.strictEqual(k.treasury, 1500, 'the donation reached the treasury');
+      assert.strictEqual(k.members.find((m) => String(m.uid) === '222222222').donated, 500, 'the donation is on the record');
+
+      return 'founded, joined, and the treasury only ever grew by what was paid in';
+    } finally {
+      restore();
+      User.findOne = realUserFindOne;
+    }
+  });
+
+  await step('a kingdom war pays the pot to the winner and mints nothing', async () => {
+    const cmds11 = require('../commands/cmds_11');
+    const { store, restore } = kingdomStore();
+
+    const mkUser = (uid, name, kingdom) => ({
+      uid, name, coins: 5000, bank: 0, kingdom, transient: false,
+      async save() { return this; }, markModified() {},
+    });
+    const alphaLeader = mkUser('111111111', 'Ada Lovelace', 'Alpha');
+    // Two kingdoms with known coffers, so the pot is knowable.
+    store.push({
+      _id: 'k_alpha', name: 'Alpha', leaderUid: '111111111', leaderName: 'Ada Lovelace',
+      members: [
+        { uid: '111111111', name: 'Ada Lovelace', donated: 0 },
+        { uid: '222222222', name: 'Grace Hopper', donated: 0 },
+      ],
+      treasury: 3000, xp: 0, open: true, lastWarAt: null,
+      stats: { warsWon: 0, warsLost: 0, donations: 0 },
+      async save() { return this; }, markModified() {},
+    });
+    store.push({
+      _id: 'k_beta', name: 'Beta', leaderUid: '333333333', leaderName: 'Alan Turing',
+      members: [
+        { uid: '333333333', name: 'Alan Turing', donated: 0 },
+        { uid: '444444444', name: 'Edsger Dijkstra', donated: 0 },
+      ],
+      treasury: 4000, xp: 0, open: true, lastWarAt: null,
+      stats: { warsWon: 0, warsLost: 0, donations: 0 },
+      async save() { return this; }, markModified() {},
+    });
+
+    const api = { async getThreadInfo() { return { participantIDs: [], userInfo: [] }; } };
+    const war = cmds11.find((c) => c.name === 'kingdomwar');
+    const out = [];
+    const before = store[0].treasury + store[1].treasury;
+
+    try {
+      await war.execute({
+        api, args: ['Beta'], userDoc: alphaLeader,
+        event: { threadID: 't_k', isGroup: true, messageID: 'm1', senderID: '111111111', mentions: {} },
+        reply: async (m) => out.push(String(m)), react: async () => true,
+      });
+      const said = out.join('\n');
+      assert.ok(/WAR: Alpha vs Beta/.test(said), said);
+      assert.ok(/Pot: 4,000 K-Cash/.test(said), `the pot is both wagers: ${said}`);
+
+      // The whole point: the war MOVES coins, it does not make them.
+      const after = store[0].treasury + store[1].treasury;
+      assert.strictEqual(after, before, `a war conserves coins — ${before} before, ${after} after`);
+      // One treasury grew by the pot, the other shrank by its wager.
+      const treasuries = store.map((k) => k.treasury).sort((a, b) => a - b);
+      assert.strictEqual(treasuries[0], 1000, 'the loser paid its 2,000 wager');
+      assert.strictEqual(treasuries[1], 6000, 'the winner banked the 4,000 pot');
+      // The war is on the record, and neither side may fight again for an hour.
+      assert.ok(store.every((k) => k.lastWarAt), 'both kingdoms recorded the war');
+      assert.ok(
+        store.some((k) => k.stats.warsWon === 1) && store.some((k) => k.stats.warsLost === 1),
+        'one kingdom won and one lost',
+      );
+      return 'the pot moved to the winner and no coin was minted';
+    } finally {
+      restore();
+    }
+  });
+
+  await step('only the monarch may run the crown commands', async () => {
+    const cmds11 = require('../commands/cmds_11');
+    const { store, restore } = kingdomStore();
+
+    const mkUser = (uid, name) => ({
+      uid, name, coins: 5000, bank: 0, kingdom: 'Alpha', transient: false,
+      async save() { return this; }, markModified() {},
+    });
+    store.push({
+      _id: 'k_alpha', name: 'Alpha', leaderUid: '111111111', leaderName: 'Ada Lovelace',
+      members: [
+        { uid: '111111111', name: 'Ada Lovelace', donated: 0 },
+        { uid: '222222222', name: 'Grace Hopper', donated: 0 },
+      ],
+      treasury: 1000, xp: 0, open: true, lastWarAt: null,
+      stats: { warsWon: 0, warsLost: 0, donations: 0 },
+      async save() { return this; }, markModified() {},
+    });
+    const member = mkUser('222222222', 'Grace Hopper');
+    const api = { async getThreadInfo() { return { participantIDs: [], userInfo: [] }; } };
+    const run = async (cmd, args) => {
+      const out = [];
+      await cmd.execute({
+        api, args, userDoc: member,
+        event: { threadID: 't_k', isGroup: true, messageID: 'm1', senderID: member.uid, mentions: {} },
+        reply: async (m) => out.push(String(m)), react: async () => true,
+      });
+      return out.join('\n');
+    };
+
+    try {
+      // Every crown command refuses a peasant before it touches anything.
+      const invite = cmds11.find((c) => c.name === 'kingdominvite');
+      const kick = cmds11.find((c) => c.name === 'kingdomkick');
+      const disband = cmds11.find((c) => c.name === 'kingdom');
+      const war = cmds11.find((c) => c.name === 'kingdomwar');
+      for (const [cmd, args] of [[invite, ['@Grace']], [kick, ['@Grace']], [disband, ['disband']], [war, ['Beta']]]) {
+        const said = await run(cmd, args);
+        assert.ok(/Only the monarch/.test(said), `a peasant must be refused: ${said}`);
+      }
+      // And nothing changed: the roster and the treasury are untouched.
+      const k = store[0];
+      assert.strictEqual(k.members.length, 2, 'the roster is untouched');
+      assert.strictEqual(k.treasury, 1000, 'the treasury is untouched');
+      return 'a peasant cannot invite, kick, disband or declare war';
+    } finally {
+      restore();
+    }
   });
 
 // ── summary ───────────────────────────────────────────────

@@ -48,6 +48,11 @@ const UserSchema = new mongoose.Schema(
     reputation: { type: Number, default: 0 },
     prestige: { type: Number, default: 0, min: 0 },
 
+    // The kingdom this hunter belongs to, by name. '' = independent.
+    // A name, not an id, matches how the Kingdom model is keyed and
+    // lets a profile show its kingdom without a join.
+    kingdom: { type: String, default: '' },
+
     // module 5 — iKON arcade. Wagered is gross coins bet, not kept.
     games: {
       wins: { type: Number, default: 0 },
@@ -89,12 +94,8 @@ const UserSchema = new mongoose.Schema(
       hugs: { type: Number, default: 0, min: 0 },
       slaps: { type: Number, default: 0, min: 0 },
       kisses: { type: Number, default: 0, min: 0 },
-      pats: { type: Number, default: 0, min: 0 },
-      cuddles: { type: Number, default: 0, min: 0 },
       kills: { type: Number, default: 0, min: 0 },
-      stabs: { type: Number, default: 0, min: 0 },
       bonks: { type: Number, default: 0, min: 0 },
-      yeets: { type: Number, default: 0, min: 0 },
       shipped: { type: Number, default: 0, min: 0 },
       roasts: { type: Number, default: 0, min: 0 },
       compliments: { type: Number, default: 0, min: 0 },

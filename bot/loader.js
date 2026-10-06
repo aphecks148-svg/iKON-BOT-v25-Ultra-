@@ -3,7 +3,7 @@
 /**
  * Command loader (LOADER stage).
  *
- * Scans commands/cmds_1.js … cmds_10.js. Each module must export a plain array of
+ * Scans commands/cmds_1.js … cmds_11.js. Each module must export a plain array of
  * command objects shaped like:
  *   { name, aliases, category, description, usage, cooldown, permission, execute }
  *
@@ -15,7 +15,7 @@ const path = require('path');
 const { log, error } = require('./helpers');
 const deckMeta = require('./categories');
 
-const MODULE_COUNT = 10;
+const MODULE_COUNT = 11;
 const COMMANDS_DIR = path.join(__dirname, '..', 'commands');
 
 /**

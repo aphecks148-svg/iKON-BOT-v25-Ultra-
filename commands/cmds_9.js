@@ -15,7 +15,7 @@
  * THE ONE RULE IN THIS MODULE
  * Almost nothing here is real. A slap is a message, a kill is a message, a
  * marriage is a string in a field. The commands say so in their output, because
- * a bot that pretends to stab somebody and then reports it as a fact is a bot
+ * a bot that pretends to slap somebody and then reports it as a fact is a bot
  * nobody trusts. Everything that can hurt somebody's balance is labelled.
  *
  * THE ECONOMY
@@ -195,9 +195,7 @@ const FACT_TEMPLATES = [
   (t) => `has failed ${num(t.daresFailed)} dare(s) and paid for every single one.`,
   (t) => `has ${num(t.kills)} fake kill(s). Nobody has ever been actually killed. This is a bot.`,
   (t) => `has issued ${num(t.dares)} dare(s), which is more commitment than most people show.`,
-  (t) => `has ${num(t.stabs)} stab(s) on record. All of them were messages.`,
   (t) => `has received ${num(t.giftsIn)} gift(s) and sent ${num(t.giftsOut)}. The maths is damning.`,
-  (t) => `has ${num(t.cuddles)} cuddle(s) logged. Nobody has verified any of them.`,
 ];
 
 /** Pick up lines aimed at somebody. */
@@ -241,7 +239,7 @@ function f(userDoc) {
   if (!userDoc.fun || typeof userDoc.fun !== 'object') userDoc.fun = {};
   const t = userDoc.fun;
   for (const k of [
-    'hugs', 'slaps', 'kisses', 'pats', 'cuddles', 'kills', 'stabs', 'bonks', 'yeets',
+    'hugs', 'slaps', 'kisses', 'kills', 'bonks',
     'shipped', 'roasts', 'compliments', 'dares', 'daresDone', 'daresFailed', 'flexes',
     'giftsIn', 'giftsOut',
   ]) {
@@ -336,9 +334,9 @@ async function fee(userDoc, cost, action) {
  *
  * `api` is a PARAMETER, and it has to be. It used to be referenced here as if it
  * were in scope when it was not, so every command that calls this threw
- * "api is not defined" on the first tagged person — hug, slap, kiss, pat,
- * cuddle, punch, bonk, stab, kill, ship, roast, compliment, marry, divorce,
- * besties, enemies and the rest of module 9. guard() swallowed it into
+ * "api is not defined" on the first tagged person — hug, slap, kiss,
+ * bonk, kill, ship, roast, compliment, marry, divorce, besties,
+ * enemies and the rest of module 9. guard() swallowed it into
  * "`hug` failed: api is not defined", which is why the module read as broken
  * rather than as a crash.
  *
@@ -690,13 +688,7 @@ const FEES = {
   kiss: 50,
   ship: 50,
   kill: 100,
-  stab: 100,
-  pat: 50,
-  cuddle: 50,
-  kickout: 100,
-  punch: 100,
   bonk: 100,
-  yeet: 100,
   roast: 50,
   compliment: 50,
   marry: 50,
@@ -1000,160 +992,8 @@ const commands = [];
     }),
   });
 
-  commands.push({
-    name: 'pat',
-    aliases: ['pat2', 'headpat'],
-    category: 'fun',
-    description: '🫶 Pat somebody on the head. Costs 50, lifts them by 5',
-    usage: '!pat @user',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pat', async () => {
-      await react('🫶');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'pat', api);
-      if (!who) return;
 
-      // Both names are resolved before anything is printed: the reply sits
-      // directly above the card, and it used to say "Facebook User HUGGED
-      // Facebook User" under two real faces.
-      await faces(userDoc, who, api);
 
-      const paid = await fee(userDoc, FEES.pat, 'fun:pat');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const lift = await give(who, 5, 'fun:pat_gift', { from: userDoc.name });
-      f(userDoc).pats += 1;
-      await save(userDoc);
-
-      await react('🙌');
-      await reply(
-        `🫶 **${userDoc.name} PATTED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `💚 +${kc(lift)}\n`
-        + `👛 Their wallet: ${kc(who.coins)}\n`
-        + `📖 _A gentle message. Genuinely harmless._`,
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '🫶 PAT',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'A GENTLE MESSAGE. GENUINELY HARMLESS.',
-    });
-
-    }),
-  });
-
-  commands.push({
-    name: 'cuddle',
-    aliases: ['cuddle2'],
-    category: 'fun',
-    description: '🧸 Cuddle somebody up. Costs 50, and pets get involved somehow',
-    usage: '!cuddle @user',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cuddle', async () => {
-      await react('🧸');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'cuddle', api);
-      if (!who) return;
-
-      // Both names are resolved before anything is printed: the reply sits
-      // directly above the card, and it used to say "Facebook User HUGGED
-      // Facebook User" under two real faces.
-      await faces(userDoc, who, api);
-
-      const paid = await fee(userDoc, FEES.cuddle, 'fun:cuddle');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const pet = await petOf(userDoc) || await petOf(who);
-      const shared = clamp(rand(10, 80));
-      f(userDoc).cuddles += 1;
-      await save(userDoc);
-
-      await react('☁️');
-      await reply(
-        `🧸 **${userDoc.name} CUDDLED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `${meter(shared, '☁️ COZY METER')}\n`
-        + (pet
-          ? `🐾 ${pet.name} got involved immediately and ruined it.`
-          : '🐾 No pets. It stayed civilised.')
-        + `\n👛 Your wallet: ${kc(userDoc.coins)}\n`
-        + '📖 _A message. Mostly._',
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '🫂 CUDDLE',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'A MESSAGE. MOSTLY.',
-    });
-
-    }),
-  });
-
-  commands.push({
-    name: 'punch',
-    aliases: ['punch2'],
-    category: 'fun',
-    description: '👊 Punch somebody — they lose 150 and you walk away with nothing',
-    usage: '!punch @user',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'punch', async () => {
-      await react('👊');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'punch', api);
-      if (!who) return;
-
-      // Both names are resolved before anything is printed: the reply sits
-      // directly above the card, and it used to say "Facebook User HUGGED
-      // Facebook User" under two real faces.
-      await faces(userDoc, who, api);
-
-      const paid = await fee(userDoc, FEES.punch, 'fun:punch');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      // Unlike a slap, a punch costs the victim more than the attacker gains.
-      // That asymmetry is deliberate: punching is a worse deal than slapping and
-      // the economy should say so.
-      const lost = await take(who, 150, 'fun:punch_victim', { from: userDoc.name });
-      const back = rand(20, 60);
-      const youGot = await take(userDoc, back, 'fun:punch_rebound', { from: who.name });
-
-      await react('💥');
-      await reply(
-        `👊 **${userDoc.name} PUNCHED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `💸 They lost ${kc(lost.took)}\n`
-        + `🤕 You lost ${kc(youGot.took)} in the rebound\n`
-        + `👛 Their wallet: ${kc(who.coins)}\n`
-        + `📖 _Punching is a bad deal. Slapping is better. That is the lesson._`,
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '👊 PUNCH',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'PUNCHING IS A BAD DEAL. SLAPPING IS BETTER.',
-    });
-
-    }),
-  });
 
   commands.push({
     name: 'bonk',
@@ -1208,56 +1048,6 @@ const commands = [];
     }),
   });
 
-  commands.push({
-    name: 'stab',
-    aliases: ['stab2'],
-    category: 'fun',
-    description: '🔪 Stab somebody — 100 coins of damage, described in detail but harmlessly',
-    usage: '!stab @user',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'stab', async () => {
-      await react('🔪');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'stab', api);
-      if (!who) return;
-
-      // Both names are resolved before anything is printed: the reply sits
-      // directly above the card, and it used to say "Facebook User HUGGED
-      // Facebook User" under two real faces.
-      await faces(userDoc, who, api);
-
-      const paid = await fee(userDoc, FEES.stab, 'fun:stab');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const weapon = pick1(STAB_WAYS);
-      const lost = await take(who, 100, 'fun:stab_victim', { from: userDoc.name });
-      f(userDoc).stabs += 1;
-      await save(userDoc);
-
-      await react('🩸');
-      await reply(
-        `🔪 **${userDoc.name} STABBED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `🔪 With ${weapon}.\n`
-        + `💸 They lost ${kc(lost.took)}\n`
-        + `👛 Their wallet: ${kc(who.coins)}\n`
-        + `📖 _Nobody was stabbed. This is a message about a knife._`,
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '🔪 STAB',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'NOBODY WAS STABBED. THIS IS A MESSAGE ABOUT A KNIFE.',
-    });
-
-    }),
-  });
 
 // ───────────────────────────────────────────────────────────
 // FAKE VIOLENCE AND HATE — all of it is a message
@@ -1335,111 +1125,7 @@ const commands = [];
     }),
   });
 
-  commands.push({
-    name: 'kickout',
-    aliases: ['kick2'],
-    category: 'fun',
-    description: '🚪 Fake kick somebody out of the chat — costs them 120, not an admin action',
-    usage: '!kickout @user',
-    cooldown: 10,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kickout', async () => {
-      await react('🚪');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'kickout', api);
-      if (!who) return;
 
-      // Both names are resolved before anything is printed: the reply sits
-      // directly above the card, and it used to say "Facebook User HUGGED
-      // Facebook User" under two real faces.
-      await faces(userDoc, who, api);
-
-      const paid = await fee(userDoc, FEES.kickout, 'fun:kickout');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const reasons = [
-        'posting in the wrong thread',
-        'a grammar-based offence',
-        'existing',
-        'saying "lol" twice in a row',
-        'the vibe being wrong for reasons nobody can explain',
-        'being too online on a day off',
-      ];
-      const lost = await take(who, 120, 'fun:kick_victim', { from: userDoc.name });
-
-      await react('🪓');
-      await reply(
-        `🚪 **${userDoc.name} KICKED ${who.name} FROM THE CHAT**\n`
-        + '· · · · · · ·\n'
-        + `📄 Reason: ${pick1(reasons)}.\n`
-        + `💸 They lost ${kc(lost.took)}\n`
-        + `👛 Their wallet: ${kc(who.coins)}\n`
-        + '📖 _Nobody was kicked. They can still read this. It is not an admin command._',
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '🦵 KICK',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'NOBODY WAS KICKED. THEY CAN STILL READ THIS.',
-    });
-
-    }),
-  });
-
-  commands.push({
-    name: 'yeet',
-    aliases: ['yeet2'],
-    category: 'fun',
-    description: '🚀 Yeet somebody out of the group entirely — the loudest way to lose 100',
-    usage: '!yeet @user',
-    cooldown: 10,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'yeet', async () => {
-      await react('🚀');
-      const who = await pick(reply, event.messageID, userDoc, args, event, 'yeet', api);
-      if (!who) return;
-
-      // Both names are resolved before anything is printed: the reply sits
-      // directly above the card, and it used to say "Facebook User HUGGED
-      // Facebook User" under two real faces.
-      await faces(userDoc, who, api);
-
-      const paid = await fee(userDoc, FEES.yeet, 'fun:yeet');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const lost = await take(who, 100, 'fun:yeet_victim', { from: userDoc.name });
-      f(userDoc).yeets += 1;
-      await save(userDoc);
-
-      await react('💫');
-      await reply(
-        `🚀 **${userDoc.name} YEETED ${who.name} INTO THE SUN**\n`
-        + '· · · · · · ·\n'
-        + '📍 Trajectory: up and to the left, mostly.\n'
-        + `💸 They lost ${kc(lost.took)}\n`
-        + `👛 Their wallet: ${kc(who.coins)}\n`
-        + '📖 _They are still here. They were never anywhere else._',
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '🫳 YEET',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'THEY ARE STILL HERE. THEY WERE NEVER ANYWHERE ELSE.',
-    });
-
-    }),
-  });
 
   commands.push({
     name: 'roast',
