@@ -58,6 +58,21 @@ const PetSchema = new mongoose.Schema(
       revive: { type: Number, default: 0 },
     },
 
+    // ── petbattle v2 ──────────────────────────────────────────
+    // The six combat elements: fire, water, earth, wind, light, dark.
+    // Defaults to '' for legacy pets; the engine resolves a fallback.
+    element: { type: String, default: '' },
+    // Active battle pet for this hunter (one equipped at a time).
+    equipped: { type: Boolean, default: false },
+    // Evolution form: 0 = base, 1 = evolved (at level 25).
+    form: { type: Number, default: 0, min: 0, max: 1 },
+    // Skill tier 0–5; amplifies all skill damage by 1 + tier*0.2.
+    skillTier: { type: Number, default: 0, min: 0, max: 5 },
+    // Stamina for battle/hunt/arena: 5 max, 1/hour natural regen.
+    stamina: { type: Number, default: 5, min: 0, max: 5 },
+    // Timestamp of the last stamina change (regen anchor).
+    staminaReset: { type: Date, default: null },
+
     stats: {
       battles: { type: Number, default: 0 },
       wins: { type: Number, default: 0 },
