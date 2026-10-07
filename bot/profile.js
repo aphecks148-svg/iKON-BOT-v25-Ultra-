@@ -111,7 +111,8 @@ async function fetchRealName(uid, api, opts = {}) {
 async function fetchPictureUrl(uid, api) {
   if (!uid || !api || typeof api.getUserInfo !== 'function') return null;
   try {
-    const info = await api.getUserInfo(uid);
+    const c = require('./cache');
+    const info = await c.getUserInfoCached(uid, api);
     const url = info && (info.thumbSrc || info.profilePicUrl);
     return url ? String(url) : null;
   } catch {

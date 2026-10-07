@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 1 — SYSTEM CORE (36 commands)
+ * MODULE 1 — SYSTEM CORE (37 commands)
  *
  * Exports a plain array. No factories, no legacy loader.
  *
@@ -1520,6 +1520,45 @@ module.exports = [
         + `✅ Delivered to ${sent} of ${groups.length} chats\n`
         + (failed.length ? `⚠️ Failed: ${failed.length}\n` : '')
         + `⏱️ About ${Math.ceil((groups.length * PAUSE_MS) / 1000)}s of pacing.`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 37$  — anti-ban safe mode (owner only)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'safemode',
+    aliases: ['safemodeon', 'safemodeoff'],
+    category: 'system',
+    description: '🔒 Toggle bot-wide safe mode — only admins get replies when on',
+    usage: '!safemode on|off',
+    cooldown: 10,
+    permission: 'owner',
+    execute: async ({ args, reply, react, event }) => guard(reply, event.messageID, 'safemode', async () => {
+      await react('🔒');
+      const arg = String(args[0] || '').toLowerCase();
+      if (!arg || !['on', 'off'].includes(arg)) {
+        const status = global.botSafeMode ? 'ON' : 'OFF';
+        await reply(
+          `🔒 **Safe mode is currently ${status}**\n`
+          + '· · · · · · ·\n'
+          + `When ON, the bot only replies to admins — use during FB warnings.\n`
+          + `Toggle with \`!safemode on\` or \`!safemode off\`.`,
+          event.messageID,
+        );
+        return;
+      }
+      global.botSafeMode = arg === 'on';
+      const state = global.botSafeMode ? 'ON ✅' : 'OFF 🔓';
+      await reply(
+        `🔒 **Safe mode ${state}**\n`
+        + '· · · · · · ·\n'
+        + (global.botSafeMode
+          ? 'The bot will now ignore all non-admin commands. Silence is safety.\n'
+          : 'The bot is back to normal operation.\n')
+        + `📖 ${arg === 'on' ? 'Go make coffee — you are off the record.' : 'Welcome back.'}`,
         event.messageID,
       );
     }),

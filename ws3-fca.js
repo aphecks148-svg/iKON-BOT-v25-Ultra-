@@ -78,6 +78,28 @@ let client = null; // ws3-fca client (set by attachClient)
 let registry = new Map();
 let aliases = new Map();
 
+// ─────────────────────────────────────────────────────────────
+// ANTI-BAN / ANTI-RESTRICTION RATE LIMITING
+// ─────────────────────────────────────────────────────────────
+
+/** Minimum ms between any two sends (Facebook flags rapid-fire messaging). */
+const SEND_DELAY_MS = global.SEND_DELAY_MS ?? 1500;
+/** Per-user cooldown in ms — no user can fire two commands this fast. */
+const USER_COOLDOWN_MS = 5000;
+/** Per-thread send cap: max sends before a 60s pause. */
+const THREAD_RATE_LIMIT = 20;
+const THREAD_RATE_WINDOW_MS = 60 * 1000;
+const THREAD_PAUSE_MS = 60 * 1000;
+
+// Global send throttle — the last time ANY message left the bot.
+global.lastSent = global.lastSent || 0;
+// Per-user: { uid: Number<lastCommandMs> }
+global.commandCooldowns = global.commandCooldowns || new Map();
+// Per-thread: { threadID: [timestamps] }
+const threadSends = new Map();
+// Per-thread pause-on-flood: { threadID: Number<resumeMs> }
+const threadPaused = new Map();
+
 // Module-level so a boot retry reuses the listening server instead of throwing
 // EADDRINUSE on the second call.
 let server = null;
@@ -336,7 +358,54 @@ async function handleMessage(api, event) {
   const body = event.body || '';
   const threadID = event.threadID;
   const messageID = event.messageID;
-  const senderID = event.senderID;
+   const senderID = event.senderID;
+
+  // ── SLEEP MODE ──────────────────────────────────────────────
+  // 03:00–05:00 Jordan time (GMT+3). The bot is dormant at night; waking up
+  // to spam complaints from a sleeping chat is worse than being silent.
+  if (global.botSleeping === true) return;
+
+  // ── SAFE MODE ───────────────────────────────────────────────
+  // When !safemode is on, only bot admins get replies.
+  if (global.botSafeMode === true) {
+    try {
+      if (!(await permissions.canModerate(api, event))) return;
+    } catch {
+      return;
+    }
+  }
+
+  // ── PER-USER COOLDOWN ───────────────────────────────────────
+  // No single user can fire commands faster than once every 5s, which is
+  // enough headroom to type and click without triggering FB's spam filters.
+  // Owner/admin IDs are exempt — operators need to test commands without
+  // being rate-limited, and a compromised admin account is a different threat.
+  const now = Date.now();
+  const userKey = String(senderID);
+  if (!permissions.isOwner(userKey)) {
+    const lastCmd = global.commandCooldowns.get(userKey) || 0;
+    if (now - lastCmd < USER_COOLDOWN_MS) {
+      global.commandCooldowns.set(userKey, lastCmd);
+      return;
+    }
+    global.commandCooldowns.set(userKey, now);
+  }
+
+  // ── PER-THREAD RATE LIMIT ───────────────────────────────────
+  // Cap at 20 sends/min per chat; pause the thread for 60s when exceeded.
+  const tKey = String(threadID);
+  const pausedUntil = threadPaused.get(tKey);
+  if (pausedUntil && now < pausedUntil) return;
+  if (pausedUntil && now >= pausedUntil) threadPaused.delete(tKey);
+
+  const threadTimes = threadSends.get(tKey) || [];
+  const recent = threadTimes.filter((t) => now - t < THREAD_RATE_WINDOW_MS);
+  if (recent.length >= THREAD_RATE_LIMIT) {
+    threadPaused.set(tKey, now + THREAD_PAUSE_MS);
+    return;
+  }
+  recent.push(now);
+  threadSends.set(tKey, recent);
 
   // Remember the sender so reply-to commands (`!petfight`) can find their target.
   cache.rememberMessage(messageID, senderID);
@@ -351,6 +420,10 @@ async function handleMessage(api, event) {
   let commandName = 'incoming';
   const say = async (text, replyTo = messageID, label = commandName) => {
     helpers.clearSendError();
+    // Global send throttle — minimum gap between ANY two messages leaving the bot.
+    const sinceLast = Date.now() - global.lastSent;
+    if (sinceLast < SEND_DELAY_MS) await new Promise((r) => setTimeout(r, SEND_DELAY_MS - sinceLast));
+    global.lastSent = Date.now();
     // event.isGroup, not a threadID guess: a group can arrive with a bare
     // numeric id, and treating it as a DM makes every reply fail with 1545012.
     const res = await reply(api, threadID, text, replyTo ?? messageID, event.isGroup);
@@ -448,7 +521,10 @@ async function handleMessage(api, event) {
   const cmd = loader.findCommand(parsed.name, registry, aliases);
   commandName = (cmd && cmd.name) || parsed.commandName || parsed.name;
   if (!cmd) {
-    await say(`❌ Unknown command: ${parsed.commandName || parsed.name}`);
+    // Unknown command: stay silent. No "❌ Unknown command" reply — a quiet bot
+    // is a surviving bot. FB's spam filters penalise reply volume, and a bot
+    // that answers every unrecognized word trains users to flood it.
+    await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
     return;
   }
 
@@ -823,6 +899,29 @@ async function threadInfo(threadID, api) {
   } catch (err) {
     error(`[GROUP] getThreadInfo(${threadID}) failed: ${err.message}`);
     return fallback;
+  }
+}
+
+/**
+ * A thread-info lookup that never throws or crashes the handler.
+ *
+ * Wraps threadInfo so a single malformed thread cannot take down the listener.
+ * Returns {threadName, participantIDs} so callers never get an undefined shape.
+ *
+ * @param {string} threadID
+ * @param {object} api
+ * @returns {Promise<{threadName:string, participantIDs:string[]}>}
+ */
+async function safeGetThreadInfo(threadID, api) {
+  try {
+    const info = await threadInfo(threadID, api);
+    return {
+      threadName: info?.name || String(threadID || ''),
+      participantIDs: info?.users ? [...info.users.keys()] : [],
+    };
+  } catch (err) {
+    error(`[GROUP] safeGetThreadInfo(${threadID}) failed: ${err.message}`);
+    return { threadName: String(threadID || 'Unknown'), participantIDs: [] };
   }
 }
 
@@ -1243,21 +1342,6 @@ function attachEvents(api, emitter) {
   emitter.on('message', (event) => {
     if (!event || !event.threadID) return;
 
-    // "Reacting but never replying" is indistinguishable from "not listening",
-    // and the two have completely different fixes. Log what actually arrives,
-    // including the fields that decide whether it is handled below.
-    log(`[EVENT DEBUG] ${safeInspect({
-      type: event.type,
-      isSelf: event.isSelf,
-      isGroup: event.isGroup,
-      threadID: event.threadID,
-      messageID: event.messageID,
-      senderID: event.senderID,
-      body: typeof event.body === 'string' ? event.body.slice(0, 120) : event.body,
-      attachments: (event.attachments || []).length,
-      logMessageType: event.logMessageType,
-    })}`);
-
     // Text messages from other people are the only thing commands care about.
     // ws3-fca labels a reply "message_reply" (listenMqtt.js:246), so accepting
     // only "message" silently dropped every message sent as a reply to the bot
@@ -1288,6 +1372,22 @@ function attachEvents(api, emitter) {
     STATE.loggedIn = false;
     error('[MQTT] Listener stopped');
   });
+}
+
+/**
+ * Toggle sleep mode every minute based on Jordan time (GMT+3).
+ * 03:00–05:00 → bot dormant, no replies.
+ */
+function startSleepMode() {
+  const tick = () => {
+    const d = new Date();
+    const offsetMin = d.getTimezoneOffset() + 180;
+    const jordan = new Date(d.getTime() + offsetMin * 60 * 1000);
+    const h = jordan.getHours();
+    global.botSleeping = (h >= 3 && h < 5);
+  };
+  tick();
+  setInterval(tick, 60 * 1000);
 }
 
 /**
@@ -1342,10 +1442,11 @@ function login() {
     const options = {
       listenEvents: true,
       listenTyping: false,
-      autoMarkRead: true,
-      updatePresence: true,
+      autoMarkRead: false,
+      autoMarkDelivery: false,
+      updatePresence: false,
       selfListen: false,
-      online: true,
+      online: false,
     };
 
     try {
@@ -1367,11 +1468,16 @@ function login() {
         // "bot is deaf" and "bot is talking".
         //   selfListen:false — our own messages must not come back to us.
         //   listenEvents:true — group join/leave events, used by !autoadd.
-        // Note: there is no `logLevel` option in this build
-        // (core/models/setOptions.js), so it is not passed here.
+        //   autoMarkRead:false, autoMarkDelivery:false — stop generating read
+        //     receipts Facebook treats as bot spam on every message.
+        //   updatePresence:false — stop ping-ing presence, another FB spam signal.
         if (typeof api.setOptions === 'function') {
           try {
-            await api.setOptions({ selfListen: false, listenEvents: true });
+            await api.setOptions({
+              selfListen: false, listenEvents: true,
+              autoMarkRead: false, autoMarkDelivery: false,
+              updatePresence: false,
+            });
           } catch (err) {
             error(`[LOGIN] setOptions failed: ${err.message}`);
           }
@@ -1393,6 +1499,7 @@ function login() {
           const emitter = await api.listenMqtt();
           attachEvents(api, emitter);
           log('[MQTT] Listening');
+          startSleepMode();
         } catch (err) {
           error(`[MQTT] listener failed to start: ${err.message}`);
         }
@@ -1534,8 +1641,9 @@ module.exports = {
   changeParticipants,
   notMe,
   chatName,
-  threadInfo,
-  clearThreadInfo,
+   threadInfo,
+   safeGetThreadInfo,
+   clearThreadInfo,
   fillPlaceholders,
   attachClient,
   attachEvents,

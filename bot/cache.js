@@ -14,6 +14,15 @@ const { log, error } = require('./helpers');
 const TTL = config.CACHE_TTL || 5 * 60 * 1000;
 
 /**
+ * TTL for the getUserInfo cache — Facebook can flag rapid per-user lookups as
+ * scraping, so a short cache keeps the bot alive through burst traffic.
+ */
+const USERINFO_TTL = 10 * 60 * 1000; // 10 minutes
+
+/** uid -> { data:object, expires:number } */
+const userCache = new Map();
+
+/**
  * Wallet a brand new hunter starts with.
  *
  * This is the value getOrCreateUser() writes when it has to invent a profile.
@@ -26,6 +35,34 @@ const STARTING_MONEY = 500;
 
 /** uid -> { doc, name, expires } */
 const store = new Map();
+
+/**
+ * Cached getUserInfo — one lookup per uid per USERINFO_TTL (10 min).
+ *
+ * Facebook flags rapid per-user profile lookups as scraping. The profile module
+ * already caches names for 10 min, but direct api.getUserInfo calls from gcs.js
+ * and target.js bypassed that. This wrapper routes every call through a single
+ * cache so the bot asks Facebook once per person per ten minutes, not once per
+ * command.
+ *
+ * @param {string|number} id
+ * @param {object} api ws3-fca client
+ * @returns {Promise<object|null>}
+ */
+async function getUserInfoCached(id, api) {
+  if (!id || !api || typeof api.getUserInfo !== 'function') return null;
+  const key = String(id);
+  const hit = userCache.get(key);
+  if (hit && Date.now() < hit.expires) return hit.data;
+  try {
+    const data = await api.getUserInfo(key);
+    if (data) userCache.set(key, { data, expires: Date.now() + USERINFO_TTL });
+    return data;
+  } catch (err) {
+    error(`[CACHE] getUserInfoCached(${key}) failed: ${err.message}`);
+    return null;
+  }
+}
 
 /**
  * Fetch the user's real display name from Facebook when possible.
@@ -42,12 +79,13 @@ const store = new Map();
 async function fetchName(uid, api) {
   try {
     if (api && typeof api.getUserInfo === 'function') {
-      const info = await api.getUserInfo(uid);
+      const info = await getUserInfoCached(uid, api);
       const name = info && (info.name || info.firstName);
-      if (name && !profile.isPlaceholderName(name)) return String(name).trim();
+      const { isPlaceholderName } = require('./profile');
+      if (name && !isPlaceholderName(name)) return String(name).trim();
     }
   } catch (err) {
-    error(`[CACHE] getUserInfo(${uid}) failed: ${err.message}`);
+    error(`[CACHE] fetchName(${uid}) failed: ${err.message}`);
   }
   return null;
 }
@@ -414,6 +452,7 @@ const clear = () => store.clear();
 
 module.exports = {
   getUser, getOrCreateUser, invalidate, touch, sweep, size, clear, TTL, STARTING_MONEY,
+  getUserInfoCached, USERINFO_TTL,
   // module 4 — pet challenges and reply-to targeting
   setPendingBattle, getPendingBattle, takePendingBattle, clearPendingBattle,
   sweepBattles, battleCount,

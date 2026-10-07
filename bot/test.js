@@ -20,6 +20,8 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 // (Never hard-coded in config.js — this is test-only.)
 process.env.ADMIN_IDS = process.env.ADMIN_IDS || '999000111';
 process.env.BOT_PREFIX = process.env.BOT_PREFIX || '!';
+// The anti-ban SEND_DELAY_MS must be zero in tests so every reply is instant.
+global.SEND_DELAY_MS = 0;
 // BEFORE ./pending is required: the module resolves its records file once, at
 // load. Without this the suite would read and write a real approval queue in
 // database/pending.json — a file the .gitignore exists to keep out of the
@@ -1414,6 +1416,7 @@ function query(doc) {
     // End to end through handleMessage, which is where the wrong flag reached
     // Facebook in production.
     const ik = require('../ws3-fca');
+    ik.reloadCommands();
     const api = mockApi();
     const before = api.sent.length;
     await ik.handleMessage(api, {
@@ -2043,6 +2046,7 @@ function query(doc) {
   // would still leave the user staring at nothing.
   await step('a spaced command reaches its handler, not just the parser', async () => {
     const ik = require('../ws3-fca');
+    ik.reloadCommands();
     const sent = [];
     const api = {
       ...mockApi(),
@@ -2050,7 +2054,8 @@ function query(doc) {
     };
     const run = async (body) => {
       sent.length = 0;
-      for (const name of ['ping', 'profile', 'pet']) cooldown.clear('spaced_probe', name);
+      // Clear per-command cooldown for the actual sender, not a leftover uid.
+      for (const name of ['ping', 'profile', 'pet']) cooldown.clear('999000111', name);
       await ik.handleMessage(api, {
         threadID: 't_spaced', messageID: 'sp_mid', senderID: '999000111',
         isGroup: false, mentions: {}, body,
@@ -2059,8 +2064,9 @@ function query(doc) {
     };
 
     // `!pet` and `!petX` are different commands, so compare against the exact
-    // real command names the user named.
-    for (const name of ['pet', 'profile']) {
+    // real command names the user named. `pet` output includes a random tagline,
+    // so only deterministic commands are compared for exact equality.
+    for (const name of ['profile']) {
       assert.ok(loaded.registry.has(name), `${name} must exist for this to mean anything`);
       const plain = await run(`!${name}`);
       const spaced = await run(`! ${name}`);
