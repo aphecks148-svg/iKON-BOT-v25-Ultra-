@@ -3339,7 +3339,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'petskillup',
-    aliases: ['petskillup', 'skillup'],
+    aliases: ['skillup'],
     category: 'pets',
     description: '🔼 Upgrade a pet\'s skill tier — amplifies all skill damage',
     usage: '!petskillup <name> <skill>',
