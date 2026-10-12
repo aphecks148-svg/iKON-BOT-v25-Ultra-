@@ -398,7 +398,11 @@ const EVENT = (body, over = {}) => ({
       const view = await asAdmin('!listcmds', 'gate_m4');
       assert.ok(/Modules off/.test(view), `the admin is shown which modules are off -> ${JSON.stringify(view.slice(0, 120))}`);
       const enabled = Number((view.match(/Enabled: (\d+)/) || [])[1]);
-      assert.ok(enabled > 0 && enabled < 356, `enabled count accounts for module kills (got ${enabled})`);
+      // The cap is the live registry size, not a fixed number: the bot grows
+      // by a command or three a month, and a hardcoded ceiling silently
+      // breaks the moment it does.
+      const total = ik.registry.size;
+      assert.ok(enabled > 0 && enabled < total, `enabled count accounts for module kills (got ${enabled} of ${total})`);
 
       // With the module switch off, a member keeps every command outside it:
       // by default everybody can use the bot, and only the switches take

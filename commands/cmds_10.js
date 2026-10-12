@@ -2662,4 +2662,96 @@ function pokeOf(doc) {
 
 
 
+commands.push({
+    name: 'farmcard',
+    aliases: ['farmstatus', 'fieldcard'],
+    category: 'farming',
+    description: '🌾 Render your farm as a picture — fields, crops, yield',
+    usage: '!farmcard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'farmcard', async () => {
+      await react('🌾');
+      const doc = await require('../models/Economy').findOne({ uid: userDoc.uid }).lean().catch(() => null);
+      const f = (doc && doc.farming) || {};
+      const rows = [
+        ['Fields', num(Object.keys(f).filter((k) => f[k]).length)],
+        ['Crops', num(Object.values(f).filter(Boolean).length)],
+        ['Yield', num(f.yield || 0)],
+        ['Level', userDoc.level],
+      ];
+      const card = await cards.userCard({
+        emoji: '🌾', title: 'THE FARM', subtitle: userDoc.name, api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
+        rows,
+      });
+      if (card) {
+        await reply({ body: '🌾 **THE FARM**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('🌾 **THE FARM**\n· · · · · · ·\n' + userDoc.name + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'fishcard',
+    aliases: ['fishstatus', 'tacklecard'],
+    category: 'farming',
+    description: '🎣 Render your tackle box as a picture — catch, size, rare fish',
+    usage: '!fishcard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'fishcard', async () => {
+      await react('🎣');
+      const doc = await require('../models/Economy').findOne({ uid: userDoc.uid }).lean().catch(() => null);
+      const f = (doc && doc.fishing) || {};
+      const rows = [
+        ['Caught', num(f.caught || 0)],
+        ['Largest', num(f.largest || 0) + 'kg'],
+        ['Rare', num(f.rare || 0)],
+        ['Level', userDoc.level],
+      ];
+      const card = await cards.userCard({
+        emoji: '🎣', title: 'THE TACKLE BOX', subtitle: userDoc.name, api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
+        rows,
+      });
+      if (card) {
+        await reply({ body: '🎣 **THE TACKLE BOX**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('🎣 **THE TACKLE BOX**\n· · · · · · ·\n' + userDoc.name + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'minecard',
+    aliases: ['minestatus', 'pickcard'],
+    category: 'farming',
+    description: '⛏️ Render your mine as a picture — depth, ore, yield',
+    usage: '!minecard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'minecard', async () => {
+      await react('⛏️');
+      const doc = await require('../models/Economy').findOne({ uid: userDoc.uid }).lean().catch(() => null);
+      const m = (doc && doc.mining) || {};
+      const rows = [
+        ['Depth', num(m.depth || 0) + 'm'],
+        ['Ore', num(m.ore || 0)],
+        ['Yield', num(m.yield || 0)],
+        ['Level', userDoc.level],
+      ];
+      const card = await cards.userCard({
+        emoji: '⛏️', title: 'THE MINE', subtitle: userDoc.name, api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
+        rows,
+      });
+      if (card) {
+        await reply({ body: '⛏️ **THE MINE**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('⛏️ **THE MINE**\n· · · · · · ·\n' + userDoc.name + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
 module.exports = commands;

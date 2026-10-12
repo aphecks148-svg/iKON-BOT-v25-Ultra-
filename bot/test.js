@@ -1443,10 +1443,11 @@ function query(doc) {
   await step('cmds_9 carries no "ultra" in any command name', () => {
     const loaded = loader.loadCommands(path.resolve(__dirname, '../commands'));
     const c9 = [...loaded.registry.values()].filter((c) => c.module === 'cmds_9');
-    // 35 after the rename, 36 since !pair landed. A count here is a
+    // 35 after the rename, 36 since !pair landed, 39 since the three card
+    // commands (shipcard, flexcard, roastcard) were added. A count here is a
     // change-detector: a command added on purpose should be the only thing that
     // moves it, and adding one silently should fail.
-    assert.strictEqual(c9.length, 30, 'cmds_9 should hold 30 commands (36 minus the 6 retired social verbs)');
+    assert.strictEqual(c9.length, 33, 'cmds_9 should hold 33 commands (30 + the three card commands)');
 
     const dirty = c9.filter((c) => /ultra/i.test(c.name) || (c.aliases || []).some((a) => /ultra/i.test(a)));
     assert.deepStrictEqual(dirty.map((c) => c.name), [], 'these still say ultra');

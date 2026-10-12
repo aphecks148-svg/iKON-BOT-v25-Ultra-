@@ -2727,4 +2727,81 @@ const commands = [];
     }),
   });
 
+commands.push({
+    name: 'gtacard',
+    aliases: ['gtacardboard', 'vehicard'],
+    category: 'gta',
+    description: '🚗 Render your garage as a picture — cars, stats, wanted level',
+    usage: '!gtacard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'gtacard', async () => {
+      await react('🚗');
+      const userDoc2 = await cache.getOrCreateUser(userDoc.uid, api);
+      const car = (userDoc2.gta && userDoc2.gta.cars && userDoc2.gta.cars[0]) || null;
+      const rows = [
+        ['Cash', kc(userDoc2.coins)],
+        ['Wanted', num(userDoc2.gta && userDoc2.gta.wantedLevel ? userDoc2.gta.wantedLevel : 0)],
+        ['Fuel', num(userDoc2.gta && userDoc2.gta.fuel != null ? userDoc2.gta.fuel : 100)],
+        ['Cars', num(userDoc2.gta && userDoc2.gta.cars ? userDoc2.gta.cars.length : 0)],
+      ];
+      const card = await cards.userCard({
+        emoji: '🚗', title: 'GARAGE', subtitle: car ? car.name : 'no car', api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
+        rows,
+      });
+      if (card) {
+        await reply({ body: '🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no car') + ' · ' + kc(userDoc2.coins), attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no car') + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gtaleaderboard',
+    aliases: ['gtatop', 'gta richest'],
+    category: 'gta',
+    description: '💰 The richest drivers in the city, ranked by garage value',
+    usage: '!gtaleaderboard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'gtaleaderboard', async () => {
+      await react('💰');
+      const users = await User.find({ 'gta.cars.0': { $exists: true } }).sort({ 'gta.garageValue': -1 }).limit(10).lean().catch(() => []);
+      if (!users.length) { await reply('❌ Nobody has a garage yet.', event.messageID); return; }
+      const rows = users.map((u, i) => ({ uid: String(i + 1), name: u.name || String(u.uid).slice(-4), level: u.level || 1, xp: clamp(u.gta && u.gta.garageValue ? u.gta.garageValue : 0) }));
+      const card = await cards.boardCard({
+        emoji: '💰', title: 'GARAGE RICH', subtitle: users.length + ' drivers', rows,
+        value: (b) => kc(b.xp || 0),
+        detail: (b) => 'Lv ' + (b.level || 0),
+      });
+      if (card) {
+        await reply({ body: '💰 **GARAGE RICH** — ' + users.length + ' drivers', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      const lines = rows.map((b, i) => (i + 1) + '. ' + b.name + ' — ' + kc(b.xp || 0)).join('\n');
+      await reply('💰 **GARAGE RICH** — ' + users.length + ' drivers\n· · · · · · ·\n' + lines + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gtacustomize',
+    aliases: ['paintcar', 'customcar', 'tune'],
+    category: 'gta',
+    description: '🎨 Paint your current car — pick a colour',
+    usage: '!gtacustomize <hex>',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ api, args, reply, react, event, userDoc }) => guard(reply, event.messageID, 'gtacustomize', async () => {
+      await react('🎨');
+      const hex = String(args[0] || '').trim();
+      if (!hex) { await reply('📖 Usage: `!gtacustomize <hex>` — e.g. `!gtacustomize #ff0000`.', event.messageID); return; }
+      const userDoc2 = await cache.getOrCreateUser(userDoc.uid, api);
+      if (!userDoc2.gta || !userDoc2.gta.cars || !userDoc2.gta.cars.length) { await reply('❌ You own no car. Buy one first.', event.messageID); return; }
+      userDoc2.gta.cars[0].color = hex;
+      await userDoc2.save();
+      await reply('🎨 **PAINT JOB**\n· · · · · · ·\nYour ' + (userDoc2.gta.cars[0].name || 'car') + ' is now ' + hex + '.', event.messageID);
+    }),
+  });
 module.exports = commands;

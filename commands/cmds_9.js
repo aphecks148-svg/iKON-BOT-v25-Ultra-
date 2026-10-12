@@ -2668,4 +2668,95 @@ const commands = [];
     }),
   });
 
+commands.push({
+    name: 'shipcard',
+    aliases: ['shipstatus', 'relationshipcard', 'shipviz'],
+    category: 'fun',
+    description: '❤️ Render a relationship as a picture — compatibility, status',
+    usage: '!shipcard [@user]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'shipcard', async () => {
+      await react('❤️');
+      const target = await userTarget.resolve(api, event, args, userDoc);
+      if (!target) { await reply('❌ I could not find that hunter.', event.messageID); return; }
+      const tdoc = await cache.getOrCreateUser(target.uid, api);
+      const comp = Math.floor((Number(userDoc.uid) + Number(target.uid)) % 100);
+      const rows = [
+        ['With', target.name],
+        ['Compatibility', comp + '%'],
+        ['Status', 'it is complicated'],
+      ];
+      const card = await cards.duoCard({
+        emoji: '❤️', title: 'SHIP', subtitle: userDoc.name + ' + ' + target.name, threadID: String(event.threadID), chatName: 'the city',
+        left: { uid: userDoc.uid, name: userDoc.name }, right: { uid: target.uid, name: target.name },
+        body: comp + '% compatible', footer: 'NONE OF THIS IS REAL', api,
+      });
+      if (card) {
+        await reply({ body: '❤️ **SHIP**\n· · · · · · ·\n' + userDoc.name + ' + ' + target.name + ' — ' + comp + '%', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('❤️ **SHIP**\n· · · · · · ·\n' + userDoc.name + ' + ' + target.name + ' — ' + comp + '%\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'flexcard',
+    aliases: ['showoff', 'brag', 'flexviz'],
+    category: 'fun',
+    description: '💪 Render your flex as a picture — stats, title, wealth',
+    usage: '!flexcard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'flexcard', async () => {
+      await react('💪');
+      const card = await cards.userCard({
+        emoji: '💪', title: 'THE FLEX', subtitle: userDoc.title || 'Citizen', api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
+        rows: [
+          ['Title', userDoc.title || 'Citizen'],
+          ['Level', userDoc.level],
+          ['XP', num(userDoc.xp)],
+          ['Wealth', kc(userDoc.coins)],
+          ['Wins', num(userDoc.wins || 0)],
+        ],
+      });
+      if (card) {
+        await reply({ body: '💪 **THE FLEX**\n· · · · · · ·\n' + userDoc.name + ' · Lv ' + userDoc.level, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('💪 **THE FLEX**\n· · · · · · ·\n' + userDoc.name + ' · Lv ' + userDoc.level + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'roastcard',
+    aliases: ['burncard', 'roastviz'],
+    category: 'fun',
+    description: '🔥 Render a roast as a picture — targeted, in the house style',
+    usage: '!roastcard [@user]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'roastcard', async () => {
+      await react('🔥');
+      const target = await userTarget.resolve(api, event, args, userDoc);
+      if (!target) { await reply('❌ I could not find that hunter.', event.messageID); return; }
+      const tdoc = await cache.getOrCreateUser(target.uid, api);
+      const roast = 'Your balance is ' + kc(tdoc.coins) + ' and your level is ' + tdoc.level + '. The city feels bad for you, but not enough to help.';
+      const card = await cards.userCard({
+        emoji: '🔥', title: 'THE ROAST', subtitle: target.name, api,
+        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
+        rows: [
+          ['Cash', kc(tdoc.coins)],
+          ['Level', tdoc.level],
+          ['Verdict', roast.slice(0, 40)],
+        ],
+      });
+      if (card) {
+        await reply({ body: '🔥 **THE ROAST**\n· · · · · · ·\n' + roast.slice(0, 120), attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('🔥 **THE ROAST**\n· · · · · · ·\n' + roast.slice(0, 200) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
 module.exports = commands;

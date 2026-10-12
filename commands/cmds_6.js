@@ -2987,4 +2987,95 @@ const commands = [];
     }),
   });
 
+commands.push({
+    name: 'gcpicture',
+    aliases: ['gcavatar', 'groupavatar', 'gciconcard'],
+    category: 'group',
+    description: '🖼️ Render this chat as a picture — name, members, level',
+    usage: '!gcpicture',
+    cooldown: 60,
+    permission: 'groupAdmin',
+    execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'gcpicture', async () => {
+      await react('🖼️');
+      const Group = require('../models/Group');
+      const g = await Group.findOne({ tid: String(event.threadID) }).lean().catch(() => null);
+      if (!g) { await reply('❌ No record for this chat.', event.messageID); return; }
+      const card = await cards.userCard({
+        emoji: '🏛️', title: 'GROUP', subtitle: g.threadName || String(g.tid), api,
+        user: { uid: g.tid, name: g.threadName || 'Group', level: g.gcLevel || 1, xp: g.gcXp || 0 },
+        rows: [
+          ['Name', g.threadName || '—'],
+          ['Level', g.gcLevel || 1],
+          ['XP', num(g.gcXp || 0)],
+          ['Members', num(g.gcMembers || 0)],
+          ['Status', g.isEnabled ? '✅ running' : '⏸️ paused'],
+        ],
+      });
+      if (card) {
+        await reply({ body: '🏛️ **' + (g.threadName || 'Group') + '**\n· · · · · · ·\nLevel ' + (g.gcLevel || 1) + ' · ' + num(g.gcXp || 0) + ' XP', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('🏛️ **' + (g.threadName || 'Group') + '**\n· · · · · · ·\nLevel: ' + (g.gcLevel || 1) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'lockdowncard',
+    aliases: ['lockdown', 'seal', 'gclockdown'],
+    category: 'group',
+    description: '🔒 Render the lockdown state of this chat as a picture',
+    usage: '!lockdowncard',
+    cooldown: 30,
+    permission: 'groupAdmin',
+    execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'lockdowncard', async () => {
+      await react('🔒');
+      const Group = require('../models/Group');
+      const g = await Group.findOne({ tid: String(event.threadID) }).lean().catch(() => null);
+      const rows = [
+        ['Chat', g ? (g.threadName || String(g.tid)) : '—'],
+        ['Enabled', g ? (g.isEnabled ? '✅ yes' : '⏸️ paused') : '—'],
+        ['Maintenance', g ? (g.maintenance ? '🛑 yes' : '✅ no') : '—'],
+        ['Admins only', g ? (g.adminsOnly ? '🔒 yes' : '🔓 no') : '—'],
+        ['Pending', g ? (g.pendingApproval ? '⏳ yes' : '✅ no') : '—'],
+      ];
+      const card = await cards.userCard({
+        emoji: '🔒', title: 'LOCKDOWN', subtitle: 'the chat under test', api,
+        user: { uid: String(event.threadID), name: 'Chat', level: 1, xp: 0 },
+        rows,
+      });
+      if (card) {
+        await reply({ body: '🔒 **LOCKDOWN STATE**\n· · · · · · ·\n' + (g ? (g.isEnabled ? 'running' : 'paused') : 'unknown'), attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'gcbanner',
+    aliases: ['gcban', 'banbanner'],
+    category: 'group',
+    description: '🚫 Render the ban list of this chat as a picture',
+    usage: '!gcbanner',
+    cooldown: 60,
+    permission: 'groupAdmin',
+    execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'gcbanner', async () => {
+      await react('🚫');
+      const Group = require('../models/Group');
+      const g = await Group.findOne({ tid: String(event.threadID) }).lean().catch(() => null);
+      const banned = (g && g.bannedUids) ? g.bannedUids.slice(0, 10) : [];
+      if (!banned.length) { await reply('✅ No bans recorded for this chat.', event.messageID); return; }
+      const rows = banned.map((uid, i) => ({ uid: String(i + 1), name: String(uid).slice(-6), level: 0, xp: 0 }));
+      const card = await cards.boardCard({
+        emoji: '🚫', title: 'BAN LIST', subtitle: banned.length + ' banned', rows,
+        value: () => 'banned',
+        detail: (b) => b.name,
+      });
+      if (card) {
+        await reply({ body: '🚫 **BAN LIST** — ' + banned.length + ' banned', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('🚫 **BAN LIST** — ' + banned.length + ' banned\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
 module.exports = commands;

@@ -50,6 +50,7 @@ const User = require('../models/User');
 const Economy = require('../models/Economy');
 const mongo = require('../bot/mongo');
 const canvasKit = require('../bot/canvas');
+const cards = require('../bot/cards');
 const groq = require('../bot/groq');
 const media = require('../bot/media');
 
@@ -2629,5 +2630,66 @@ const commands = [];
       });
     }),
   });
+
+commands.push({
+    name: 'aicard',
+    aliases: ['aiprofile', 'aistatus'],
+    category: 'downloader',
+    description: '🤖 Render the AI status as a picture — key, model, usage',
+    usage: '!aicard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'aicard', async () => {
+      await react('🤖');
+      const key = process.env.GROQ_API_KEY ? '✅ set' : '❌ missing';
+      const rows = [
+        ['Provider', 'Groq'],
+        ['API key', key],
+        ['Model', process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'],
+        ['Your balance', kc(userDoc.coins)],
+      ];
+      const card = await cards.userCard({
+        emoji: '🤖', title: 'AI STATUS', subtitle: 'the brain', api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
+        rows,
+      });
+      if (card) {
+        await reply({ body: '🤖 **AI STATUS**\n· · · · · · ·\n' + key, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('🤖 **AI STATUS**\n· · · · · · ·\nKey: ' + key + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'downloadcard',
+    aliases: ['dlstatus', 'dlstats'],
+    category: 'downloader',
+    description: '📥 Render the downloader status as a picture — supported sites',
+    usage: '!downloadcard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'downloadcard', async () => {
+      await react('📥');
+      const rows = [
+        ['YouTube', 'audio + video'],
+        ['TikTok', 'no watermark'],
+        ['Instagram', 'posts + reels'],
+        ['X / Twitter', 'videos + images'],
+        ['Pinterest', 'six pictures'],
+      ];
+      const card = await cards.userCard({
+        emoji: '📥', title: 'DOWNLOADER', subtitle: 'six sites, one command', api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
+        rows,
+      });
+      if (card) {
+        await reply({ body: '📥 **DOWNLOADER**\n· · · · · · ·\nSix sites, one command', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('📥 **DOWNLOADER**\n· · · · · · ·\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
 
 module.exports = commands;

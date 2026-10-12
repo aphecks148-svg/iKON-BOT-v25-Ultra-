@@ -3011,7 +3011,7 @@ module.exports = [
   // 32
   // ─────────────────────────────────────────────────────────
   {
-    name: 'petrename',
+    name: 'petnickname',
     aliases: [],
     category: 'pets',
     description: '✏️ Rename a pet — power, level and stones are untouched',
@@ -3510,4 +3510,121 @@ module.exports = [
       await reply(msg, event.messageID);
     }),
   },
+  // ─────────────────────────────────────────────────────────
+  // 41$  — pet card (picture of your active pet)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'petcard',
+    aliases: ['petprofile', 'petstatus'],
+    category: 'pets',
+    description: '🐾 Render your active pet as a picture — stats, mood, gear',
+    usage: '!petcard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'petcard', async () => {
+      await react('🐾');
+      const pet = await Pet.findOne({ owner: userDoc.uid, active: true }).sort({ _id: -1 }).lean().catch(() => null);
+      if (!pet) {
+        await reply('❌ You have no active pet. Adopt one with `!petshop`.', event.messageID);
+        return;
+      }
+      const species = PETS.find((p) => p.id === pet.species) || { name: 'Unknown', emoji: '🐾', rarity: 'common' };
+      const card = await cards.userCard({
+        emoji: species.emoji, title: 'PET', subtitle: `${species.name} — ${rarity.label(species.rarity)}`, api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: pet.level || 1, xp: pet.xp || 0 },
+        rows: [
+          ['Species', species.name],
+          ['Level', pet.level || 1],
+          ['Power', pet.power || 0],
+          ['Mood', pet.mood || 'content'],
+          ['Gear', pet.equip?.item || 'none'],
+        ],
+      });
+      if (card) {
+        await reply({ body: `🐾 **${userDoc.name} — ${species.name}**\n· · · · · · ·\nLv ${pet.level || 1} · power ${pet.power || 0}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(
+        `🐾 **${userDoc.name} — ${species.name}**\n`
+        + '· · · · · · ·\n'
+        + `Level: ${pet.level || 1}\n`
+        + `Power: ${pet.power || 0}\n`
+        + `Mood: ${pet.mood || 'content'}\n`
+        + `📖 Canvas unavailable — text fallback`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 42$  — pet leaderboard
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'petboard',
+    aliases: ['petleaderboard', 'pettop', 'toppets'],
+    category: 'pets',
+    description: '🏆 The strongest pets in the city, ranked by power',
+    usage: '!petboard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'petboard', async () => {
+      await react('🏆');
+      const pets = await Pet.find({}).sort({ power: -1 }).limit(10).lean().catch(() => []);
+      if (!pets.length) {
+        await reply('❌ No pets recorded yet.', event.messageID);
+        return;
+      }
+      const rows = pets.map((p, i) => {
+        const sp = PETS.find((x) => x.id === p.species) || { name: 'Unknown', emoji: '🐾' };
+        return { uid: String(i + 1), name: sp.name, level: p.level || 1, xp: p.power || 0 };
+      });
+      const card = await cards.boardCard({
+        emoji: '🏆', title: 'PET BOARD', subtitle: `${pets.length} pets ranked by power`, rows,
+        value: (b) => `Lv ${b.level || 0} · ${b.xp || 0} power`,
+        detail: (b) => '—',
+      });
+      if (card) {
+        await reply({ body: `🏆 **PET BOARD** — ${pets.length} pets\n· · · · · · ·\nRanked by power, top 10 shown`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      const lines = rows.map((b, i) => `${i + 1}. ${b.name} — Lv ${b.level || 0} · ${b.xp || 0} power`).join('\n');
+      await reply(
+        `🏆 **PET BOARD** — ${pets.length} pets\n`
+        + '· · · · · · ·\n'
+        + `${lines}\n`
+        + `📖 Canvas unavailable — text fallback`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 43$  — pet rename (owner + admin)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'petnickname',
+    aliases: ['renamepet', 'petname', 'petnick'],
+    category: 'pets',
+    description: '✏️ Give your active pet a nickname',
+    usage: '!petrename <name>',
+    cooldown: 30,
+    permission: 'groupAdmin',
+    execute: async ({ args, reply, react, event, userDoc }) => guard(reply, event.messageID, 'petrename', async () => {
+      await react('✏️');
+      const name = args.join(' ').trim();
+      if (!name || name.length > 24) {
+        await reply('📖 Usage: `!petrename <name>` — 24 characters max.', event.messageID);
+        return;
+      }
+      const pet = await Pet.findOne({ owner: userDoc.uid, active: true }).sort({ _id: -1 }).lean().catch(() => null);
+      if (!pet) {
+        await reply('❌ No active pet to rename.', event.messageID);
+        return;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await Pet.updateOne({ _id: pet._id }, { $set: { name } }).catch(() => null);
+      await reply(`✏️ **${userDoc.name}** renamed their pet to **${name}**.`, event.messageID);
+    }),
+  },
+
 ];
