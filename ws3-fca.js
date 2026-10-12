@@ -375,24 +375,9 @@ async function handleMessage(api, event) {
     }
   }
 
-  // ── PER-USER COOLDOWN ───────────────────────────────────────
-  // No single user can fire commands faster than once every 5s, which is
-  // enough headroom to type and click without triggering FB's spam filters.
-  // Owner/admin IDs are exempt — operators need to test commands without
-  // being rate-limited, and a compromised admin account is a different threat.
-  const now = Date.now();
-  const userKey = String(senderID);
-  if (!permissions.isOwner(userKey)) {
-    const lastCmd = global.commandCooldowns.get(userKey) || 0;
-    if (now - lastCmd < USER_COOLDOWN_MS) {
-      global.commandCooldowns.set(userKey, lastCmd);
-      return;
-    }
-    global.commandCooldowns.set(userKey, now);
-  }
-
   // ── PER-THREAD RATE LIMIT ───────────────────────────────────
   // Cap at 20 sends/min per chat; pause the thread for 60s when exceeded.
+  const now = Date.now();
   const tKey = String(threadID);
   const pausedUntil = threadPaused.get(tKey);
   if (pausedUntil && now < pausedUntil) return;
@@ -521,9 +506,17 @@ async function handleMessage(api, event) {
   const cmd = loader.findCommand(parsed.name, registry, aliases);
   commandName = (cmd && cmd.name) || parsed.commandName || parsed.name;
   if (!cmd) {
-    // Unknown command: stay silent. No "❌ Unknown command" reply — a quiet bot
-    // is a surviving bot. FB's spam filters penalise reply volume, and a bot
-    // that answers every unrecognized word trains users to flood it.
+    // Unknown command: say so, briefly. This used to stay silent on purpose —
+    // "a quiet bot is a surviving bot" — but silence here is the wrong answer
+    // for the person who typed it: they get nothing back, conclude the bot is
+    // dead, and either stop using it or start flooding it with "are you ok?".
+    // A one-line "unknown" teaches the command list without training a spam
+    // habit, and it is the same line every time so it costs nothing.
+    //
+    // Bare chat words never reach this point — they are handled above at the
+    // "not a command" branch — so this only ever answers an actual command
+    // prefix, which is the only place a reply is useful.
+    await say(`❌ Unknown command \`${parsed.name}\`. Try \`${config.PREFIX}help\`.`);
     await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
     return;
   }
@@ -562,6 +555,48 @@ async function handleMessage(api, event) {
       await say(`⛔ ${gate.reason}`);
       return;
     }
+  }
+
+  // ── PER-USER COOLDOWN ─────────────────────────────────────
+  // No single user can fire commands faster than once every 5s, which is
+  // enough headroom to type and click without triggering FB's spam filters.
+  // Owner/admin IDs are exempt — operators need to test commands without
+  // being rate-limited, and a compromised admin account is a different threat.
+  //
+  // AFTER command lookup, not before it. This used to sit above the parse,
+  // which meant a user who typed fast got silence for their typos: the
+  // cooldown returned before the word was even recognised, so `!ping`
+  // followed by `!definitelynotacommand` answered the first and dropped the
+  // second with no "unknown command" to explain it. A cooldown is about
+  // stopping a person spamming a real command; a word that is not a command
+  // is answered, not throttled, because the answer is the only useful thing
+  // about it.
+  //
+  // AFTER the toggle gate, not before it. The gate answers "is this command
+  // allowed in this chat at all", and that answer has to come first: a member
+  // in a chat with the system module disabled gets "module disabled here",
+  // not "cooldown". Putting the cooldown before the gate made the wrong
+  // message win, because the cooldown is keyed per-user and survives across
+  // messages — the first thing a held user hears about a disabled module is
+  // a rate-limit notice.
+  const userKey = String(senderID);
+  let isOperator = false;
+  try { isOperator = permissions.isOwner(userKey) || await permissions.canModerate(api, event); }
+  catch { isOperator = false; }
+  if (!isOperator) {
+    const lastCmd = global.commandCooldowns.get(userKey) || 0;
+    if (now - lastCmd < USER_COOLDOWN_MS) {
+      // Say something. This gate used to return in silence, which is the worst
+      // of both worlds: the person gets no feedback that they are being held,
+      // so they press again and are held again — and the per-command cooldown
+      // notice they would otherwise get never appears, because this returns
+      // before the command's own bucket is even checked. A short line costs
+      // one message and teaches the rate without training a spam habit.
+      const wait = Math.ceil((USER_COOLDOWN_MS - (now - lastCmd)) / 1000);
+      await say(`⏳ Cooldown: wait ${helpers.fmt.dur(wait)}.`);
+      return;
+    }
+    global.commandCooldowns.set(userKey, now);
   }
 
   // ── ADMINS-ONLY (!onlyadminon) ─────────────────────────────
