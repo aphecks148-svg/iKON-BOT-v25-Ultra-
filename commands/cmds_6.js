@@ -44,6 +44,7 @@ const { isPlaceholderName } = profile;
 const gcs = require('../bot/gcs');
 const moderation = require('../bot/moderation');
 const flood = require('../bot/flood');
+const toggles = require('../bot/toggles');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -2815,5 +2816,175 @@ const commands = [];
       }),
     },
   );
+
+  // ─────────────────────────────────────────────────────────
+  // PAUSE / UNPAUSE / RESUME
+  // ─────────────────────────────────────────────────────────
+  // Pausing a chat sets `isEnabled` to false, which the engine gate reads as
+  // "this group is paused". The whitelist in bot/toggles.js keeps the five
+  // commands above working while a chat is paused, so an admin can pause a
+  // chat and still unpause it, list the paused chats, and check the bot is
+  // alive — without those, pausing a chat locked the admin out of the very
+  // controls that exist to undo it.
+  commands.push({
+    name: 'pause',
+    aliases: ['pausegc', 'gcstop', 'stop'],
+    category: 'group',
+    description: '⏸️ Switch the bot off in this chat',
+    usage: '!pause [reason]',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'pause', async () => {
+      await react('⏸️');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Nothing was paused.', event.messageID);
+        return;
+      }
+      if (group.isEnabled === false) {
+        await reply('⏸️ This chat is already paused.', event.messageID);
+        return;
+      }
+      const reason = args.join(' ').trim();
+      group.isEnabled = false;
+      const warn = await save(group);
+      if (warn) {
+        await reply(warn, event.messageID);
+        return;
+      }
+      await reply(
+        `⏸️ **BOT PAUSED IN THIS CHAT.**\n`
+        + '· · · · · · ·\n'
+        + `${reason ? `📖 ${reason}\n` : ''}`
+        + `Unpause with \`${config.PREFIX}unpause\` — or \`${config.PREFIX}unpauseall\` from another chat.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'unpause',
+    aliases: ['unpausegc', 'gcstart', 'start', 'resume'],
+    category: 'group',
+    description: '▶️ Switch the bot back on in this chat',
+    usage: '!unpause [tid]',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'unpause', async () => {
+      await react('▶️');
+      const tid = String(args[0] || event.threadID || '');
+      if (!tid) {
+        await reply('❌ Give me a chat id: `!unpause`, or `!unpause <tid>`.', event.messageID);
+        return;
+      }
+      const group = await toggles.findGroup(tid);
+      if (!group) {
+        await reply(`❌ No record for \`${tid}\`. Nothing was paused there.`, event.messageID);
+        return;
+      }
+      if (group.isEnabled !== false) {
+        await reply(`✅ \`${tid}\` is already running. Nothing to do.`, event.messageID);
+        return;
+      }
+      group.isEnabled = true;
+      const warn = await save(group);
+      if (warn) {
+        await reply(warn, event.messageID);
+        return;
+      }
+      await reply(
+        `▶️ **BOT RUNNING AGAIN.**\n`
+        + '· · · · · · ·\n'
+        + `${tid === String(event.threadID) ? '📖 This chat is back online.' : `📖 \`${tid}\` is back online.`}`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'unpauseall',
+    aliases: ['unpauseeverything', 'resumeall', 'startall'],
+    category: 'group',
+    description: '▶️ Switch the bot back on in every paused chat',
+    usage: '!unpauseall',
+    cooldown: 30,
+    permission: 'owner',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'unpauseall', async () => {
+      await react('▶️');
+      const dryRun = /^(dry|check|list)$/i.test(String(args[0] || '').trim());
+      if (dryRun) {
+        const paused = await toggles.listPaused();
+        if (!paused.length) {
+          await reply('✅ No paused chats. Everything is running.', event.messageID);
+          return;
+        }
+        const lines = paused.map((g, i) => `${i + 1}. \`${g.tid}\` ${String(g.threadName || '').slice(0, 40)}`);
+        await reply(
+          `⏸️ **PAUSED CHATS** (${paused.length})\n`
+          + '· · · · · · ·\n'
+          + `${lines.join('\n')}\n`
+          + `📖 \`${config.PREFIX}unpauseall\` to switch them all on.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const paused = await toggles.listPaused();
+      if (!paused.length) {
+        await reply('✅ No paused chats. Everything is running.', event.messageID);
+        return;
+      }
+      let done = 0;
+      const failed = [];
+      for (const g of paused) {
+        try {
+          g.isEnabled = true;
+          // eslint-disable-next-line no-await-in-loop
+          await g.save();
+          done += 1;
+        } catch (err) {
+          failed.push(`${g.tid}: ${err.message}`);
+        }
+      }
+      await reply(
+        `▶️ **UNPAUSED ${done}/${paused.length} CHAT(S)**\n`
+        + '· · · · · · ·\n'
+        + `${failed.length ? `⚠️ Could not resume: ${failed.length}\n` : ''}`
+        + '📖 They are answering again.',
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'pausedlist',
+    aliases: ['paused', 'listpaused', 'gcpaused'],
+    category: 'group',
+    description: '⏸️ List every chat the bot is switched off in',
+    usage: '!pausedlist',
+    cooldown: 20,
+    permission: 'owner',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'pausedlist', async () => {
+      await react('⏸️');
+      const paused = await toggles.listPaused();
+      if (!paused.length) {
+        await reply('✅ **NO PAUSED CHATS**\n· · · · · · ·\nEvery chat the bot is in is answering.', event.messageID);
+        return;
+      }
+      const here = String(event.threadID);
+      const lines = paused.map((g, i) => {
+        const name = (g.threadName && g.threadName !== String(g.tid)) ? g.threadName : '—';
+        const mark = String(g.tid) === here ? ' ← this chat' : '';
+        return `${i + 1}. \`${g.tid}\` ${String(name).slice(0, 40)}${mark}`;
+      });
+      await reply(
+        `⏸️ **PAUSED CHATS** (${paused.length})\n`
+        + '· · · · · · ·\n'
+        + `${lines.join('\n')}\n`
+        + `📖 \`${config.PREFIX}unpause <tid>\` to switch one on, \`${config.PREFIX}unpauseall\` for all of them.`,
+        event.messageID,
+      );
+    }),
+  });
 
 module.exports = commands;
