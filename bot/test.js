@@ -3256,9 +3256,26 @@ const PIKACHU = dex.find('pikachu');
       assert.strictEqual(maint.allowed, false, 'maintenance blocks');
       assert.strictEqual(maint.adminBypass, false, 'maintenance holds even for an admin');
       GROUP = { ...GROUP, maintenance: false, isEnabled: false };
-      const p = await toggles.isCommandDisabled('gate', 'ping', 'system');
-      assert.strictEqual(p.allowed, false, 'a paused chat blocks');
+      // A paused chat blocks ordinary commands — `daily` is not on the
+      // pause-whitelist, so it is refused exactly as before.
+      const p = await toggles.isCommandDisabled('gate', 'daily', 'economy');
+      assert.strictEqual(p.allowed, false, 'a paused chat blocks ordinary commands');
       assert.strictEqual(p.adminBypass, false, 'and a paused chat holds for admins too');
+      // ...while the commands an admin needs to get out of a paused chat are
+      // let through: ping, help, gclist, pending, approve, pause and unpause.
+      // Without this an admin who paused a chat could not unpause it from
+      // inside the chat — the very control that exists to undo it.
+      const ping = await toggles.isCommandDisabled('gate', 'ping', 'system');
+      assert.strictEqual(ping.allowed, true, 'ping is allowed through a paused chat');
+      assert.strictEqual(ping.reason, '', 'and is told nothing is wrong');
+      const gclist = await toggles.isCommandDisabled('gate', 'gclist', 'group');
+      assert.strictEqual(gclist.allowed, true, 'gclist is allowed through a paused chat');
+      const approve = await toggles.isCommandDisabled('gate', 'approve', 'group');
+      assert.strictEqual(approve.allowed, true, 'approve is allowed through a paused chat');
+      const pause = await toggles.isCommandDisabled('gate', 'pause', 'group');
+      assert.strictEqual(pause.allowed, true, 'pause itself is allowed through a paused chat');
+      const unpause = await toggles.isCommandDisabled('gate', 'unpause', 'group');
+      assert.strictEqual(unpause.allowed, true, 'unpause is allowed through a paused chat');
     } finally {
       Group.findOne = realFindOne;
       mongo.isReady = realReady;

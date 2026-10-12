@@ -1298,6 +1298,8 @@ function attachClient(api) {
   // thread list does.
   pending.hydrate()
     .catch((err) => error(`[PENDING] hydrate failed: ${err.message}`))
+    .then(() => gcs.cacheThreadsOnLogin(api))
+    .catch((err) => error(`[GCS] thread cache at login failed: ${err.message}`))
     .then(() => gcs.approveAll(api))
     .catch((err) => error(`[GCS] boot enable sweep failed: ${err.message}`));
 }
@@ -1567,7 +1569,10 @@ async function boot() {
   // the read landed — a window that is exactly as long as the query and is
   // taken every single restart.
   await pending.hydrate().catch((err) => error(`[PENDING] hydrate failed: ${err.message}`));
-  if (api) await gcs.approveAll(api).catch((err) => error(`[GCS] boot enable sweep failed: ${err.message}`));
+  if (api) {
+    try { await gcs.cacheThreadsOnLogin(api); } catch (err) { error(`[GCS] thread cache at login failed: ${err.message}`); }
+    await gcs.approveAll(api).catch((err) => error(`[GCS] boot enable sweep failed: ${err.message}`));
+  }
 
   // 8. HOUSEKEEPING
   if (!housekeeping) {

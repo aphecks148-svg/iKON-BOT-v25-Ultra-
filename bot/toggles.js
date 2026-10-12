@@ -10,6 +10,25 @@ const mongo = require('./mongo');
 const config = require('../config');
 
 /**
+ * Commands that keep working when a chat is paused.
+ *
+ * A paused chat is one where `isEnabled` is false — the bot is switched off
+ * there. The old rule was "paused means nobody", which read fine in the gate
+ * and broke the moment an admin paused a chat: they could not unpause it from
+ * inside the chat, could not list the paused chats, and could not even ask
+ * `!help` or `!ping` to check whether the bot was alive. Every one of those
+ * was a command an admin needs precisely because the chat is paused.
+ *
+ * The list is checked against the command NAME. Aliases resolve to a name
+ * before this point, so an alias of an allowed command is allowed too.
+ */
+const PAUSED_ALLOWED_COMMANDS = new Set([
+  'unpause', 'resume', 'pause', 'unpauseall',
+  'approve', 'approvegc', 'pending', 'gclist',
+  'pausedlist', 'help', 'ping',
+]);
+
+/**
  * A throwaway Group doc for when the database is unreachable.
  * Writes land in memory only, so admin commands still respond instantly.
  */
@@ -96,10 +115,18 @@ function evaluateGroup(group, cmdName, category) {
   const bypass = { allowed: false, adminsOnly, adminBypass: true };
 
   if (group.isEnabled === false) {
-    // Paused holds for everybody, admin included: the whole point of pausing a
-    // chat is that the bot says nothing in it.
+    // Paused holds for everybody, admin included — the whole point of pausing a
+    // chat is that the bot says nothing in it. The exception is the short list
+    // above: the commands an admin needs to get a paused chat talking again,
+    // plus `help` and `ping` so "is the bot alive" is answerable from inside
+    // the chat that was just silenced. An admin bypasses the switches an admin
+    // controls; this is a deliberate shutdown, so it does not get one.
+    const allowed = PAUSED_ALLOWED_COMMANDS.has(String(cmdName || '').toLowerCase());
     return {
-      allowed: false, reason: 'This group is paused.', adminsOnly, adminBypass: false,
+      allowed,
+      reason: allowed ? '' : 'This group is paused.',
+      adminsOnly,
+      adminBypass: false,
     };
   }
 
@@ -221,6 +248,28 @@ async function setEnabled(tid, on) {
   return group;
 }
 
+/**
+ * Every chat the bot is switched off in, oldest first.
+ *
+ * Used by `!pausedlist`. A paused chat is one where `isEnabled` is false, and
+ * there is no separate "paused" flag to query — reading the ones that are off
+ * is the only way to find them. Best effort: a database that will not answer
+ * returns nothing rather than a crash, and the caller is told.
+ *
+ * @returns {Promise<Array<{tid:string,threadName?:string,pausedAt?:Date|null}>>}
+ */
+async function listPaused() {
+  if (!mongo.isReady()) return [];
+  try {
+    return await Group.find({ isEnabled: false })
+      .sort({ _id: 1 })
+      .lean()
+      .catch(() => []);
+  } catch {
+    return [];
+  }
+}
+
 module.exports = {
   getGroup,
   findGroup,
@@ -231,4 +280,6 @@ module.exports = {
   toggleModule,
   approve,
   setEnabled,
+  listPaused,
+  PAUSED_ALLOWED_COMMANDS,
 };

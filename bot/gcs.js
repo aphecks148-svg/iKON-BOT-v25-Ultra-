@@ -25,6 +25,7 @@
  */
 
 const permissions = require('./permissions');
+const mongo = require('./mongo');
 const { log, error } = require('./helpers');
 
 /**
@@ -156,6 +157,41 @@ async function listThreads(api, limit = THREAD_LIMIT) {
     return (Array.isArray(list) ? list : []).filter((t) => t && t.isGroup);
   } catch (err) {
     error(`[GCS] getThreadList failed: ${err.message}`);
+    // Facebook is the source of truth for "which chats is the bot in",
+    // and it is the source that goes down. A bot whose group list is
+    // only ever live can report an empty list forever the moment the
+    // call throws — which is exactly what happened: every !gclist,
+    // !gccleanup and boot sweep read [] and said "no groups", with no
+    // trace of the error visible to the person asking.
+    //
+    // The Group collection is written on every join and on every
+    // approval, so it is the durable copy. Fall back to it rather than
+    // returning nothing, and say so in the caller's reply.
+    return listThreadsFromDB();
+  }
+}
+
+/**
+ * The group list from the database, used when Facebook will not answer.
+ *
+ * @returns {Promise<object[]>} rows shaped like getThreadList entries,
+ *   with tid, isGroup:true and whatever threadName the record holds
+ */
+async function listThreadsFromDB() {
+  if (!mongo.isReady()) return [];
+  try {
+    // eslint-disable-next-line global-require
+    const Group = require('../models/Group');
+    const rows = await Group.find({}).sort({ _id: 1 }).lean().catch(() => null);
+    if (!rows) return [];
+    return rows.map((g) => ({
+      threadID: String(g.tid),
+      tid: String(g.tid),
+      isGroup: true,
+      name: g.threadName || '',
+    }));
+  } catch (err) {
+    error(`[GCS] database fallback for thread list failed: ${err.message}`);
     return [];
   }
 }
@@ -354,6 +390,64 @@ async function approveAll(api) {
   return approved;
 }
 
+/**
+ * Write every thread Facebook hands back, so the group list survives.
+ *
+ * `!gclist` and the boot sweep ask Facebook for the chats the bot is in, and
+ * Facebook is the one source that goes down — an expired appstate, a
+ * restriction, a network blip. When that call throws the live list is empty,
+ * and a bot whose roster is only ever live reports "no groups" forever.
+ *
+ * The Group collection is the durable copy. This runs once, right after login,
+ * and records every thread id the account can see. Later writes (approvals,
+ * joins) keep it current; the fallback in listThreads() reads it when the live
+ * call fails. A thread that has since left is simply not re-listed, which is
+ * the right answer — it is not a chat the bot is in any more.
+ *
+ * Best effort and best-effort-only: it never throws, and a database that is
+ * not yet up is skipped rather than blocking login.
+ *
+ * @param {object} api ws3-fca client
+ * @returns {Promise<number>} how many thread ids were recorded
+ */
+async function cacheThreadsOnLogin(api) {
+  if (!api || typeof api.getThreadList !== 'function' || !mongo.isReady()) return 0;
+  let recorded = 0;
+  try {
+    // eslint-disable-next-line global-require
+    const Group = require('../models/Group');
+    // eslint-disable-next-line global-require
+    const toggles = require('./toggles');
+    const list = await api.getThreadList(THREAD_LIMIT, null, ['INBOX']);
+    const rows = Array.isArray(list) ? list : [];
+    for (const t of rows) {
+      const tid = tidOf(t);
+      if (!tid) continue;
+      try {
+        // getGroup creates the document approved and enabled, which is the
+        // normal state for a chat the bot is already in. It does NOT touch a
+        // chat that is pending approval — that decision belongs to pending.js.
+        const group = await toggles.getGroup(tid);
+        if (!group) continue;
+        if (group.threadName && group.threadName !== String(tid)) continue; // already labelled
+        const name = (t && (t.name || t.threadName)) || '';
+        if (name && group.threadName !== name) {
+          group.threadName = String(name);
+          // eslint-disable-next-line no-await-in-loop
+          await group.save();
+        }
+        recorded += 1;
+      } catch (err) {
+        // One bad thread must not cost the rest of the roster.
+        error(`[GCS] could not record ${tid} at login: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    error(`[GCS] thread cache at login failed: ${err.message}`);
+  }
+  return recorded;
+}
+
 module.exports = {
   THREAD_LIMIT,
   KICK_TTL_MS,
@@ -368,4 +462,5 @@ module.exports = {
   clearKicks,
   cleanup,
   approveAll,
+  cacheThreadsOnLogin,
 };
