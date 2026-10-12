@@ -2321,4 +2321,186 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
       );
     }),
   },
+
+  // ─────────────────────────────────────────────────────────
+  // 36$  — class card (picture of your class)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'classcard',
+    aliases: ['classsheet', 'classprofile'],
+    category: 'rpg',
+    description: '⚔️ Render your class as a picture — stats, skills, gear',
+    usage: '!classcard [@user]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'classcard', async () => {
+      await react('⚔️');
+      const target = await userTarget.resolve(api, event, args, userDoc);
+      if (!target) {
+        await reply('❌ I could not find that hunter.', event.messageID);
+        return;
+      }
+      const tdoc = await cache.getOrCreateUser(target.uid, api);
+      const cls = CLASSES.find((c) => c.id === tdoc.class) || CLASSES[0];
+      const card = await cards.userCard({
+        emoji: cls.emoji, title: 'CLASS', subtitle: cls.name, api,
+        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
+        rows: [
+          ['Role', cls.role],
+          ['Power', num(cls.power)],
+          ['Skill', tdoc.skill ? tdoc.skill.name : '—'],
+          ['Stamina', num(tdoc.stamina || 0)],
+          ['Gear', tdoc.equip?.weapon || 'none'],
+        ],
+      });
+      if (card) {
+        await reply({ body: `⚔️ **${target.name} — ${cls.name}**\n· · · · · · ·\n${cls.role} · power ${cls.power}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(
+        `⚔️ **${target.name} — ${cls.name}**\n`
+        + '· · · · · · ·\n'
+        + `Role: ${cls.role}\n`
+        + `Power: ${num(cls.power)}\n`
+        + `Skill: ${tdoc.skill ? tdoc.skill.name : '—'}\n`
+        + `📖 Canvas unavailable — text fallback`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 37$  — title card
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'titlecard',
+    aliases: ['titleprofile', 'honourcard'],
+    category: 'rpg',
+    description: '🏅 Render your title as a picture — the honour above your name',
+    usage: '!titlecard [@user]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'titlecard', async () => {
+      await react('🏅');
+      const target = await userTarget.resolve(api, event, args, userDoc);
+      if (!target) {
+        await reply('❌ I could not find that hunter.', event.messageID);
+        return;
+      }
+      const tdoc = await cache.getOrCreateUser(target.uid, api);
+      const title = tdoc.title || 'Citizen';
+      const card = await cards.userCard({
+        emoji: '🏅', title: 'TITLE', subtitle: title, api,
+        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
+        rows: [
+          ['Title', title],
+          ['Level', tdoc.level],
+          ['XP', num(tdoc.xp)],
+          ['Wins', num(tdoc.wins || 0)],
+        ],
+      });
+      if (card) {
+        await reply({ body: `🏅 **${target.name} — ${title}**\n· · · · · · ·\nLevel ${tdoc.level} · ${num(tdoc.xp)} XP`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(
+        `🏅 **${target.name} — ${title}**\n`
+        + '· · · · · · ·\n'
+        + `Level: ${tdoc.level}\n`
+        + `XP: ${num(tdoc.xp)}\n`
+        + `📖 Canvas unavailable — text fallback`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 38$  — boss board
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'bossboard',
+    aliases: ['bosslist', 'bosses', 'raidboard'],
+    category: 'rpg',
+    description: '🐉 Every boss, ranked by how much trouble they are',
+    usage: '!bossboard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, config }) => guard(reply, event.messageID, 'bossboard', async () => {
+      await react('🐉');
+      const Boss = require('../models/Boss');
+      const bosses = await Boss.find({}).sort({ power: -1 }).lean().catch(() => []);
+      if (!bosses.length) {
+        await reply('❌ No bosses recorded yet. An owner can seed them with `!bossseed`.', event.messageID);
+        return;
+      }
+      const rows = bosses.slice(0, 10).map((b, i) => ({
+        uid: String(i + 1), name: b.name || `Boss ${i + 1}`,
+        level: b.level || 0, xp: b.power || 0,
+      }));
+      const card = await cards.boardCard({
+        emoji: '🐉', title: 'BOSS BOARD', subtitle: `${bosses.length} bosses ranked by power`, rows,
+        value: (b) => `Lv ${b.level || 0} · ${num(b.power || 0)} power`,
+        detail: (b) => b.location || '—',
+      });
+      if (card) {
+        await reply({ body: `🐉 **BOSS BOARD** — ${bosses.length} bosses\n· · · · · · ·\nRanked by power, top 10 shown`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      const lines = rows.map((b, i) => `${i + 1}. ${b.name} — Lv ${b.level || 0} · ${num(b.power || 0)} power`).join('\n');
+      await reply(
+        `🐉 **BOSS BOARD** — ${bosses.length} bosses\n`
+        + '· · · · · · ·\n'
+        + `${lines}\n`
+        + `📖 Canvas unavailable — text fallback`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 39$  — seed the boss table (owner only)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'bossseed',
+    aliases: ['seedbosses', 'bossreset'],
+    category: 'rpg',
+    description: '🐉 Seed the boss table with the city roster (owner only)',
+    usage: '!bossseed',
+    cooldown: 60,
+    permission: 'owner',
+    execute: async ({ args, reply, react, event }) => guard(reply, event.messageID, 'bossseed', async () => {
+      await react('🐉');
+      const Boss = require('../models/Boss');
+      const Bosses = [
+        { name: 'The Sewer King', emoji: '🐀', level: 5, power: 500, location: 'The Flooded Drain', loot: 'Crown of the Rat King', respawnMs: 0 },
+        { name: 'Gutter Hound Alpha', emoji: '🐕', level: 8, power: 900, location: 'Alleyways', loot: 'Hound Collar', respawnMs: 0 },
+        { name: 'Trash Goose Overlord', emoji: '🪿', level: 12, power: 1600, location: 'The Dump', loot: 'Golden Feather', respawnMs: 0 },
+        { name: 'Alley Cat Matriarch', emoji: '🐈‍⬛', level: 18, power: 2600, location: 'Rooftops', loot: 'Nine Lives Charm', respawnMs: 0 },
+        { name: 'Ironclad Golem', emoji: '🛡️', level: 25, power: 4200, location: 'The Old Foundry', loot: 'Golem Core', respawnMs: 0 },
+        { name: 'Crimson Dragon', emoji: '🐉', level: 40, power: 9000, location: 'Mount Ember', loot: 'Dragon Scale', respawnMs: 0 },
+        { name: 'The Klerk', emoji: '👤', level: 99, power: 50000, location: 'City Hall', loot: 'The Crown', respawnMs: 0 },
+      ];
+      const force = /^reset|force|all/i.test(String(args[0] || '').trim());
+      let count = 0;
+      for (const b of Bosses) {
+        // eslint-disable-next-line no-await-in-loop
+        const existing = await Boss.findOne({ name: b.name }).lean();
+        if (existing && !force) continue;
+        if (existing && force) {
+          // eslint-disable-next-line no-await-in-loop
+          await Boss.deleteOne({ _id: existing._id });
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await Boss.create(b);
+        count += 1;
+      }
+      await reply(
+        `🐉 **BOSS TABLE SEEDED**\n`
+        + '· · · · · · ·\n'
+        + `${count} boss${count === 1 ? '' : 'es'} in the roster\n`
+        + `📖 Try \`${config.PREFIX}bossboard\` to see them ranked.`,
+        event.messageID,
+      );
+    }),
+  },
 ];

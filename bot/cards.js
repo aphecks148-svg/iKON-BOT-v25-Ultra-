@@ -687,8 +687,83 @@ async function arrivalCard({ kind, uid, name, threadName, threadID, picUrl = '',
   }
 }
 
+/**
+ * The bot dashboard — uptime, memory, command count, chat count.
+ *
+ * A picture, because a dashboard is a thing you look at: the numbers sit in
+ * labelled boxes with a status dot, and the version line is the one thing an
+ * operator glances at. Text fallbacks on the caller side when the canvas
+ * binary is not built, so a platform without it still gets the numbers.
+ *
+ * @param {object} opts botName, version, uptime, memory, commands, aliases, chats, pending
+ * @returns {Promise<string|null>} a PNG data URL, or null
+ */
+async function botCard(opts) {
+  const o = opts || {};
+  try {
+    const cv = canvasKit.create(W, 320);
+    const ctx = cv.ctx;
+    paintBackground(ctx, 320);
+
+    // Header band.
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    roundRect(ctx, 24, 24, W - 48, 110, 22);
+    ctx.fill();
+    ctx.font = 'bold 46px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🤖 ' + (o.botName || 'iKON-BOT'), 48, 72);
+    ctx.font = '24px sans-serif';
+    ctx.fillStyle = '#9aa0b5';
+    ctx.fillText('v' + (o.version || '2.0.0'), 48, 104);
+
+    // Four stat boxes.
+    const stats = [
+      { label: 'UPTIME', value: String(o.uptime || '—') },
+      { label: 'COMMANDS', value: String(o.commands || 0) },
+      { label: 'ALIASES', value: String(o.aliases || 0) },
+      { label: 'CHATS', value: String(o.chats || 0) },
+    ];
+    const boxW = (W - 72) / 4;
+    const boxH = 120;
+    const boxY = 168;
+    stats.forEach((s, i) => {
+      const x = 24 + i * (boxW + 8);
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      roundRect(ctx, x, boxY, boxW, boxH, 16);
+      ctx.fill();
+      ctx.fillStyle = '#9aa0b5';
+      ctx.font = '16px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(s.label, x + boxW / 2, boxY + 28);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 30px sans-serif';
+      ctx.fillText(String(s.value).slice(0, 12), x + boxW / 2, boxY + 72);
+      ctx.textAlign = 'left';
+    });
+
+    // Footer: memory + pending.
+    const mem = o.memory || {};
+    const rss = Math.round((mem.rss || 0) / 1024 / 1024);
+    const heap = Math.round((mem.heapUsed || 0) / 1024 / 1024);
+    ctx.font = '20px sans-serif';
+    ctx.fillStyle = '#9aa0b5';
+    ctx.textAlign = 'left';
+    ctx.fillText(`🧠 RSS ${rss}MB · heap ${heap}MB`, 24, 300);
+    ctx.textAlign = 'right';
+    ctx.fillText(`🔒 Pending ${o.pending || 0}`, W - 24, 300);
+
+    return await canvasKit.toBuffer(cv.canvas);
+  } catch (err) {
+    error(`[CARD] botCard failed: ${err.message}`);
+    return null;
+  }
+}
+
 module.exports = {
   arrivalCard,
+  botCard,
   duoCard,
   userCard,
   boardCard,

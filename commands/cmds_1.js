@@ -1526,6 +1526,134 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
+  // 36$  — admin dashboard (owner + thread admin)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'dashboard',
+    aliases: ['panel', 'botpanel', 'statuscard'],
+    category: 'system',
+    description: '📊 Render the bot dashboard as a picture — uptime, memory, chats, commands',
+    usage: '!dashboard',
+    cooldown: 30,
+    permission: 'groupAdmin',
+    execute: async ({ api, event, reply, react, config, registry }) => guard(reply, event.messageID, 'dashboard', async () => {
+      await react('📊');
+      const card = await cards.botCard({
+        botName: config.BOT_NAME, version: config.BOT_VERSION,
+        uptime: fmt.uptime(process.uptime()),
+        memory: process.memoryUsage(),
+        commands: registry.size,
+        aliases: [...registry.values()].reduce((n, c) => n + (c.aliases ? c.aliases.length : 0), 0),
+        chats: 0, pending: 0,
+      });
+      if (card) {
+        await reply({ body: `📊 **${config.BOT_NAME} DASHBOARD**\n· · · · · · ·\nUptime: ${fmt.uptime(process.uptime())} · ${registry.size} commands · ${process.memoryUsage().rss}MB RSS`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(
+        `📊 **${config.BOT_NAME} DASHBOARD**\n`
+        + '· · · · · · ·\n'
+        + `⏱️ Uptime: ${fmt.uptime(process.uptime())}\n`
+        + `🧠 Memory: ${Math.round(process.memoryUsage().rss / 1024)}MB RSS\n`
+        + `📦 Commands: ${registry.size}\n`
+        + `📖 Canvas unavailable — text fallback`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 36b$  — operator broadcast (owner only)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'notify',
+    aliases: ['notifyall', 'opmsg', 'staffmsg'],
+    category: 'system',
+    description: '📢 Send a one-line notice to every chat the bot is in (owner only)',
+    usage: '!notify <message>',
+    cooldown: 30,
+    permission: 'owner',
+    execute: async ({ api, args, reply, react, event, config, registry }) => guard(reply, event.messageID, 'notify', async () => {
+      await react('📢');
+      const text = args.join(' ').trim();
+      if (!text) {
+        await reply('📖 Usage: `!notify <message>` — sent to every chat.', event.messageID);
+        return;
+      }
+      // The broadcast path is shared with !broadcast, which is admin-scoped.
+      // This is the owner-only variant: it reaches every chat including ones
+      // nobody in this chat can manage, which is why it stays owner-only.
+      const Group = require('../models/Group');
+      const mongo = require('../bot/mongo');
+      if (!mongo.isReady()) {
+        await reply('❌ The chat list is offline — nothing to broadcast to.', event.messageID);
+        return;
+      }
+      const groups = await Group.find({}).lean().catch(() => []);
+      if (!groups.length) {
+        await reply('❌ No chats recorded yet.', event.messageID);
+        return;
+      }
+      const body = `📢 **${config.BOT_NAME}** — ${text}`;
+      const PAUSE_MS = 1200;
+      let sent = 0;
+      const failed = [];
+      for (const g of groups) {
+        const tid = String(g.tid);
+        // eslint-disable-next-line no-await-in-loop
+        const res = await helpersReply(api, tid, body, null, true).catch(() => null);
+        if (res) sent += 1;
+        else failed.push(tid);
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => setTimeout(r, PAUSE_MS));
+      }
+      await reply(
+        `📢 **NOTICE SENT**\n`
+        + '· · · · · · ·\n'
+        + `✅ Delivered to ${sent} of ${groups.length} chats\n`
+        + (failed.length ? `⚠️ Failed: ${failed.length}\n` : '')
+        + `⏱️ About ${Math.ceil((groups.length * PAUSE_MS) / 1000)}s of pacing.`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 36c$  — operator shutdown (owner only)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'shutdown',
+    aliases: ['killbot', 'stopbot', 'die'],
+    category: 'system',
+    description: '🛑 Shut the bot down gracefully (owner only)',
+    usage: '!shutdown [delay seconds]',
+    cooldown: 60,
+    permission: 'owner',
+    execute: async ({ args, reply, react, event }) => guard(reply, event.messageID, 'shutdown', async () => {
+      await react('🛑');
+      const arg = String(args[0] || '').trim();
+      const delay = /^\d+$/.test(arg) ? Math.min(300, Math.max(0, Number(arg))) : 0;
+      if (delay > 0) {
+        await reply(
+          `🛑 **SHUTDOWN SCHEDULED**\n`
+          + '· · · · · · ·\n'
+          + `⏱️ Dying in ${delay}s. The bot is leaving — say goodbye.`,
+          event.messageID,
+        );
+        setTimeout(() => process.exit(0), delay * 1000);
+        return;
+      }
+      await reply(
+        `🛑 **SHUTTING DOWN**\n`
+        + '· · · · · · ·\n'
+        + '📖 Good night, iKON City. The bot is leaving.',
+        event.messageID,
+      );
+      setImmediate(() => process.exit(0));
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
   // 37$  — anti-ban safe mode (owner only)
   // ─────────────────────────────────────────────────────────
   {
