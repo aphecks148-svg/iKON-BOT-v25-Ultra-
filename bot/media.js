@@ -691,6 +691,51 @@ async function pictures(topic, want = 6) {
 }
 
 /**
+ * Pinterest only, no fallback.
+ *
+ * `!pinterestsearch` is a mixed bag: it tops up with Bing and Openverse when
+ * Pinterest is quiet, which is the right behaviour for "give me pictures of
+ * this" and the wrong one for "give me Pinterest pins of this". A strict mode
+ * keeps the promise literal — every picture is a pin, or the command says so
+ * instead of quietly handing over a stock photo that happens to be on a
+ * Pinterest board.
+ *
+ * @param {string} topic
+ * @param {number} [want] how many, minimum 5
+ * @returns {Promise<{pictures:Array, source:string}>}
+ */
+async function picturesPinterestOnly(topic, want = 6) {
+  const need = Math.max(5, Math.min(12, Number(want) || 6));
+  const q = String(topic || '').trim();
+  if (!q) return { pictures: [], source: 'none' };
+
+  const found = [];
+  const queries = [
+    `${q} pinterest`,
+    `${q} site:pinterest.com`,
+    `pinterest ${q}`,
+    `pin ${q}`,
+  ];
+  for (const query of queries) {
+    if (found.length >= need) break;
+    // eslint-disable-next-line no-await-in-loop
+    const hits = await bingImages(query, { first: 36 });
+    for (const pic of hits) {
+      if (found.length >= need) break;
+      if (!/pinimg|pinterest/i.test(pic.url) && !/pinterest/i.test(pic.page || '')) continue;
+      if (!found.some((f) => f.url === pic.url)) found.push({ ...pic, source: 'pinterest' });
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await sleep(500);
+  }
+
+  return {
+    pictures: dedupeByUrl(found).slice(0, need),
+    source: found.length ? 'pinterest' : 'none',
+  };
+}
+
+/**
  * Order results so the ones that actually match the topic come first.
  *
  * A web image search happily returns a YouTube logo for "aesthetic bedroom",
@@ -816,20 +861,110 @@ function barePage(url) {
 }
 
 /** GET a page as text. Null on any failure. */
-async function fetchHtml(url) {
-  try {
-    const res = await axios.get(url, {
-      timeout: 20000,
-      responseType: 'arraybuffer',
-      maxRedirects: 5,
-      maxContentLength: 8 * 1024 * 1024,
-      headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' },
-    });
-    return Buffer.from(res.data || []).toString('utf8');
-  } catch {
+  async function fetchHtml(url) {
+    try {
+      const res = await axios.get(url, {
+        timeout: 20000,
+        responseType: 'arraybuffer',
+        maxRedirects: 5,
+        maxContentLength: 8 * 1024 * 1024,
+        headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' },
+      });
+      return Buffer.from(res.data || []).toString('utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Every video host this bot can download, in the order it tries them.
+   *
+   * Order matters: YouTube is the one that eats most of a group chat's links
+   * and the one with the most ways to break, so it is first and every other
+   * host is a fallback. A host is matched on its domain, so `youtu.be/abc`,
+   * `youtube.com/watch?v=abc` and `youtube.com/shorts/abc` are the same video.
+   */
+  const VIDEO_HOSTS = [
+    { name: 'youtube', re: /(?:youtube\.com|youtu\.be|youtube\.com\/shorts|youtube\.com\/embed|youtube\.com\/live|youtube\.com\/v)/i },
+    { name: 'tiktok', re: /(?:tiktok\.com|vt\.tiktok\.com|vm\.tiktok\.com)/i },
+    { name: 'instagram', re: /(?:instagram\.com|instagr\.am)/i },
+    { name: 'x', re: /(?:x\.com|twitter\.com)/i },
+    { name: 'reddit', re: /(?:reddit\.com|redd\.it)/i },
+    { name: 'vimeo', re: /(?:vimeo\.com|vimeo\.com\/video)/i },
+    { name: 'dailymotion', re: /(?:dailymotion\.com|dai\.ly)/i },
+  ];
+
+  /** Which video host a link is, or null when it is not a video link. */
+  function videoHost(link) {
+    if (!link || typeof link !== 'string') return null;
+    const host = link.split(/[?#\s]/)[0].toLowerCase();
+    for (const h of VIDEO_HOSTS) {
+      if (h.re.test(host)) return h.name;
+    }
     return null;
   }
-}
+
+  /**
+   * Download a video and hand back the attachment ws3-fca accepts.
+   *
+   * YouTube is the only host with a real extractor here; the others are left
+   * to whoever asks for them explicitly. A link that is not a video, or a
+   * video that will not download, resolves null — the caller decides what to
+   * say, and a silent null is the honest "nothing to send" rather than a
+   * reply that claims a download happened.
+   *
+   * @param {string} link
+   * @returns {Promise<object|null>} `{ url, mimeType, caption }` or null
+   */
+  async function downloadVideo(link) {
+    const host = videoHost(link);
+    if (!host) return null;
+
+    if (host === 'youtube') {
+      const yt = await youtube(link);
+      if (!yt) return null;
+      // Prefer the progressive mp4 (audio baked in) — it plays everywhere,
+      // including in Messenger's attachment viewer, and avoids the separate
+      // audio track that used to come back as a silent video.
+      const pick = (yt.formats || []).find((f) => f.type === 'video/mp4')
+        || (yt.formats || []).find((f) => /mp4/i.test(f.type))
+        || (yt.formats || [])[0];
+      if (!pick) return null;
+      return {
+        url: pick.url,
+        mimeType: pick.type || 'video/mp4',
+        caption: `🎬 **${String(yt.title || 'YouTube video').slice(0, 80)}**\n🔗 ${link}`,
+      };
+    }
+
+    // Every other host: hand the link back as a caption and let the caller
+    // decide. A bot that pretends to download a TikTok it cannot is worse
+    // than one that says "send me the link and I will try".
+    return null;
+  }
+
+/**
+   * The first video link in a message body, if any.
+   *
+   * A shared link is the most common way a video arrives in a group chat, and
+   * the body is where it lives. This is deliberately greedy on whitespace —
+   * a URL pasted with a trailing emoji or punctuation still counts — and
+   * greedy on hosts, because "is this a video" is a question about the domain,
+   * not about whether the bot can download it.
+   *
+   * @param {string} body
+   * @returns {string|null}
+   */
+  function pickVideoLink(body) {
+    if (!body || typeof body !== 'string') return null;
+    const matches = body.match(/https?:\/\/[^\s<>"')\]]+/gi);
+    if (!matches) return null;
+    for (const raw of matches) {
+      const link = raw.replace(/[),.;!?]+$/g, '');
+      if (videoHost(link)) return link;
+    }
+    return null;
+  }
 
 module.exports = {
   MAX_UPLOAD_BYTES,
@@ -850,5 +985,9 @@ module.exports = {
   bingImages,
   openverse,
   pictures,
+  picturesPinterestOnly,
   pinImage,
+  videoHost,
+  downloadVideo,
+  pickVideoLink,
 };
