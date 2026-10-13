@@ -2249,7 +2249,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   commands.push({
     name: 'football',
     aliases: ['scores', 'fixures'],
-    category: 'downloader',
+    category: 'football',
     description: '⚽ Football scores right now — Groq says who is winning and why',
     usage: '!football',
     cooldown: 15,
@@ -2276,7 +2276,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   commands.push({
     name: 'livefootball',
     aliases: ['livefix', 'livescores', 'livescore'],
-    category: 'downloader',
+    category: 'football',
     description: '🔴 Live football by league — Groq breaks down what it is watching',
     usage: '!livefootball <league>',
     cooldown: 15,
@@ -2317,7 +2317,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   commands.push({
     name: 'score',
     aliases: ['teamscore', 'whowon'],
-    category: 'downloader',
+    category: 'football',
     description: '📊 One team, one number — Groq puts a probability on it',
     usage: '!score <team>',
     cooldown: 15,
@@ -2350,7 +2350,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   commands.push({
     name: 'footballnews',
     aliases: ['footballheadlines', 'footballdrama'],
-    category: 'downloader',
+    category: 'football',
     description: '📰 Football news — Groq finds the story and roasts it',
     usage: '!footballnews',
     cooldown: 20,
@@ -2379,7 +2379,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   commands.push({
     name: 'matchpredict',
     aliases: ['predict', 'predictmatch'],
-    category: 'downloader',
+    category: 'football',
     description: '🔮 "Real vs Barca" — Groq picks a winner and shows its reasoning',
     usage: '!matchpredict <teamA> vs <teamB>',
     cooldown: 20,
@@ -2427,7 +2427,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   commands.push({
     name: 'nextwinner',
     aliases: ['nextmatch', 'nextwin', 'whothenext'],
-    category: 'downloader',
+    category: 'football',
     description: '⚡ Who wins next — Groq reads the fixtures and picks the sure things',
     usage: '!nextwinner <league>',
     hint: 'Looks at the next fixture for every team in the league and says which ones are effectively decided.',
@@ -2465,7 +2465,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   commands.push({
     name: 'teaminfo',
     aliases: ['team', 'squad'],
-    category: 'downloader',
+    category: 'football',
     description: '🛡️ One club, one card — Groq reads the squad and the badge',
     usage: '!teaminfo <team>',
     hint: 'The badge URL is sent as the picture when the feed has one, so the card looks like the club.',
@@ -2509,7 +2509,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   commands.push({
     name: 'fixtures',
     aliases: ['fix', 'schedule', 'nextgames'],
-    category: 'downloader',
+    category: 'football',
     description: '📅 The next batch of fixtures — Groq lists them and the ones that matter',
     usage: '!fixtures <league>',
     cooldown: 15,
@@ -2551,7 +2551,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   commands.push({
     name: 'follow',
     aliases: ['sub', 'subscribe', 'track'],
-    category: 'downloader',
+    category: 'football',
     description: '🔔 Follow a club — get a goal alert in this chat when they score',
     usage: '!follow <team> | !follow off <team> | !follow list',
     hint: 'Free. The alerts are the point, so the command does not charge.',
@@ -2616,7 +2616,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   commands.push({
     name: 'alerts',
     aliases: ['alertstatus', 'footbalalerts'],
-    category: 'downloader',
+    category: 'football',
     description: '🔔 What the football ticker is watching in this chat',
     usage: '!alerts',
     cooldown: 5,

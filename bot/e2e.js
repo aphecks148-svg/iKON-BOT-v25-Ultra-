@@ -27,6 +27,11 @@ let failures = 0;
 
 function assertStep(label, fn) {
   return Promise.resolve()
+    // The engine caps a chat at 20 messages a minute and then pauses
+    // it for a minute — the right behaviour in production, and the
+    // reason a test that fires its whole script at one chat goes
+    // silent halfway through. Each step starts with a clean slate.
+    .then(() => ik.resetThreadRate())
     .then(fn)
     .then(() => line(`  ✅ ${label}`))
     .catch((err) => {
@@ -432,7 +437,7 @@ const EVENT = (body, over = {}) => ({
   // ws3-fca labels a reply "message_reply" (listenMqtt.js:246). The listener
   // used to accept only "message", so replying to the bot produced a reaction
   // but never a reply — indistinguishable from a dead send path.
-  await assertStep('EVENT FILTER: type "message_reply" is handled, not dropped', () => {
+  await assertStep('EVENT FILTER: type "message_reply" is handled, not dropped', async () => {
     const seen = [];
     const fakeApi = mockApi();
     fakeApi.sendMessage = async (...args) => { seen.push(args); return { messageID: 'm' }; };
@@ -450,12 +455,15 @@ const EVENT = (body, over = {}) => ({
       attachments: [],
     });
 
-    // attachEvents dispatches through safe(), which is async internally, so
-    // let the microtask queue drain before asserting.
-    return new Promise((resolve) => setImmediate(() => {
-      assert.strictEqual(seen.length, 1, `a message_reply was dropped (${seen.length} sends)`);
-      resolve();
-    }));
+    // attachEvents dispatches through safe(), which is async internally,
+    // and every send is paced by the global send delay — so the reply
+    // lands a moment after the emit. Poll for it rather than assuming
+    // one drained microtask queue is enough.
+    const deadline = Date.now() + 10000;
+    while (seen.length === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.strictEqual(seen.length, 1, `a message_reply was dropped (${seen.length} sends)`);
   });
 
   await assertStep('EVENT FILTER: an attachment-only message is not dropped', () => {

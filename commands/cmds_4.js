@@ -34,6 +34,7 @@ const pb = require('../bot/petbattler');
 const { fmt } = require('../bot/helpers');
 const userTarget = require('../bot/target');
 const rarity = require('../bot/content');
+const cards = require('../bot/cards');
 
 const CASH = 'K-Cash';
 const ULTRA = 'iKON-BOT v2 Ultra';
@@ -1837,7 +1838,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'petrank',
-    aliases: [],
+    aliases: ['petleaderboard', 'pettop', 'toppets'],
     category: 'pets',
     description: '🏆 Strongest pets in iKON City by total power',
     usage: '!petrank',
@@ -1865,6 +1866,28 @@ module.exports = [
       // Every owner is named before any of them is printed, so a name that could
       // not be resolved is visible as such rather than hidden behind the board.
       const owners = await Promise.all(top.map((p) => ownerLabel(p, api)));
+
+      // The card first: a board is a picture, and the text below is the
+      // fallback for a platform without the canvas binding. Power is the
+      // derived total (powerOf) — there is no stored `power` field, so a
+      // board that sorted on one ranked every pet as zero.
+      const board = top.map((p, i) => ({
+        uid: String(i + 1),
+        name: p.name,
+        level: p.level || 1,
+        xp: powerOf(p),
+        owner: owners[i],
+      }));
+      const card = await cards.boardCard({
+        emoji: '🏆', title: 'STRONGEST PETS', subtitle: `${top.length} pets ranked by power`, rows: board,
+        value: (b) => `⚡${num(b.xp || 0)} power`,
+        detail: (b) => b.owner || '—',
+      });
+      if (card) {
+        await reply({ body: `🏆 **STRONGEST PETS IN iKON CITY** — ${top.length} pets\n· · · · · · ·\nRanked by total power, top 10 shown`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+
       const lines = top.map((p, i) => {
         const elem = p.element || pb.elementFor(p.type);
         return `${medals[i] || `${i + 1}.`} ${p.emoji || '🐉'} ${p.name} ${pb.ELEMENT_EMOJI[elem] || '❓'} — ${owners[i]} (⚡${num(powerOf(p))})`;
@@ -3556,45 +3579,4 @@ module.exports = [
     }),
   },
 
-  // ─────────────────────────────────────────────────────────
-  // 42$  — pet leaderboard
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'petboard',
-    aliases: ['petleaderboard', 'pettop', 'toppets'],
-    category: 'pets',
-    description: '🏆 The strongest pets in the city, ranked by power',
-    usage: '!petboard',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'petboard', async () => {
-      await react('🏆');
-      const pets = await Pet.find({}).sort({ power: -1 }).limit(10).lean().catch(() => []);
-      if (!pets.length) {
-        await reply('❌ No pets recorded yet.', event.messageID);
-        return;
-      }
-      const rows = pets.map((p, i) => {
-        const sp = PETS.find((x) => x.id === p.species) || { name: 'Unknown', emoji: '🐾' };
-        return { uid: String(i + 1), name: sp.name, level: p.level || 1, xp: p.power || 0 };
-      });
-      const card = await cards.boardCard({
-        emoji: '🏆', title: 'PET BOARD', subtitle: `${pets.length} pets ranked by power`, rows,
-        value: (b) => `Lv ${b.level || 0} · ${b.xp || 0} power`,
-        detail: (b) => '—',
-      });
-      if (card) {
-        await reply({ body: `🏆 **PET BOARD** — ${pets.length} pets\n· · · · · · ·\nRanked by power, top 10 shown`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      const lines = rows.map((b, i) => `${i + 1}. ${b.name} — Lv ${b.level || 0} · ${b.xp || 0} power`).join('\n');
-      await reply(
-        `🏆 **PET BOARD** — ${pets.length} pets\n`
-        + '· · · · · · ·\n'
-        + `${lines}\n`
-        + `📖 Canvas unavailable — text fallback`,
-        event.messageID,
-);
-    }),
-  },
 ];

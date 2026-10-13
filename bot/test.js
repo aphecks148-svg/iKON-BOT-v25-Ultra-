@@ -1447,7 +1447,7 @@ function query(doc) {
     // commands (shipcard, flexcard, roastcard) were added. A count here is a
     // change-detector: a command added on purpose should be the only thing that
     // moves it, and adding one silently should fail.
-    assert.strictEqual(c9.length, 33, 'cmds_9 should hold 33 commands (30 + the three card commands)');
+    assert.strictEqual(c9.length, 38, 'cmds_9 should hold 38 commands');
 
     const dirty = c9.filter((c) => /ultra/i.test(c.name) || (c.aliases || []).some((a) => /ultra/i.test(a)));
     assert.deepStrictEqual(dirty.map((c) => c.name), [], 'these still say ultra');
@@ -1676,7 +1676,7 @@ function query(doc) {
       labels.add(cat.label.toLowerCase());
       emojis.add(cat.emoji);
     }
-    assert.strictEqual(decks.CATEGORIES.length, 11, 'eleven decks, one per module');
+    assert.strictEqual(decks.CATEGORIES.length, 12, 'twelve decks — football is its own deck inside the media module');
     return `${labels.size} unique labels, ${emojis.size} unique emojis`;
   });
 
@@ -1691,7 +1691,7 @@ function query(doc) {
     for (const key of decks.ORDER) {
       assert.ok((byCat.get(key) || []).length > 0, `deck "${key}" is advertised but holds nothing`);
     }
-    return 'all eleven decks resolve to a name and hold commands';
+    return 'all twelve decks resolve to a name and hold commands';
   });
 
   await step('a deck is findable by its key, its name and a loose word', () => {
@@ -2076,7 +2076,14 @@ function query(doc) {
       assert.ok(!/no command/i.test(spaced), `! ${name} must not fall through to "no command"`);
     }
     // Aliases get the same treatment: "! p" is how most people type ping.
-    assert.strictEqual(await run('! p'), await run('!p'), 'a spaced alias must work too');
+    // Ping's reply embeds the uptime, which advances between the two
+    // runs, so the number is normalised before the replies are compared.
+    const stripUptime = (s) => String(s).replace(/Uptime: \d+s/, 'Uptime: Ns');
+    assert.strictEqual(
+      stripUptime(await run('! p')),
+      stripUptime(await run('!p')),
+      'a spaced alias must work too',
+    );
     return '! pet, ! profile and ! p all match their unspaced output exactly';
   });
 

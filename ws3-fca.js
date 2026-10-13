@@ -34,6 +34,7 @@ const cards = require('./bot/cards');
 const pending = require('./bot/pending');
 const flood = require('./bot/flood');
 const moderation = require('./bot/moderation');
+const media = require('./bot/media');
 const footballCmds = require('./commands/cmds_8');
 
 const { log, error, reply, react, safe } = helpers;
@@ -111,6 +112,20 @@ global.commandCooldowns = global.commandCooldowns || new Map();
 const threadSends = new Map();
 // Per-thread pause-on-flood: { threadID: Number<resumeMs> }
 const threadPaused = new Map();
+
+/**
+ * Forget every thread's rate-limit history.
+ *
+ * The per-thread cap is in-memory on purpose — a restart clears it —
+ * and the end-to-end test fires more than THREAD_RATE_LIMIT messages
+ * at one chat inside a minute, which is exactly the traffic the cap
+ * exists to pause. Wiping the counters between test steps is the
+ * harness's job, so the hook exists for it and nothing else calls it.
+ */
+function resetThreadRate() {
+  threadSends.clear();
+  threadPaused.clear();
+}
 
 // Module-level so a boot retry reuses the listening server instead of throwing
 // EADDRINUSE on the second call.
@@ -1861,6 +1876,7 @@ module.exports = {
   attachClient,
   attachEvents,
   reloadCommands,
+  resetThreadRate,
   // Exposed so the tests can assert that an event actually reached the
   // handler, rather than only that nothing threw.
   STATE,

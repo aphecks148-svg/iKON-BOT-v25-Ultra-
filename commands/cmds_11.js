@@ -4,7 +4,7 @@
  * MODULE 11 — KINGDOMS
  *
  * A kingdom is a crew with a treasury, a monarch and a standing
- * that can be wagered in a war. Ten commands, one system:
+ * that can be wagered in a war. Twelve commands, one system:
  *
  *   !kingdom          view yours, or found one (`create <name>`)
  *   !kingdomjoin      join an open kingdom by name
@@ -16,6 +16,8 @@
  *   !kingdommembers   the roster, with ranks read off donations
  *   !kingdomwar       wager the treasury against another kingdom
  *   !kingdoms         the board, ranked by treasury
+ *   !kingdomcard      one kingdom as a picture
+ *   !warcard          the last war as a picture
  *
  * THE ONE RULE
  * Membership is a fact, not a favour. A hunter belongs to exactly
@@ -44,6 +46,7 @@ const Economy = require('../models/Economy');
 const War = require('../models/War');
 const mongo = require('../bot/mongo');
 const userTarget = require('../bot/target');
+const cards = require('../bot/cards');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -830,7 +833,7 @@ commands.push({
 
 commands.push({
   name: 'kingdoms',
-  aliases: ['kings', 'kleaderboard'],
+  aliases: ['kings', 'kleaderboard', 'kingdomsboard', 'kboard', 'topkingdoms'],
   category: 'kingdom',
   description: '🏆 The kingdom board, ranked by treasury',
   usage: '!kingdoms',
@@ -851,6 +854,28 @@ commands.push({
         + `👑 Be the first: \`!kingdom create <name>\` — ${kc(FOUND_COST)}.`,
         event.messageID,
       );
+      return;
+    }
+
+    // The card first: a board is a picture, and the text below is
+    // the fallback for a platform without the canvas binding. The
+    // monarch comes from leaderName — the schema has no `monarch`
+    // field, so a card that asked for one printed "—" for every
+    // kingdom, including the one whose monarch founded it.
+    const board = top.map((k, i) => ({
+      uid: String(i + 1),
+      name: k.name,
+      level: levelOf(k),
+      xp: k.treasury || 0,
+      monarch: k.leaderName || '—',
+    }));
+    const card = await cards.boardCard({
+      emoji: '🏆', title: 'KINGDOM BOARD', subtitle: `${top.length} kingdoms`, rows: board,
+      value: (b) => kc(b.xp || 0),
+      detail: (b) => `monarch: ${b.monarch || '—'}`,
+    });
+    if (card) {
+      await reply({ body: `🏆 **KINGDOM BOARD** — ${top.length} kingdoms\n· · · · · · ·\nRanked by treasury`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
       return;
     }
 
@@ -889,7 +914,7 @@ commands.push({
         user: { uid: k.name, name: k.name, level: Math.floor((k.treasury || 0) / 1000) + 1, xp: k.treasury || 0 },
         rows: [
           ['Treasury', kc(k.treasury || 0)],
-          ['Monarch', k.monarch || '—'],
+          ['Monarch', k.leaderName || '—'],
           ['Members', num(members.length)],
           ['Founded', k.foundedAt ? String(k.foundedAt).slice(0, 10) : '—'],
         ],
@@ -899,33 +924,6 @@ commands.push({
         return;
       }
       await reply('👑 **' + k.name + '**\n· · · · · · ·\nTreasury: ' + kc(k.treasury || 0) + '\n📖 Canvas unavailable — text fallback', event.messageID);
-    }),
-  });
-
-  commands.push({
-    name: 'kingdomboard',
-    aliases: ['kingdomsboard', 'kboard', 'topkingdoms'],
-    category: 'kingdom',
-    description: '🏆 The kingdoms, ranked by treasury',
-    usage: '!kingdomboard',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'kingdomboard', async () => {
-      await react('🏆');
-      const ks = await Kingdom.find({}).sort({ treasury: -1 }).limit(10).lean().catch(() => []);
-      if (!ks.length) { await reply('❌ No kingdoms yet. Found one with `!kingdom create <name>`.', event.messageID); return; }
-      const rows = ks.map((k, i) => ({ uid: String(i + 1), name: k.name, level: Math.floor((k.treasury || 0) / 1000) + 1, xp: k.treasury || 0 }));
-      const card = await cards.boardCard({
-        emoji: '🏆', title: 'KINGDOM BOARD', subtitle: ks.length + ' kingdoms', rows,
-        value: (b) => kc(b.xp || 0),
-        detail: (b) => 'monarch: ' + (b.monarch || '—'),
-      });
-      if (card) {
-        await reply({ body: '🏆 **KINGDOM BOARD** — ' + ks.length + ' kingdoms\n· · · · · · ·\nRanked by treasury', attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      const lines = rows.map((b, i) => (i + 1) + '. ' + b.name + ' — ' + kc(b.xp || 0)).join('\n');
-      await reply('🏆 **KINGDOM BOARD** — ' + ks.length + ' kingdoms\n· · · · · · ·\n' + lines + '\n📖 Canvas unavailable — text fallback', event.messageID);
     }),
   });
 
