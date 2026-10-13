@@ -2667,4 +2667,62 @@ const commands = [];
     }),
   });
 
-module.exports = commands;
+  // ───────────────────────────────────────────────────────────
+  // BOT PERSONA — language, name, theme
+  //
+  // These four commands write to the hunter document and to the group record
+  // rather than to a global config, because "the bot sounds like this" is a
+  // per-chat decision as much as a per-hunter one. A hunter who sets Spanish
+  // in one group should not be speaking Spanish in another.
+  // ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'setlang',
+    aliases: ['lang', 'setlanguage'],
+    category: 'ai',
+    description: '🌐 Set the language the bot answers you in, or show what it is',
+    usage: '!setlang <lang> | !setlang off',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'setlang', async () => {
+      await react('🌐');
+      const want = String(args.join(' ') || '').trim().toLowerCase();
+      if (!want) {
+        await reply(
+          `🌐 **YOUR LANGUAGE**\n`
+          + '· · · · · · ·\n'
+          + `Current: \`${userDoc.lang || 'en'}\`\n`
+          + '📖 Try `!setlang es`, `!setlang fr`, `!setlang ar`, or `!setlang off`.',
+          event.messageID,
+        );
+        return;
+      }
+
+      if (/^(off|reset|none|default|en)$/i.test(want)) {
+        userDoc.lang = 'en';
+        await save(userDoc);
+        await reply('🌐 Language reset — the bot answers in English again.', event.messageID);
+        return;
+      }
+
+      // Groq speaks hundreds of languages. Rather than gate on a whitelist we
+      // ask it to confirm the code is a real language, so `!setlang klingon`
+      // gets an honest answer instead of silently being stored.
+      const check = await askGroq(
+        `Is "${want}" a real human language? Answer ONLY with the two-letter ISO code `
+        + `if it is (lowercase), or the word "no" if it is not.`,
+        'Style: one word, no punctuation, no commentary.',
+      );
+      const code = String(check || '').trim().toLowerCase().match(/^[a-z]{2}$/);
+      if (!code) {
+        await reply(`🌐 \`${want}\` is not a language I recognised. Try a two-letter code like \`es\` or \`de\`.`, event.messageID);
+        return;
+      }
+
+      userDoc.lang = code[0];
+      await save(userDoc);
+      await reply(`🌐 Done — the bot will answer you in ${code[0]} from now on.`, event.messageID);
+    }),
+  });
+
+  module.exports = commands;
