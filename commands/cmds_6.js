@@ -3016,7 +3016,7 @@ const commands = [];
 
 commands.push({
     name: 'gcpicture',
-    aliases: ['gcavatar', 'groupavatar', 'gciconcard'],
+    aliases: ['groupavatar', 'gciconcard'],
     category: 'group',
     description: '🖼️ Render this chat as a picture — name, members, level',
     usage: '!gcpicture',
@@ -3048,7 +3048,7 @@ commands.push({
 
   commands.push({
     name: 'lockdowncard',
-    aliases: ['lockdown', 'seal', 'gclockdown'],
+    aliases: ['seal', 'gclockdown'],
     category: 'group',
     description: '🔒 Render the lockdown state of this chat as a picture',
     usage: '!lockdowncard',

@@ -2099,7 +2099,7 @@ const commands = [];
 
   commands.push({
     name: 'auramax',
-    aliases: ['aura', 'auraa'],
+    aliases: ['auraa'],
     category: 'fun',
     description: '⚡ Aura, from -1000 to +1000. Coins and pet power pull in both directions',
     usage: '!auramax @user',

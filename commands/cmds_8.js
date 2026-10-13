@@ -2316,7 +2316,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
 
   commands.push({
     name: 'score',
-    aliases: ['teamscore', 'whowon', 'livescore'],
+    aliases: ['teamscore', 'whowon'],
     category: 'downloader',
     description: '📊 One team, one number — Groq puts a probability on it',
     usage: '!score <team>',
@@ -2464,7 +2464,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
 
   commands.push({
     name: 'teaminfo',
-    aliases: ['team', 'teaminfo', 'squad'],
+    aliases: ['team', 'squad'],
     category: 'downloader',
     description: '🛡️ One club, one card — Groq reads the squad and the badge',
     usage: '!teaminfo <team>',
@@ -3024,7 +3024,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
 
   commands.push({
     name: 'songai',
-    aliases: ['song', 'writesong'],
+    aliases: ['writesong'],
     category: 'downloader',
     description: '🎵 Groq writes the whole song — verse, chorus, and how to sing it',
     usage: '!songai <topic> [mood]',
