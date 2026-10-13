@@ -1641,13 +1641,29 @@ const commands = [];
     usage: '!translate <lang> <text>',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'translate', async () => {
+execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'translate', async () => {
       await react('🌐');
       const parts = args.slice();
       const lang = (parts.shift() || '').toLowerCase();
-      const text = parts.join(' ').trim();
-      if (!lang || !text) {
-        await reply('❌ Usage: `!translate <lang> <text>`\nExample: `!translate hi hello there`', event.messageID);
+      let text = parts.join(' ').trim();
+
+      // Reply-to translation. ws3-fca does not hand the replied-to message's
+      // body back on the event, so a bare `!translate sw` on a reply has no
+      // text to work with — say so and point at the form that does.
+      if (!text) {
+        await reply(
+          `❌ No text to translate.\n`
+          + '· · · · · · ·\n'
+          + 'Two ways to use this:\n'
+          + '  `!translate sw hello there` — text right in the command\n'
+          + '  `!translatelang` — every language the bot knows, grouped by region\n'
+          + '_(Reply-to translation is not supported: ws3-fca does not pass the replied-to body to the handler.)_',
+          event.messageID,
+        );
+        return;
+      }
+      if (!lang) {
+        await reply('❌ Usage: `!translate <lang> <text>`\nExample: `!translate hi hello there`\nOr `!translatelang` for the full list.', event.messageID);
         return;
       }
 
@@ -1675,6 +1691,26 @@ const commands = [];
         return;
       }
       await reply(`🌐 **${lang.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${out}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'translatelang',
+    aliases: ['langs', 'supportedlanguages', 'trlangs'],
+    category: 'downloader',
+    description: '🌐 Every language `!translate` knows, grouped by region',
+    usage: '!translatelang',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'translatelang', async () => {
+      await react('🌐');
+      const list = await askGroq(
+        'List the languages you can translate into, grouped by region (Africa, Asia, Europe, Americas, Oceania). '
+        + 'For each region give 6-8 common ones with their native script name. '
+        + 'End with a one-line note that the bot keeps slang and insults intact.',
+        'Style: a clean grouped list, no preamble.',
+      );
+      await reply(`🌐 **TRANSLATION LANGUAGES**\n━━━━━━━━━━━━━━━\n${list}\n\n📖 \`!translate <lang> <text>\` — e.g. \`!translate sw hello there\``, event.messageID);
     }),
   });
 
