@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 3 — iKON HUNTER ACADEMY (35 commands)
+ * MODULE 3 — iKON HUNTER ACADEMY (38 commands)
  *
  * iKON City is now a hunter academy. Levels come from chatting, quests and
  * battles. Coins are K-Cash and match the boosted economy from module 2.

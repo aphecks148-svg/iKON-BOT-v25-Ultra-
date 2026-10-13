@@ -25,9 +25,9 @@ iKON-BOT/
 ├── ws3-fca.js          central engine (Express, login, routing, permissions, cooldowns)
 ├── config.js           env-only configuration
 ├── commands/
-│   ├── cmds_1.js … cmds_10.js    10 modules x 35 commands = 350
+│   ├── cmds_1.js … cmds_12.js    12 modules, 421 commands
 ├── bot/
-│   ├── loader.js       scans cmds_1..10, builds registry + alias map
+│   ├── loader.js       scans cmds_1..12, builds registry + alias map
 │   ├── router.js       PARSER: "!bank deposit 500" -> { name, args }
 │   ├── cooldown.js     per-user, per-command cooldowns
 │   ├── permissions.js  all / owner (ADMIN_IDS) / groupAdmin
@@ -38,7 +38,8 @@ iKON-BOT/
 │   ├── mongo.js        connection manager
 │   ├── test.js         core system self-test
 │   ├── e2e.js          end-to-end chain test with a mocked api
-│   └── check.js        registry shape + per-module progress
+│   ├── check.js        registry shape + per-module progress
+│   └── gcs.js          group-chat listing, cleanup, approval sweep
 └── models/             User, Group, Economy, Pet, Inventory
 ```
 
@@ -89,9 +90,9 @@ npm start
 ## Verification
 
 ```bash
-node bot/test.js   # 12 core checks: config, loader, router, cooldown, perms, models
-node bot/e2e.js    # 12 end-to-end checks with a mocked ws3-fca api
-node bot/check.js  # registry shape + per-module progress toward 350
+node bot/test.js   # core system self-test: config, loader, router, cooldown, perms, models
+node bot/e2e.js    # end-to-end chain test with a mocked ws3-fca api
+node bot/check.js  # registry shape + per-module progress
 ```
 
 Set `TEST_MONGO_URI` (or `MONGO_URI`) to also run the live database round-trip
@@ -126,9 +127,10 @@ first if an admin command never answers.
 
 ### AI — Groq only
 
-The 35 AI commands in module 8 share one client, `bot/groq.js`, which POSTs to
-`https://api.groq.com/openai/v1/chat/completions`. There is no second provider
-and no transport that silently switches.
+Module 8 (cmds_8.js) is the AI and download module, and every one of its 45
+commands routes through `askGroq()`. They share one client, `bot/groq.js`, which
+POSTs to `https://api.groq.com/openai/v1/chat/completions`. There is no second
+provider and no transport that silently switches.
 
 - The key is a `gsk_...` key from <https://console.groq.com/keys>, sent as
   `Authorization: Bearer <key>` — never in the query string, where proxies log
@@ -143,7 +145,7 @@ and no transport that silently switches.
 - The token cap is sent as `max_completion_tokens`; Groq has deprecated
   `max_tokens`. Reasoning models count their reasoning against that cap, which
   is why the default is generous for a chat reply.
-- With no key set, `!groq` and the other 34 AI commands answer with an honest
+- With no key set, `!groq` and the other 44 AI commands answer with an honest
   placeholder naming the missing variable, rather than throwing.
 
 The engine exposes the client to handlers as `ai` in the execute context
@@ -189,8 +191,50 @@ rounds of this bug look identical from the chat.
 
 | Module | Commands |
 |---|---|
-| cmds_1 (system) | 1 / 35 |
-| cmds_2 … cmds_10 | 0 / 35 each |
+| cmds_1 (system) | 42 |
+| cmds_2 (economy) | 41 |
+| cmds_3 (hunter academy) | 38 |
+| cmds_4 (pets) | 43 |
+| cmds_5 (games) | 38 |
+| cmds_6 (group admin) | 48 |
+| cmds_7 (street life) | 38 |
+| cmds_8 (downloads + AI) | 45 |
+| cmds_9 (fun & social) | 33 |
+| cmds_10 (farming) | 38 |
+| cmds_11 (kingdoms) | 13 |
+| cmds_12 (football) | 12 |
 
-The foundation is verified; the remaining 349 commands are added one module at
-a time.
+**421 commands** across 12 modules, 455 aliases, 0 conflicts. Every command is
+shaped, aliased and permission-tagged; `node bot/check.js` reports the per-module
+progress and refuses to pass on a malformed entry.
+
+### Football (module 12)
+
+Live scores, fixtures, standings and predictions, all interpreted by Groq. The
+data layer is `footballData()` in `cmds_8.js`, which tries three sources in order:
+
+1. **TheSportsDB v1** — unauthenticated, 100+ leagues, livescores, fixtures,
+   standings and team details from one base URL.
+2. **OpenLigaDB** — the fallback, same shape, different host, so a Cloudflare
+   block on one is not a broken bot.
+3. **API-Football v3** — the best data available, and the only one that costs.
+   Used only when `FOOTBALL_API_KEY` is set.
+
+Every command reports which source answered in its receipt line. The commands:
+`!football`, `!livefootball`, `!score`, `!leaderboard` (top 20 plus the team that
+can win next), `!nextwinner`, `!teaminfo` (badge picture card), `!fixtures`,
+`!footballnews`, `!matchpredict`.
+
+**Goal alerts.** `!follow <team>` subscribes a club to this chat for free, and
+`!alerts` shows what is being watched. `footballTick()` is attached to the cmds_8
+array and wired into the engine's housekeeping sweep: it asks the feeds every
+minute and posts to any chat following a team whose score moved.
+
+### Group administration (module 6)
+
+`!gclist` lists every group chat the bot is in, up to 100, with thread ids.
+`!leavegc <threadID>` removes the bot from one without opening it — it confirms
+the bot is actually in that chat, calls `api.leaveThread`, and drops the Group
+record regardless of the result. It refuses to leave the chat the caller is
+standing in, and refuses to leave a chat the bot is not in, so a typo cannot
+silently remove the bot from the wrong place.

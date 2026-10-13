@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 7 — GTA (35 commands)
+ * MODULE 7 — STREET LIFE (38 commands)
  *
  * iKON-BOT v2 Ultra. The crime half of iKON City. This module is deliberately
  * a coin sink: cars run to a million, guns to three hundred thousand, and fuel

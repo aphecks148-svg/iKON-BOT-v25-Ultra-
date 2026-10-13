@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 10 — FARM / MINE / FISH / HUNT (35 commands)
+ * MODULE 10 — FARM / MINE / FISH / HUNT (38 commands)
  *
  * iKON-BOT v2 Ultra. The grind. This module exists so a hunter has something
  * to do at 2am that is not a coinflip.

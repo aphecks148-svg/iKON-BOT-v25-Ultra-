@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 1 — SYSTEM CORE (37 commands)
+ * MODULE 1 — SYSTEM CORE (42 commands)
  *
  * Exports a plain array. No factories, no legacy loader.
  *
@@ -639,7 +639,7 @@ module.exports = [
       }
       const name = (args[0] || '').toLowerCase();
       if (!name) {
-        await reply('❌ Usage: `!enablemod system`\nModules: cmds_1 … cmds_10', event.messageID);
+        await reply('❌ Usage: `!enablemod system`\nModules: cmds_1 … cmds_12', event.messageID);
         return;
       }
       const known = registry.size && [...registry.values()].some((c) => c.module === name)
@@ -672,7 +672,7 @@ module.exports = [
       }
       const name = (args[0] || '').toLowerCase();
       if (!name) {
-        await reply('❌ Usage: `!disablemod system`\nModules: cmds_1 … cmds_10', event.messageID);
+        await reply('❌ Usage: `!disablemod system`\nModules: cmds_1 … cmds_12', event.messageID);
         return;
       }
       const known = [...registry.values()].some((c) => c.module === name)
