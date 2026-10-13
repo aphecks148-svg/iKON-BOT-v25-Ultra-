@@ -1244,18 +1244,19 @@ const commands = [];
 
   commands.push({
     name: 'pinterestsearch',
-    aliases: ['pinsearch', 'pinfind'],
+    aliases: ['pinsearch', 'pinfind', 'pinterest'],
     category: 'downloader',
     description: '🔍 Pinterest search — six real pictures of the topic, sent as images',
-    usage: '!pinterestsearch <topic>',
-    hint: 'Six pictures land in the chat. The first one is a contact sheet of all six.',
+    usage: '!pinterestsearch <topic> | !pinterestsearch strict <topic>',
+    hint: '`strict` keeps every picture a Pinterest pin and says so if it cannot. Without it, the search tops up with Bing and Openverse when Pinterest is quiet.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pinterestsearch', async () => {
       await react('🔍');
-      const topic = args.join(' ').trim();
+      const strict = /^(strict|only|pins)$/i.test(String(args[0] || '').trim());
+      const topic = strict ? args.slice(1).join(' ').trim() : args.join(' ').trim();
       if (!topic) {
-        await reply('❌ Usage: `!pinterestsearch cars`', event.messageID);
+        await reply('❌ Usage: `!pinterestsearch cars` or `!pinterestsearch strict cars`', event.messageID);
         return;
       }
 
@@ -1267,7 +1268,10 @@ const commands = [];
 
       await reply(`🔍 Pulling pictures of "${topic}"...`, event.messageID);
 
-      const { pictures, source } = await media.pictures(topic, 6);
+      const result = strict
+        ? await media.picturesPinterestOnly(topic, 6)
+        : await media.pictures(topic, 6);
+      const { pictures, source } = result;
 
       if (!pictures.length) {
         // Every image source is down. Groq can still name the search terms that
@@ -1288,7 +1292,8 @@ const commands = [];
 
       const where = source === 'pinterest' ? 'Pinterest pins'
         : source === 'mixed' ? 'Pinterest pins + web images'
-          : 'web images (Pinterest was unreachable)';
+          : strict ? '⚠️ Pinterest gave us no pins — these are web images'
+            : 'web images (Pinterest was unreachable)';
 
       // One contact sheet first, so the six images that follow have an order
       // and the chat is not six messages of nothing.
@@ -1298,7 +1303,7 @@ const commands = [];
           body: `📌 **PICKS FOR "${topic.toUpperCase()}"**\n`
             + `${pictures.length} pictures · ${where}\n`
             + '· · · · · · ·\n'
-            + `Each one is on its way as its own image.`,
+            + (strict ? '📌 Strict mode: every picture is a Pinterest pin.' : 'Each one is on its way as its own image.'),
           attachment: { type: 'image', data: { url: sheet } },
         }, event.messageID);
       } else {

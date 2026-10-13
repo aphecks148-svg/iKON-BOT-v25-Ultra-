@@ -440,6 +440,41 @@ async function handleMessage(api, event) {
   const spam = await spamGate(event, { body, parsed, say });
   if (!spam.allowed) return;
 
+  // ── AUTO-DOWNLOAD SHARED VIDEOS ────────────────────────────
+  // A link shared in a group chat, or replied to, is usually a video the
+  // sender wants the room to see. Downloading it is the whole point of a
+  // downloader bot, and doing it on the link rather than on a command means
+  // the room gets the file without anybody typing `!yt`.
+  //
+  // Group chats only, and only when the sender is not the bot itself: a bot
+  // replying to its own download with another download is a spiral. The
+  // download is best-effort — a link that is not a video is skipped, and a
+  // video that will not download is answered with the plain link.
+  if (event.isGroup && !event.isSelf) {
+    const link = media.pickVideoLink(body);
+    if (link) {
+      try {
+        const dl = await media.downloadVideo(link);
+        if (dl && dl.url) {
+          await reply(
+            api,
+            threadID,
+            {
+              body: dl.caption || `🎬 ${link}`,
+              attachment: { type: 'video', data: { url: dl.url } },
+            },
+            event.messageID,
+            event.isGroup,
+          );
+          await recordActivity(senderID, false, threadID);
+          return;
+        }
+      } catch (err) {
+        error(`[DOWNLOAD] auto-download of ${link.slice(0, 60)} failed: ${err.message}`);
+      }
+    }
+  }
+
   // ── WILD POKEMON ──────────────────────────────────────────
   // A reply to a spawn message, carrying that Pokemon's name, is a catch. This
   // runs before the parser because a catch is not a command: the reply is just
@@ -477,6 +512,25 @@ async function handleMessage(api, event) {
   // `parsed` was computed above, ahead of the spam gate, and is reused here.
   if (!parsed) {
     if (body) log(`[PARSE] no command for "${body.slice(0, 60)}" (prefix ${JSON.stringify(prefix)})`);
+
+    // A bare prefix is not a command and is not chatter — it is the single
+    // most common "what is the prefix?" message, and answering it is the whole
+    // point. The system prefix is what the bot was told to use and the group
+    // prefix is what this chat actually uses, so say both: the first is the
+    // answer to "what is the prefix", the second is the answer to "why did
+    // !ping not work here". Without this, a reader in a renamed-prefix chat
+    // types the prefix they were given, gets silence, and concludes the bot
+    // is dead — which is exactly the deafness this log line exists to catch.
+    if (body.trim() === prefix || body.trim() === config.PREFIX) {
+      const groupPrefix = prefix !== config.PREFIX ? prefix : null;
+      await say(
+        `📖 The prefix here is \`${prefix}\` — the system default is \`${config.PREFIX}\`.`
+        + (groupPrefix ? `\n\nThis chat uses \`${groupPrefix}\` — \`${groupPrefix}help\` lists the commands.` : `\n\nTry \`${config.PREFIX}help\`.`),
+      );
+      await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
+      return;
+    }
+
     // Not a command. Count the message for the RPG profile and stop.
     await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
     return;
