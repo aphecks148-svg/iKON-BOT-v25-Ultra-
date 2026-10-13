@@ -448,13 +448,35 @@ async function handleMessage(api, event) {
   let commandName = 'incoming';
   const say = async (text, replyTo = messageID, label = commandName) => {
     helpers.clearSendError();
-    // Global send throttle — minimum gap between ANY two messages leaving the bot.
+
+    // Human-like posture before every reply. Three things, in this order:
+    //
+    //   typing indicator ON — the single most visible bot signal there is. A
+    //     person pauses to read and think; a bot answers in the same millisecond
+    //     it receives the message, and that rhythm is what Facebook notices
+    //     regardless of how quiet the bot is otherwise. Turned off again after
+    //     the send, so it does not sit on for the next message in the thread.
+    //
+    //   random thinking pause — a fixed delay makes the bot rhythmic, and
+    //     rhythm is the other thing that gets flagged. The range is short
+    //     enough that a two-second command still feels snappy.
+    //
+    //   global send throttle — minimum gap between ANY two messages, which is
+    //     the rate limit that stops rapid-fire messaging entirely.
+    if (typeof helpers.typing === 'function') {
+      await helpers.typing(api, threadID, true).catch(() => { /* cosmetic */ });
+    }
+    const pause = helpers.thinkPause ? helpers.thinkPause() : 0;
+    if (pause > 0) await new Promise((r) => setTimeout(r, pause));
     const sinceLast = Date.now() - global.lastSent;
     if (sinceLast < SEND_DELAY_MS) await new Promise((r) => setTimeout(r, SEND_DELAY_MS - sinceLast));
     global.lastSent = Date.now();
     // event.isGroup, not a threadID guess: a group can arrive with a bare
     // numeric id, and treating it as a DM makes every reply fail with 1545012.
     const res = await reply(api, threadID, text, replyTo ?? messageID, event.isGroup);
+    if (typeof helpers.typing === 'function') {
+      await helpers.typing(api, threadID, false).catch(() => { /* cosmetic */ });
+    }
     if (res) noteSendOk(label);
     else noteSendFailure(label, helpers.lastSendError() || 'sendMessage returned nothing');
     return res;

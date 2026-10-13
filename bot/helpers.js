@@ -221,6 +221,53 @@ async function react(api, messageID, emoji = '✅') {
 }
 
 /**
+ * Turn the "typing" indicator on or off for a thread.
+ *
+ * This is the single most visible bot signal there is. A human being does not
+ * reply to a message in the same millisecond it arrives — they pause, read,
+ * think. A bot that answers instantly, every time, gets flagged within a day
+ * regardless of how quiet it is otherwise. ws3-fca exposes
+ * `setTypingIndicator(threadID, isTyping)`, so the indicator is the one thing
+ * that costs nothing and buys the most apparent humanity.
+ *
+ * Errors are swallowed: the indicator is cosmetic, and a failure here must not
+ * prevent the reply that follows it.
+ *
+ * @param {object} api ws3-fca client
+ * @param {string|number} threadID
+ * @param {boolean} [isTyping=true]
+ * @returns {Promise<boolean>}
+ */
+async function typing(api, threadID, isTyping = true) {
+  if (!api || threadID === undefined || threadID === null) return false;
+  if (typeof api.setTypingIndicator !== 'function') return false;
+  try {
+    await api.setTypingIndicator(String(threadID), !!isTyping);
+    return true;
+  } catch (err) {
+    error(`[HELPER] typing indicator failed on thread ${threadID}: ${err.message}`);
+    return false;
+  }
+}
+
+/**
+ * A random "thinking" pause, in milliseconds.
+ *
+ * Human reply times cluster: a few hundred ms for a one-word answer, a couple
+ * of seconds for something that needs thought. A fixed delay makes the bot
+ * rhythmic, and rhythm is the other thing Facebook notices. The range below is
+ * short enough that a 2s command still feels snappy, long enough that nobody
+ * calls the bot slow.
+ *
+ * @param {number} [minMs=250] floor
+ * @param {number} [maxMs=2600] ceiling
+ * @returns {number}
+ */
+function thinkPause(minMs = 250, maxMs = 2600) {
+  return Math.floor(minMs + Math.random() * (maxMs - minMs));
+}
+
+/**
  * Run a handler inside a try/catch so one broken command never kills the process.
  * Errors are logged with their command name and reported to the user.
  *
@@ -359,7 +406,7 @@ const fmt = {
 };
 
 module.exports = {
-  log, error, reply, react, safe, isGroupThread, fmt,
+  log, error, reply, react, typing, thinkPause, safe, isGroupThread, fmt,
   clearSendError, lastSendError: () => lastSendError, describeSendError,
-  lastSent, rememberLastSent,
+  lastSent, rememberLastSent, isSessionLost, noteSessionLost,
 };
