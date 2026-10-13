@@ -3171,7 +3171,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   // in one group should not be speaking Spanish in another.
   // ───────────────────────────────────────────────────────────
 
-  commands.push({
+commands.push({
     name: 'setlang',
     aliases: ['lang', 'setlanguage'],
     category: 'downloader',
@@ -3221,9 +3221,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     }),
   });
 
-  module.exports = commands;
-=======
-commands.push({
+  commands.push({
     name: 'aicard',
     aliases: ['aiprofile', 'aistatus'],
     category: 'downloader',
