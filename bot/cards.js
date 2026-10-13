@@ -359,7 +359,7 @@ async function duoCard({ title, emoji = '', subtitle = '', threadID, chatName = 
  * @param {object} opts.user lean-ish user document with uid
  * @returns {Promise<string|null>} PNG data URL, or null without the canvas binary
  */
-async function userCard({ title, emoji, subtitle, rows, api, user }) {
+async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
   if (!canvasKit.available()) return null;
   try {
     const rowH = 46;
@@ -370,8 +370,10 @@ async function userCard({ title, emoji, subtitle, rows, api, user }) {
     paintBackground(ctx, h);
     paintHeader(ctx, emoji, title, subtitle);
 
-    // Avatar + name block on the left of the body.
-    const pic = await profile.picture(user && user.uid, api);
+    // Avatar + name block on the left of the body. A Pokemon card has no
+    // Facebook avatar to draw, so the caller hands in the sprite URL instead
+    // and the same drawAvatar path covers both worlds.
+    const pic = image ? await thumbBuffer(image) : await profile.picture(user && user.uid, api);
     await drawAvatar(ctx, pic, 92, 208, 112);
 
     const name = await realName(user || {}, api);

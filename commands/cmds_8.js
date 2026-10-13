@@ -1426,11 +1426,11 @@ const commands = [];
 
   commands.push({
     name: 'sing',
-    aliases: ['singing', 'singalong'],
+    aliases: ['singing', 'singalong', 'song', 'play'],
     category: 'downloader',
-    description: '🎙️ Sings it out loud — a voice note of the lyrics, plus a vocal guide',
+    description: '🎙️ Sings it — downloads the real mp3 from YouTube and sends it as a voice note',
     usage: '!sing <song> [artist]',
-    hint: 'The voice note is a synthesiser singing the lyrics, not the original recording.',
+    hint: 'The voice note is the actual recording from YouTube, not a synthesiser reading the lyrics. If YouTube has no match, Groq writes eight original lines and the bot sings those.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'sing', async () => {
@@ -1447,25 +1447,41 @@ const commands = [];
         return;
       }
 
-      const query = encodeURIComponent(q);
-      const data = await fetchJson(`https://api.lyrics.ovh/v1/${query}`);
-      const found = data && data.lyrics;
-      await reply('🎙️ Building the vocal sheet...', event.messageID);
-
+      // Look the song up on YouTube first. If there is a real recording, send
+      // that — a voice note of the actual track is worth more than a
+      // synthesiser reading the lyrics, and it is what the command name
+      // promises.
+      const yt = await media.youtube(q);
       const guide = await askGroq(
         `Turn this into a sing-along vocal guide. Give: the key feel, the tempo, the hardest line to hit, `
         + `and a 4-line "warm up like this" exercise. Song: ${q}.`
-        + (found ? `\nLyrics:\n${String(found).slice(0, 900)}` : '\nNo lyrics were found, so write the guide from the title and say so.'),
+        + (yt ? `\nTitle: "${yt.title}" by ${yt.author || 'unknown'}. Length: ${yt.lengthSeconds}s.` : '\nNo YouTube match, so write the guide from the title and say so.'),
         'Style: a coach who is honest about how hard it is.',
       );
 
+      if (yt && yt.audio && yt.audio.url) {
+        const sent = await sendAudio({
+          reply,
+          messageID: event.messageID,
+          url: yt.audio.url,
+          mimeType: yt.audio.mimeType || 'audio/mpeg',
+          body: `🎙️ **SINGING: ${String(yt.title || q).slice(0, 80)}**\n`
+            + '· · · · · · ·\n'
+            + `${guide}\n`
+            + `🎙️ ${yt.author || 'unknown'} · ${yt.lengthSeconds ? `${Math.floor(yt.lengthSeconds / 60)}m` : ''}\n`
+            + `🔎 ${q}`,
+        });
+        if (sent) return;
+      }
+
+      // No recording and no audio track: Groq writes eight original lines and
+      // the bot sings those. Its own words, so singing them costs nobody a
+      // copyright — and a fallback that just says "sorry" is a wasted coin.
+      const data = await fetchJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(q)}`);
+      const found = data && data.lyrics;
       const lines = found
         ? String(found).trim().split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 16)
         : [];
-
-      // Nothing in the database still has to produce a performance, so Groq
-      // writes eight original lines to sing. Its own words, so singing them
-      // costs nobody a copyright.
       let sung = lines;
       if (!sung.length) {
         const written = await askGroq(
@@ -1481,8 +1497,6 @@ const commands = [];
           .slice(0, 10);
       }
 
-      // The voice note is the point of the command, so the words that get spoken
-      // are the singable lines themselves rather than the coaching text.
       const spoken = [
         `${q}. Here it is sung for you.`,
         ...sung.slice(0, 10),

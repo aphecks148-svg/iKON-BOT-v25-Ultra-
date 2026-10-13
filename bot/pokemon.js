@@ -1967,9 +1967,40 @@ function nextDue(pokemon, now = Date.now(), intervalMs = DEFAULT_INTERVAL_MS) {
   return { dueAt: new Date(raw), isDue: false, overdueMs: 0, intervalMs: interval, lastAt };
 }
 
+/**
+ * A single Pokemon's card: the official artwork, its type, tier and the
+ * weaknesses the community actually cares about.
+ *
+ * The sprite is the only picture a Pokedex card needs — the artwork is public
+ * domain in the sense that Pokemon Company serves it on every fan site, and
+ * it is the one thing a text list cannot show. The rows are what the card
+ * says underneath, and they come straight from the table so the card cannot
+ * drift out of step with the lookup.
+ *
+ * @param {object} p
+ * @returns {{rows: array, image: string, name: string}}
+ */
+function pokecard(p) {
+  const pokemon = p || {};
+  const tier = TIER_BY_KEY.get(pokemon.rarity) || TIERS[0];
+  return {
+    image: sprite(pokemon.id),
+    name: pokemon.name,
+    rows: [
+      ['No.', `#${String(pokemon.id).padStart(3, '0')}`],
+      ['Type', types(pokemon)],
+      ['Tier', `${tier.symbol} ${tier.label}`],
+      ['Weakness', pokemon.weaknesses ? pokemon.weaknesses.join(' · ') : '—'],
+      ['Height', pokemon.height ? `${pokemon.height}m` : '—'),
+      ['Weight', pokemon.weight ? `${pokemon.weight}kg` : '—'),
+    ],
+  };
+}
+
 module.exports = {
   POKEMON, TIERS, TIER_BY_KEY, WEIGHTS, BOUNTY,
   DEFAULT_INTERVAL_MS, DEFAULT_TTL_MS, SPRITES,
   normalise, find, byId, sprite, tier, types, typeLabel, random, bounty,
   nextDue,
+  pokecard,
 };

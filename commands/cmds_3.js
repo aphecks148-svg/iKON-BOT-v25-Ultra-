@@ -2323,6 +2323,55 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
   },
 
   // ─────────────────────────────────────────────────────────
+  // 35b$  — pokecard (picture of one Pokemon)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'pokecard',
+    aliases: ['pokepic', 'pokeshot', 'pokedexcard'],
+    category: 'rpg',
+    description: '精灵 Your Pokemon as a picture — official artwork, type, tier and weaknesses',
+    usage: '!pokecard <name|id>',
+    hint: 'The sprite is the official artwork, so the card shows what the Pokedex cannot: the creature itself.',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, reply, react, event }) => guard(reply, event.messageID, 'pokecard', async () => {
+      await react('精灵');
+      const q = String(args[0] || '').trim();
+      if (!q) {
+        await reply('❌ Usage: `!pokecard <name|id>`', event.messageID);
+        return;
+      }
+      const p = dex.find(q);
+      if (!p) {
+        await reply(`❓ No Pokemon called \`${q}\`. Try \`!pokedex\` for the list.`, event.messageID);
+        return;
+      }
+      const card = dex.pokecard(p);
+      const built = await cards.userCard({
+        emoji: '精灵', title: 'POKEMON', subtitle: `${dex.tier(p).symbol} ${dex.tier(p).label}`,
+        api: null, user: { uid: 'poke', name: p.name },
+        image: card.image,
+        rows: card.rows,
+      });
+      if (built) {
+        await reply({ body: `精灵 **${p.name}** · #${String(p.id).padStart(3, '0')}`, attachment: { type: 'image', data: { url: built } } }, event.messageID);
+        return;
+      }
+      await reply(
+        `精灵 **${p.name}**\n`
+        + '· · · · · · ·\n'
+        + `No. #${String(p.id).padStart(3, '0')}\n`
+        + `Type: ${dex.typeLabel(p)}\n`
+        + `Tier: ${dex.tier(p).symbol} ${dex.tier(p).label}\n`
+        + `Weakness: ${p.weaknesses ? p.weaknesses.join(' · ') : '—'}\n`
+        + `Height: ${p.height ? `${p.height}m` : '—'} · Weight: ${p.weight ? `${p.weight}kg` : '—'}\n`
+        + '📖 Canvas unavailable — text fallback',
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
   // 36$  — class card (picture of your class)
   // ─────────────────────────────────────────────────────────
   {
