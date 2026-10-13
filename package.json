@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node index.js",
+    "postinstall": "node scripts/patch-ws3fca.js",
     "test": "node bot/test.js",
     "test:e2e": "node bot/e2e.js",
     "test:exec": "node bot/exec-all.js",

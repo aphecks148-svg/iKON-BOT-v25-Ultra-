@@ -98,6 +98,14 @@ node bot/check.js  # registry shape + per-module progress
 Set `TEST_MONGO_URI` (or `MONGO_URI`) to also run the live database round-trip
 checks in `bot/test.js`.
 
+`npm install` also runs `scripts/patch-ws3fca.js`, which guards one
+ws3-fca bug on every install: the thread formatters read each
+participant's profile picture as `big_image_src.uri` without checking
+the image exists, so a chat with any account that has no profile
+picture made `getThreadList`/`getThreadInfo` throw and the boot-time
+thread cache and approval sweep failed. The patch is idempotent and
+skips itself on a ws3-fca version that fixed this upstream.
+
 ## Deploying on Render
 
 1. New → Web Service → connect the repo, Node 22.
