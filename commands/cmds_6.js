@@ -2491,7 +2491,7 @@ const commands = [];
     category: 'group',
     description: '📡 Every group chat the bot is in, up to 100',
     usage: '!gclist',
-    hint: 'Asks Facebook for 100 chats, not 10. Anything past the first ten used to be invisible.',
+    hint: 'Asks Facebook for 100 chats, not 10. Anything past the first ten used to be invisible. To remove the bot from one without opening it: `!leavegc <threadID>`.',
     cooldown: 30,
     permission: 'owner',
     execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'gclist', async () => {
@@ -2517,7 +2517,8 @@ const commands = [];
         `📡 **GROUP CHATS** (${threads.length})\n`
         + '· · · · · · ·\n'
         + `${rows.join('\n')}\n`
-        + '📖 More than ten is normal. All of them are served.',
+        + '📖 More than ten is normal. All of them are served.\n'
+        + `🚪 To remove the bot from one without opening it: \`${config.PREFIX}leavegc <threadID>\`.`,
         event.messageID,
       );
     }),
@@ -3075,7 +3076,118 @@ commands.push({
         await reply({ body: '🚫 **BAN LIST** — ' + banned.length + ' banned', attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('🚫 **BAN LIST** — ' + banned.length + ' banned\n📖 Canvas unavailable — text fallback', event.messageID);
+await reply('🚫 **BAN LIST** — ' + banned.length + ' banned\n📖 Canvas unavailable — text fallback', event.messageID);
     }),
   });
-module.exports = commands;
+
+  // ── LEAVE A GROUP CHAT ──────────────────────────────────────
+  // The one thing `!gclist` always promised and never delivered: a way to
+  // remove the bot from a chat without opening it. An owner who found the bot
+  // in a chat they no longer admin used to have to go find the group, open it,
+  // and remove it by hand — which is exactly the situation where you cannot.
+  //
+  // The thread id comes from the argument, never from the current chat, so this
+  // command can be run from a DM or from any other group: the owner is asking
+  // about a chat they are not standing in. The bot checks it is actually in the
+  // requested chat before leaving, because leaving a chat the bot was never in
+  // is an error Facebook reports back as a failure and the command should say
+  // so rather than pretending it worked.
+
+  commands.push({
+    name: 'leavegc',
+    aliases: ['leavegroup', 'leavethread', 'gcremove', 'removebot'],
+    category: 'group',
+    description: '🚪 Remove the bot from a group chat — by thread id, without opening it',
+    usage: '!leavegc <threadID> | !leavegc list',
+    hint: '`!gclist` shows the thread ids. The bot refuses to leave a chat it is not in, and never leaves the chat you are standing in.',
+    cooldown: 30,
+    permission: 'owner',
+    execute: async ({ api, event, reply, react, args, config }) => guard(reply, event.messageID, 'leavegc', async () => {
+      await react('🚪');
+      const first = String(args[0] || '').toLowerCase();
+
+      if (!first || first === 'list') {
+        const threads = await gcs.listThreads(api, gcs.THREAD_LIMIT);
+        if (!threads.length) {
+          await reply('📡 **NO GROUP CHATS**\n· · · · · · ·\nNothing to leave.', event.messageID);
+          return;
+        }
+        const rows = threads.slice(0, 50).map((t, i) => {
+          const tid = gcs.tidOf(t);
+          const name = (t && (t.name || t.threadName)) || '—';
+          return `${i + 1}. \`${tid}\` ${String(name).slice(0, 34)}`;
+        });
+        await reply(
+          `🚪 **CHATS THE BOT CAN LEAVE** (${threads.length})\n`
+          + '· · · · · · ·\n'
+          + `${rows.join('\n')}\n`
+          + `📖 \`${config.PREFIX}leavegc <threadID>\` removes the bot from one.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const target = String(args[0] || '').trim();
+      if (!/^\d{6,}$/.test(target)) {
+        await reply('❌ That does not look like a thread id. Try `!leavegc list` to see them.', event.messageID);
+        return;
+      }
+      if (String(target) === String(event.threadID)) {
+        await reply('❌ You asked me to leave the chat you are standing in. Say it from somewhere else.', event.messageID);
+        return;
+      }
+
+      // Confirm the bot is actually in this chat. Leaving a chat it is not in
+      // is an error Facebook reports back, and the command should say so.
+      const threads = await gcs.listThreads(api, gcs.THREAD_LIMIT);
+      const inChat = threads.some((t) => gcs.tidOf(t) === target);
+      if (!inChat) {
+        await reply(
+          `❌ The bot is not in \`${target}\`. It may have left already, or the id is wrong. `
+          + 'Try `!leavegc list`.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const canLeave = api && typeof api.leaveThread === 'function';
+      if (!canLeave) {
+        await reply(
+          `⚠️ This build of ws3-fca has no leaveThread(). The bot cannot leave \`${target}\` from here.`
+          + ' Remove it from the group chat directly instead.',
+          event.messageID,
+        );
+        return;
+      }
+
+      let left = false;
+      let errMsg = '';
+      try {
+        left = await api.leaveThread(target);
+      } catch (err) {
+        errMsg = (err && err.message) || String(err);
+      }
+
+      // The database record is dropped regardless: a chat the bot has left is
+      // not a chat it should keep polling or answering in.
+      const Group = require('../models/Group');
+      await Group.deleteOne({ tid: target }).catch(() => { /* cosmetic */ });
+
+      if (left) {
+        await reply(
+          `🚪 **LEFT**\n· · · · · · ·\nThe bot has left \`${target}\`.`
+          + ' Its record is gone from the database, so it will not answer there again.',
+          event.messageID,
+        );
+        return;
+      }
+      await reply(
+        `⚠️ **DID NOT LEAVE**\n· · · · · · ·\nFacebook refused to remove the bot from \`${target}\`.`
+        + (errMsg ? `\nReason: ${errMsg}` : '')
+        + '\nRemove it from the group chat directly.',
+        event.messageID,
+      );
+    }),
+  });
+
+  module.exports = commands;
