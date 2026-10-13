@@ -3048,35 +3048,7 @@ commands.push({
         await reply({ body: '🔒 **LOCKDOWN STATE**\n· · · · · · ·\n' + (g ? (g.isEnabled ? 'running' : 'paused') : 'unknown'), attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavailable — text fallback', event.messageID);
-    }),
-  });
-
-  commands.push({
-    name: 'gcbanner',
-    aliases: ['gcban', 'banbanner'],
-    category: 'group',
-    description: '🚫 Render the ban list of this chat as a picture',
-    usage: '!gcbanner',
-    cooldown: 60,
-    permission: 'groupAdmin',
-    execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'gcbanner', async () => {
-      await react('🚫');
-      const Group = require('../models/Group');
-      const g = await Group.findOne({ tid: String(event.threadID) }).lean().catch(() => null);
-      const banned = (g && g.bannedUids) ? g.bannedUids.slice(0, 10) : [];
-      if (!banned.length) { await reply('✅ No bans recorded for this chat.', event.messageID); return; }
-      const rows = banned.map((uid, i) => ({ uid: String(i + 1), name: String(uid).slice(-6), level: 0, xp: 0 }));
-      const card = await cards.boardCard({
-        emoji: '🚫', title: 'BAN LIST', subtitle: banned.length + ' banned', rows,
-        value: () => 'banned',
-        detail: (b) => b.name,
-      });
-      if (card) {
-        await reply({ body: '🚫 **BAN LIST** — ' + banned.length + ' banned', attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-await reply('🚫 **BAN LIST** — ' + banned.length + ' banned\n📖 Canvas unavailable — text fallback', event.messageID);
+await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavailable — text fallback', event.messageID);
     }),
   });
 

@@ -3594,37 +3594,7 @@ module.exports = [
         + `${lines}\n`
         + `📖 Canvas unavailable — text fallback`,
         event.messageID,
-      );
+);
     }),
   },
-
-  // ─────────────────────────────────────────────────────────
-  // 43$  — pet rename (owner + admin)
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'petnickname',
-    aliases: ['renamepet', 'petname', 'petnick'],
-    category: 'pets',
-    description: '✏️ Give your active pet a nickname',
-    usage: '!petrename <name>',
-    cooldown: 30,
-    permission: 'groupAdmin',
-    execute: async ({ args, reply, react, event, userDoc }) => guard(reply, event.messageID, 'petrename', async () => {
-      await react('✏️');
-      const name = args.join(' ').trim();
-      if (!name || name.length > 24) {
-        await reply('📖 Usage: `!petrename <name>` — 24 characters max.', event.messageID);
-        return;
-      }
-      const pet = await Pet.findOne({ owner: userDoc.uid, active: true }).sort({ _id: -1 }).lean().catch(() => null);
-      if (!pet) {
-        await reply('❌ No active pet to rename.', event.messageID);
-        return;
-      }
-      // eslint-disable-next-line no-await-in-loop
-      await Pet.updateOne({ _id: pet._id }, { $set: { name } }).catch(() => null);
-      await reply(`✏️ **${userDoc.name}** renamed their pet to **${name}**.`, event.messageID);
-    }),
-  },
-
 ];

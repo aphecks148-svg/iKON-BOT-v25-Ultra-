@@ -2122,42 +2122,7 @@ module.exports = [
         + `Net: ${kc(isOwed - owes)}\n`
         + `📖 Canvas unavailable — text fallback`,
         event.messageID,
-      );
-    }),
-  },
-
-  // ───────────────────────────────────────────────────────────
-  // 38$  — lottery
-  // ───────────────────────────────────────────────────────────
-  {
-    name: 'lottery',
-    aliases: ['lotto', 'jackpot', 'draw'],
-    category: 'economy',
-    description: '🎫 Buy a lottery ticket — one winner a day, split the pot',
-    usage: '!lottery [tickets]',
-    cooldown: 30,
-    permission: 'all',
-    execute: async ({ args, reply, react, event, userDoc, config }) => guard(reply, event.messageID, 'lottery', async () => {
-      await react('🎫');
-      const count = Math.max(1, Math.min(10, Math.floor(Number(args[0]) || 1)));
-      const price = k(500);
-      const cost = price * count;
-      if (clamp(userDoc.coins) < cost) {
-        await reply(`💸 **Broke ass.** You need ${kc(cost)} and have ${kc(userDoc.coins)}.`, event.messageID);
-        return;
-      }
-      userDoc.coins = clamp(userDoc.coins) - cost;
-      const tickets = (userDoc.lotteryTickets = (userDoc.lotteryTickets || 0) + count);
-      await userDoc.save();
-      await ledger(userDoc.uid, 'lottery', -cost, userDoc.coins, { count });
-      await reply(
-        `🎫 **LOTTERY TICKETS BOUGHT**\n`
-        + '· · · · · · ·\n'
-        + `🎫 ${count} ticket${count === 1 ? '' : 's'} — ${kc(cost)}\n`
-        + `📊 You now hold ${tickets} ticket${tickets === 1 ? '' : 's'}\n`
-        + `📖 One winner a day. Prizes split the pot.`,
-        event.messageID,
-      );
+);
     }),
   },
 
@@ -2203,52 +2168,6 @@ module.exports = [
         + `Cash: ${kc(cash)}\n`
         + `Vault: ${kc(bank)}\n`
         + `Net worth: ${kc(net)}\n`
-        + `📖 Canvas unavailable — text fallback`,
-        event.messageID,
-      );
-    }),
-  },
-
-  // ───────────────────────────────────────────────────────────
-  // 37$  — debt ledger
-  // ───────────────────────────────────────────────────────────
-  {
-    name: 'debt',
-    aliases: ['debts', 'owes', 'ledger'],
-    category: 'economy',
-    description: '📋 Who owes what — your IOUs and who owes you',
-    usage: '!debt [@user]',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc, args, config }) => guard(reply, event.messageID, 'debt', async () => {
-      await react('📋');
-      const target = await userTarget.resolve(api, event, args, userDoc);
-      if (!target) {
-        await reply('❌ I could not find that hunter.', event.messageID);
-        return;
-      }
-      const tdoc = await cache.getOrCreateUser(target.uid, api);
-      const owes = clamp(tdoc.debtOwed || 0);
-      const isOwed = clamp(tdoc.debtRepaid || 0);
-      const card = await cards.userCard({
-        emoji: '📋', title: 'DEBT', subtitle: 'the ledger', api,
-        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
-        rows: [
-          ['Owes', kc(owes)],
-          ['Is owed', kc(isOwed)],
-          ['Net', kc(isOwed - owes)],
-        ],
-      });
-      if (card) {
-        await reply({ body: `📋 **${target.name} — THE LEDGER**\n· · · · · · ·\nOwes: ${kc(owes)} · Is owed: ${kc(isOwed)}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply(
-        `📋 **${target.name} — THE LEDGER**\n`
-        + '· · · · · · ·\n'
-        + `Owes: ${kc(owes)}\n`
-        + `Is owed: ${kc(isOwed)}\n`
-        + `Net: ${kc(isOwed - owes)}\n`
         + `📖 Canvas unavailable — text fallback`,
         event.messageID,
       );

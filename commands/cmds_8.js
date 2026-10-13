@@ -2383,47 +2383,10 @@ const commands = [];
     }),
   });
 
-  // ── FOOTBALL LEADERBOARDS ──────────────────────────────────
+  // ── FOOTBALL FIXTURES & PREDICTIONS ─────────────────────────
   // The top of every league, and the teams that can win their next match.
   // Both come from the same standings feed, so one fetch serves two
   // commands and neither has to know which host answered.
-
-  commands.push({
-    name: 'leaderboard',
-    aliases: ['table', 'standings', 'lb', 'formtable'],
-    category: 'downloader',
-    description: '🏆 The top of the league — Groq ranks the form and names the one to watch',
-    usage: '!leaderboard <league>',
-    hint: 'With no league it lists every league the feed knows about, which is a lot.',
-    cooldown: 20,
-    permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'leaderboard', async () => {
-      await react('🏆');
-      const league = args.join(' ').trim();
-      if (!league) {
-        await reply('❌ Usage: `!leaderboard Premier League`', event.messageID);
-        return;
-      }
-      const paid = await charge(userDoc, FEES.leaderboard, 'downloader:leaderboard');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-      const canon = await askGroq(
-        `Normalise this football league name to its canonical form: "${league}". `
-        + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
-        'Style: one short phrase.',
-      );
-      const { data: rows, source } = await footballData('standings', canon || league);
-      const read = await askGroq(
-        `Here is the standings table for ${canon || league}: ${JSON.stringify(rows || [])}. `
-        + `List the top 20 in order with their points, then name the one team that can win its next match `
-        + `and why. If the table is empty, say plainly that the feed had nothing.`,
-        'Style: table voice, then one line of genuine opinion.',
-      );
-      await reply(`🏆 **${(canon || league).toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.leaderboard)}${source ? `\n📡 ${source}` : ''}`, event.messageID);
-    }),
-  });
 
   commands.push({
     name: 'nextwinner',
