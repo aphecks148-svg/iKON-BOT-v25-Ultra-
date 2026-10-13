@@ -3251,7 +3251,7 @@ commands.push({
     }),
   });
 
-  commands.push({
+commands.push({
     name: 'downloadcard',
     aliases: ['dlstatus', 'dlstats'],
     category: 'downloader',
@@ -3281,65 +3281,121 @@ commands.push({
     }),
   });
 
+  // ───────────────────────────────────────────────────────────
+  // BOT PERSONA — language, name, theme
+  //
+  // These four commands write to the hunter document and to the group record
+  // rather than to a global config, because "the bot sounds like this" is a
+  // per-chat decision as much as a per-hunter one. A hunter who sets Spanish
+  // in one group should not be speaking Spanish in another.
+  // ───────────────────────────────────────────────────────────
 
-module.exports = commands;
-
-/**
- * The football ticker. Attached to the commands array rather than a separate
- * module so the loader's `Array.isArray` check still passes and the engine can
- * reach it as `require('./cmds_8').football`.
- *
- * It is the thing that makes `!follow` worth anything: the commands store the
- * subscriptions, and this asks the feeds every few minutes and posts to a chat
- * the moment a subscribed team's score moves. Without it `!follow` is just a
- * list, and with it the bot answers a goal before the room refreshes the app.
- *
- * @param {object} api ws3-fca client
- * @returns {Promise<number>} chats that got an alert
- */
-async function footballTick(api) {
-  if (!api || !mongo.isReady()) return 0;
-  const Group = require('../models/Group');
-  const groups = await Group.find({ 'football.on': true }).catch(() => []);
-  let posted = 0;
-  for (const group of groups) {
-    const sub = ensureFootball(group);
-    const list = sub.subscriptions || [];
-    if (!list.length) continue;
-    // eslint-disable-next-line no-await-in-loop
-    const { data } = await footballData('livescore');
-    for (const row of data) {
-      const name = String(row.strHomeTeam || row.strAwayTeam || row.homeTeam || row.awayTeam || '').trim();
-      if (!name) continue;
-      const match = list.find((t) => name.toLowerCase() === String(t).toLowerCase());
-      if (!match) continue;
-      const home = Number(row.intHomeScore || row.homeScore || 0);
-      const away = Number(row.intAwayScore || row.awayScore || 0);
-      if (home === 0 && away === 0) continue; // not a goal, just a fixture
-      const league = row.strLeague || row.league || 'unknown league';
-      const key = `${name}|${league}|${home}-${away}`;
-      const prev = sub.lastScore && sub.lastScore.key;
-      if (prev === key) continue; // already announced this exact score
-      sub.lastScore = { team: name, score: `${home}-${away}`, league, key };
-      try {
-        await group.save();
-      } catch { /* the alert still goes out */ }
-      try {
-        await api.sendMessage(
-          `⚽ **GOAL ALERT — ${name}**\n`
-          + `· · · · · · ·\n`
-          + `${row.strHomeTeam || 'Home'} ${home} - ${away} ${row.strAwayTeam || 'Away'}\n`
-          + `🏆 ${league}`,
-          String(group.tid),
+  commands.push({
+    name: 'setlang',
+    aliases: ['lang', 'setlanguage'],
+    category: 'downloader',
+    description: '🌐 Set the language the bot answers you in, or show what it is',
+    usage: '!setlang <lang> | !setlang off',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'setlang', async () => {
+      await react('🌐');
+      const want = String(args.join(' ') || '').trim().toLowerCase();
+      if (!want) {
+        await reply(
+          `🌐 **YOUR LANGUAGE**\n`
+          + '· · · · · · ·\n'
+          + `Current: \`${userDoc.lang || 'en'}\`\n`
+          + '📖 Try `!setlang es`, `!setlang fr`, `!setlang ar`, or `!setlang off`.',
+          event.messageID,
         );
-        posted += 1;
-      } catch (err) {
-        error(`[FOOTBALL] alert failed for ${group.tid}: ${err.message}`);
+        return;
+      }
+
+      if (/^(off|reset|none|default|en)$/i.test(want)) {
+        userDoc.lang = 'en';
+        await save(userDoc);
+        await reply('🌐 Language reset — the bot answers in English again.', event.messageID);
+        return;
+      }
+
+      // Groq speaks hundreds of languages. Rather than gate on a whitelist we
+      // ask it to confirm the code is a real language, so `!setlang klingon`
+      // gets an honest answer instead of silently being stored.
+      const check = await askGroq(
+        `Is "${want}" a real human language? Answer ONLY with the two-letter ISO code `
+        + `if it is (lowercase), or the word "no" if it is not.`,
+        'Style: one word, no punctuation, no commentary.',
+        userDoc.lang || 'en',
+      );
+      const code = String(check || '').trim().toLowerCase().match(/^[a-z]{2}$/);
+      if (!code) {
+        await reply(`🌐 \`${want}\` is not a language I recognised. Try a two-letter code like \`es\` or \`de\`.`, event.messageID);
+        return;
+      }
+
+userDoc.lang = code[0];
+      await save(userDoc);
+      await reply(`🌐 Done — the bot will answer you in ${code[0]} from now on.`, event.messageID);
+    }),
+  });
+
+  /**
+   * The football ticker. Attached to the commands array rather than a separate
+   * module so the loader's `Array.isArray` check still passes and the engine can
+   * reach it as `require('./cmds_8').football`.
+   *
+   * It is the thing that makes `!follow` worth anything: the commands store the
+   * subscriptions, and this asks the feeds every few minutes and posts to a chat
+   * the moment a subscribed team's score moves. Without it `!follow` is just a
+   * list, and with it the bot answers a goal before the room refreshes the app.
+   *
+   * @param {object} api ws3-fca client
+   * @returns {Promise<number>} chats that got an alert
+   */
+  async function footballTick(api) {
+    if (!api || !mongo.isReady()) return 0;
+    const Group = require('../models/Group');
+    const groups = await Group.find({ 'football.on': true }).catch(() => []);
+    let posted = 0;
+    for (const group of groups) {
+      const sub = ensureFootball(group);
+      const list = sub.subscriptions || [];
+      if (!list.length) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const { data } = await footballData('livescore');
+      for (const row of data) {
+        const name = String(row.strHomeTeam || row.strAwayTeam || row.homeTeam || row.awayTeam || '').trim();
+        if (!name) continue;
+        const match = list.find((t) => name.toLowerCase() === String(t).toLowerCase());
+        if (!match) continue;
+        const home = Number(row.intHomeScore || row.homeScore || 0);
+        const away = Number(row.intAwayScore || row.awayScore || 0);
+        if (home === 0 && away === 0) continue; // not a goal, just a fixture
+        const league = row.strLeague || row.league || 'unknown league';
+        const key = `${name}|${league}|${home}-${away}`;
+        const prev = sub.lastScore && sub.lastScore.key;
+        if (prev === key) continue; // already announced this exact score
+        sub.lastScore = { team: name, score: `${home}-${away}`, league, key };
+        try {
+          await group.save();
+        } catch { /* the alert still goes out */ }
+        try {
+          await api.sendMessage(
+            `⚽ **GOAL ALERT — ${name}**\n`
+            + `· · · · · · ·\n`
+            + `${row.strHomeTeam || 'Home'} ${home} - ${away} ${row.strAwayTeam || 'Away'}\n`
+            + `🏆 ${league}`,
+            String(group.tid),
+          );
+          posted += 1;
+        } catch (err) {
+          error(`[FOOTBALL] alert failed for ${group.tid}: ${err.message}`);
+        }
       }
     }
+    return posted;
   }
-  return posted;
-}
 
-commands.football = { tick: footballTick, ensure: ensureFootball, group: footballGroup };
->>>>>>> origin/main
+  commands.football = { tick: footballTick, ensure: ensureFootball, group: footballGroup };
+  module.exports = commands;
