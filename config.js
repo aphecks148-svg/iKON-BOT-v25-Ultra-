@@ -36,20 +36,78 @@ function parseAdminIds(raw) {
 
 /**
  * APPSTATE is the ws3-fca cookie array.
- * On Render it is usually a single-line JSON string, which must be parsed once
- * here so every consumer gets a real array.
+ *
+ * Three shapes arrive here, and all three are handled:
+ *   1. A plain JSON array string — the normal case on Render, where the env
+ *      var is one long line of `[{...},{...}]`.
+ *   2. A JSON string that itself contains a JSON string — some operators paste
+ *      the value through another layer of quoting, so `process.env.APPSTATE`
+ *      is `"[\"[{...}]\"]"`. Parsed once it is a string, parsed again.
+ *   3. A base64-encoded JSON array — operators who copied the value out of a
+ *      tool that base64-encodes it. Starts with `ey` (the base64 of `{"`).
+ *
+ * Never read from appstate.json when the env var exists: the env wins. A stale
+ * file next to a fresh env var is how a bot keeps logging in with yesterday's
+ * cookies after the operator refreshed them.
+ *
+ * @param {string} raw
+ * @returns {object[]}
  */
 function parseAppState(raw) {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw;
+
   const trimmed = String(raw).trim();
+  if (!trimmed) return [];
+
+  // Base64 first, because a base64 blob is not valid JSON and would throw
+  // immediately — so the check is a cheap prefix test, not a parse attempt.
+  if (/^ey[A-Za-z0-9+/=]+$/.test(trimmed)) {
+    try {
+      const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
+      return parseAppState(decoded);
+    } catch {
+      // fall through to the JSON path below
+    }
+  }
+
+  let parsed;
   try {
-    const parsed = JSON.parse(trimmed);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    console.warn('[CONFIG] APPSTATE is not valid JSON — login will fail until it is fixed.');
+    parsed = JSON.parse(trimmed);
+  } catch (err) {
+    console.warn('[CONFIG] APPSTATE is not valid JSON — login will fail until it is fixed.', err.message);
     return [];
   }
+
+  // A string inside a string: unwrap and parse again.
+  if (typeof parsed === 'string') {
+    return parseAppState(parsed);
+  }
+
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+/**
+ * What a usable appState has to contain, named so the boot log can say
+ * something specific instead of "APPSTATE missing".
+ *
+ * ws3-fca reads `c_user` for the account id and `xs` for the session token;
+ * without either it fails with "Error retrieving userID", which is the same
+ * error Facebook gives for a blocked login. Distinguishing the two at boot is
+ * the whole point of this check.
+ *
+ * @param {object[]} state
+ * @returns {{ok:boolean, hasCUser:boolean, hasXs:boolean, count:number}}
+ */
+function appstateHealth(state) {
+  const arr = Array.isArray(state) ? state : [];
+  const names = arr.map((c) => (c && (c.name || c.key)) || '');
+  return {
+    ok: arr.length > 0,
+    hasCUser: names.includes('c_user'),
+    hasXs: names.includes('xs'),
+    count: arr.length,
+  };
 }
 
 /**
@@ -116,7 +174,17 @@ const config = {
 };
 
 // Helpful startup sanity warnings (never print secret values).
-if (!config.APPSTATE.length) console.warn('[CONFIG] APPSTATE missing — bot cannot log into Facebook.');
+const _state = appstateHealth(config.APPSTATE);
+if (!config.APPSTATE.length) {
+  console.warn('[CONFIG] APPSTATE missing — bot cannot log into Facebook.');
+} else if (!_state.hasCUser || !_state.hasXs) {
+  console.warn(
+    `[CONFIG] APPSTATE loaded ${_state.count} cookie(s) but is missing ${!_state.hasCUser ? 'c_user ' : ''}${!_state.hasXs ? 'xs' : ''} — `
+    + 'the session is expired. Refresh the cookie jar and redeploy.',
+  );
+} else {
+  console.log(`[LOGIN] Loaded ${_state.count} cookies from ENV (c_user + xs present)`);
+}
 if (!config.MONGO_URI) console.warn('[CONFIG] MONGO_URI missing — database features disabled.');
 // Every owner-only command is refused without an admin id, and the bot gives no
 // hint that the operator forgot it, so say so once at boot rather than letting
@@ -127,4 +195,4 @@ if (!config.ADMIN_IDS.length && !config.OWNER_ID) {
 }
 
 module.exports = config;
-module.exports._internals = { env, envBool, envInt, parseAdminIds, parseAppState, resolvePrefix };
+module.exports._internals = { env, envBool, envInt, parseAdminIds, parseAppState, appstateHealth, resolvePrefix };

@@ -55,6 +55,17 @@ const STATE = {
   lastCommands: [],
 };
 
+/**
+ * How many login attempts have failed. Counts only attempts that actually
+ * reached ws3-fca, so a boot that dies before login does not inflate it — the
+ * backoff in getRetryDelay() is driven by this, and it is what decides when the
+ * bot stops hammering Facebook and waits for a manual refresh.
+ *
+ * @type {number}
+ */
+let loginAttempts = 0;
+const LOGIN_MAX_ATTEMPTS = 5;
+
 /** Record a successful send. */
 function noteSendOk(name) {
   STATE.sentOk += 1;
@@ -114,17 +125,34 @@ let retryTimer = null;
  * appstate, a rate limit, a network blip. Exiting makes Render mark the deploy
  * dead; retrying in place keeps the process (and /health) alive until the
  * account links again.
+ *
+ * The delay is exponential and capped, not a fixed 30s. A bot that retries a
+ * blocked login every 30 seconds is a bot Facebook bans in about five minutes;
+ * one that waits 30s, 45s, 67s… up to ten minutes gives the block time to cool.
  */
 function scheduleRetry() {
   if (retryTimer) return;
+  const delay = getRetryDelay();
   retryTimer = setTimeout(() => {
     retryTimer = null;
     boot().catch((err) => {
       error(`[BOOT] Retry failed: ${err && err.message ? err.message : err}`);
       scheduleRetry();
     });
-  }, 30000);
+  }, delay);
+  log(`[BOOT] Next login attempt in ${Math.round(delay / 1000)}s (attempt ${loginAttempts + 1})`);
   if (typeof retryTimer.unref === 'function') retryTimer.unref();
+}
+
+/**
+ * Exponential backoff for login retries: 30s, 45s, 67s, 100s, 150s, 225s…
+ * capped at 10 minutes. Each failure is counted once a login actually happens,
+ * so a boot that never reaches the login step does not inflate the counter.
+ *
+ * @returns {number} milliseconds to wait
+ */
+function getRetryDelay() {
+  return Math.min(30000 * Math.pow(1.5, loginAttempts), 600000);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -197,6 +225,11 @@ function startServer() {
       spam: flood.stats(),
       moderation: moderation.stats(),
       uptime: Math.floor((Date.now() - STATE.startedAt) / 1000),
+      // Login posture. "Blocked N times" is the one line that separates an
+      // expired appstate from a rate-limited account, and both look identical
+      // from the chat: the bot is simply not replying.
+      loginAttempts,
+      loginMaxAttempts: LOGIN_MAX_ATTEMPTS,
     });
   });
 
@@ -1531,7 +1564,26 @@ function login() {
       done(null);
     }, 120000);
 
+    // A bot that logs in the instant the process starts looks like a bot. A
+    // random 5-10s delay before the first attempt is the difference between
+    // "account logging in from a new device" and "account logging in from a new
+    // device at machine speed", and Facebook notices the second one.
+    const preDelay = 5000 + Math.random() * 5000;
+    log(`[LOGIN] Waiting ${Math.round(preDelay / 1000)}s before the first attempt...`);
+
     const options = {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        + '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      // Anti-detection. Each of these stops the bot doing something Facebook
+      // uses as a bot signal:
+      //   autoMarkDelivery:false - read receipts on every message.
+      //   autoMarkRead:false      - same, on the other side of the pair.
+      //   updatePresence:false    - presence pings, another spam signal.
+      //   online:false            - don't announce the session as active.
+      //   selfListen:false        - our own messages must not come back to us.
+      //   listenEvents:true       - group join/leave events, used by !autoadd.
+      //   logLevel:'silent'       - ws3-fca's own chatter is noise in the logs.
+      //   forceLogin:false        - let ws3-fca reuse the session where it can.
       listenEvents: true,
       listenTyping: false,
       autoMarkRead: false,
@@ -1539,12 +1591,36 @@ function login() {
       updatePresence: false,
       selfListen: false,
       online: false,
+      logLevel: 'silent',
+      forceLogin: false,
+      autoReconnect: true,
     };
 
     try {
       fcaLogin({ appState: config.APPSTATE }, options, async (err, api) => {
         if (err || !api) {
-          error(`[LOGIN] ${(err && err.message) || 'no api returned'}`);
+          const msg = (err && err.message) || 'no api returned';
+          error(`[LOGIN] ${msg}`);
+          loginAttempts += 1;
+
+          // "Error retrieving userID" is what Facebook returns for a blocked
+          // login as well as a bad cookie. Retrying it in a tight loop is how
+          // a bot gets permanently banned, so count the blocks and stop
+          // hammering once the account has clearly been rate-limited.
+          if (/retrieving userID|blocked|try again later|captcha/i.test(msg)) {
+            if (loginAttempts >= LOGIN_MAX_ATTEMPTS) {
+              error(
+                `[LOGIN] Blocked ${loginAttempts} times - the account is rate-limited. `
+                + 'Stopping retries. Refresh the appstate and redeploy.',
+              );
+              done(null);
+              return;
+            }
+            error(
+              `[LOGIN] Blocked (${loginAttempts}/${LOGIN_MAX_ATTEMPTS}) - waiting `
+              + `${Math.round(getRetryDelay() / 1000)}s before the next attempt.`,
+            );
+          }
           done(null);
           return;
         }
@@ -1568,7 +1644,7 @@ function login() {
             await api.setOptions({
               selfListen: false, listenEvents: true,
               autoMarkRead: false, autoMarkDelivery: false,
-              updatePresence: false,
+              updatePresence: false, online: false,
             });
           } catch (err) {
             error(`[LOGIN] setOptions failed: ${err.message}`);
@@ -1576,6 +1652,10 @@ function login() {
         }
 
         STATE.loggedIn = true;
+        // A successful login resets the block counter. The backoff only grows
+        // across consecutive failures; one good login clears the slate so the
+        // next block starts from 30s instead of 10 minutes.
+        loginAttempts = 0;
         STATE.userID = await selfUid(api, null);
         log(`[LOGIN] ${config.BOT_NAME} logged in as ${STATE.userID || 'unknown'}`);
 
@@ -1640,7 +1720,7 @@ async function boot() {
   // 5. LOGIN
   const api = await login();
   if (!api) {
-    error('[BOOT] Login failed — retrying in 30s. /health stays up meanwhile.');
+    error(`[BOOT] Login failed — retrying in ${Math.round(getRetryDelay() / 1000)}s. /health stays up meanwhile.`);
     scheduleRetry();
   } else {
     log(`[BOOT] ${config.BOT_NAME} is online with ${registry.size} commands. Try \`${config.PREFIX}ping\``);
