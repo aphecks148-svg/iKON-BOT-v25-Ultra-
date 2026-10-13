@@ -2756,7 +2756,57 @@ commands.push({
         await reply({ body: '🔥 **THE ROAST**\n· · · · · · ·\n' + roast.slice(0, 120), attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('🔥 **THE ROAST**\n· · · · · · ·\n' + roast.slice(0, 200) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+await reply('🔥 **THE ROAST**\n· · · · · · ·\n' + roast.slice(0, 200) + '\n📖 Canvas unavailable — text fallback', event.messageID);
     }),
   });
-module.exports = commands;
+
+  // ── VIBE CHECK ─────────────────────────────────────────────
+  // Five cards, all of them pictures of a feeling. They use the same
+  // userCard path as the flex and the roast, so a missing canvas binary or a
+  // failed avatar lookup leaves the text reply — never a silent card.
+
+  const vibeVerdicts = [
+    { key: 'aura', emoji: '🌀', title: 'THE AURA CHECK', noun: 'aura', review: 'Your aura is a whole weather system and half the chat is checking their umbrella.' },
+    { key: 'glowup', emoji: '✨', title: 'THE GLOW UP', noun: 'glow up', review: 'You have been levelling in the dark and the chat just noticed.' },
+    { key: 'sigma', emoji: '🧎', title: 'THE SIGMA TEST', noun: 'sigma', review: 'You do not need the room to approve of you. The room is quieter for it.' },
+    { key: 'redflag', emoji: '🚩', title: 'RED FLAGS', noun: 'red flag', review: 'There are some. They are real. They are not all yours.' },
+    { key: 'greenflag', emoji: '💚', title: 'GREEN FLAGS', noun: 'green flag', review: 'You have some. They are the reason people stay.' },
+  ];
+
+  for (const v of vibeVerdicts) {
+    commands.push({
+      name: v.key,
+      aliases: [v.key + 'check', v.key + 'card'],
+      category: 'fun',
+      description: `${v.emoji} The ${v.noun} check — a picture card of your vibe`,
+      usage: `!${v.key} [@user]`,
+      hint: 'A vibe check is a picture now. It says the thing, and it says it about the person you tag.',
+      cooldown: 30,
+      permission: 'all',
+      execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, v.key, async () => {
+        await react(v.emoji);
+        const target = await userTarget.resolve(api, event, args, userDoc);
+        if (!target) { await reply(`❌ I could not find that hunter.`, event.messageID); return; }
+        const tdoc = await cache.getOrCreateUser(target.uid, api);
+        const aiLine = await aifun.genLine(v.key, target.name);
+        const verdict = aiLine || v.review;
+        const card = await cards.userCard({
+          emoji: v.emoji, title: v.title, subtitle: target.name, api,
+          user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
+          rows: [
+            ['Vibe', verdict.slice(0, 40)],
+            ['Cash', kc(tdoc.coins)],
+            ['Level', tdoc.level],
+            ['Wins', num(tdoc.wins || 0)],
+          ],
+        });
+        if (card) {
+          await reply({ body: `${v.emoji} **${v.title}**\n· · · · · · ·\n${target.name}\n${verdict}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+          return;
+        }
+        await reply(`${v.emoji} **${v.title}**\n· · · · · · ·\n${target.name}\n${verdict}\n📖 Canvas unavailable — text fallback`, event.messageID);
+      }),
+    });
+  }
+
+  module.exports = commands;

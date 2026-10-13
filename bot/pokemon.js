@@ -1991,8 +1991,8 @@ function pokecard(p) {
       ['Type', types(pokemon)],
       ['Tier', `${tier.symbol} ${tier.label}`],
       ['Weakness', pokemon.weaknesses ? pokemon.weaknesses.join(' · ') : '—'],
-      ['Height', pokemon.height ? `${pokemon.height}m` : '—'),
-      ['Weight', pokemon.weight ? `${pokemon.weight}kg` : '—'),
+      ['Height', pokemon.height ? `${pokemon.height}m` : '—'],
+      ['Weight', pokemon.weight ? `${pokemon.weight}kg` : '—'],
     ],
   };
 }
