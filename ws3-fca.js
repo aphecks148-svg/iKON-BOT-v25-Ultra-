@@ -230,6 +230,15 @@ function startServer() {
       // from the chat: the bot is simply not replying.
       loginAttempts,
       loginMaxAttempts: LOGIN_MAX_ATTEMPTS,
+      // Cookie expiry, computed at boot from the appstate. A week-long run on a
+      // session whose only timed cookie dies at hour 12 is how a bot "goes
+      // offline" with no warning; this is the number the operator refreshes
+      // against. `null` means every cookie is a session cookie with no fixed
+      // expiry, which is not a problem — it just means there is nothing to count.
+      cookieExpiry: (() => {
+        try { return config._internals.appstateExpiry(config.APPSTATE); }
+        catch { return null; }
+      })(),
     });
   });
 

@@ -111,6 +111,42 @@ function appstateHealth(state) {
 }
 
 /**
+ * When the appstate's cookies stop working.
+ *
+ * Facebook cookies carry an `expiry` field (seconds since the epoch). A cookie
+ * whose expiry is in the past is dead, and ws3-fca will not send it — so a
+ * session that is 90% alive can still fail with "Error retrieving userID" if
+ * the one cookie it needs has expired. This reports the soonest expiry so the
+ * boot log can say "refresh in 2 days" instead of leaving the operator to
+ * discover it at hour 12 of a week-long run.
+ *
+ * Cookies without an expiry field are session cookies and are treated as
+ * expiring with the browser — i.e. they are not the thing that dies first.
+ *
+ * @param {object[]} state
+ * @returns {{ soonest: number|null, soonestName: string|null, expired: number, total: number }}
+ */
+function appstateExpiry(state) {
+  const arr = Array.isArray(state) ? state : [];
+  let soonest = null;
+  let soonestName = null;
+  let expired = 0;
+  const now = Math.floor(Date.now() / 1000);
+  for (const c of arr) {
+    if (!c || typeof c !== 'object') continue;
+    const exp = Number(c.expiry || c.expires);
+    if (!Number.isFinite(exp)) continue; // session cookie, no fixed expiry
+    if (exp <= now) {
+      expired += 1;
+      if (soonest === null || exp < soonest) { soonest = exp; soonestName = c.name || c.key || null; }
+      continue;
+    }
+    if (soonest === null || exp < soonest) { soonest = exp; soonestName = c.name || c.key || null; }
+  }
+  return { soonest, soonestName, expired, total: arr.length };
+}
+
+/**
  * Resolve the command prefix.
  * `PREFIX` is a standard name on Linux/macOS (it holds an install path), so it is
  * only honoured when it looks like an actual command prefix. BOT_PREFIX wins.
@@ -175,6 +211,7 @@ const config = {
 
 // Helpful startup sanity warnings (never print secret values).
 const _state = appstateHealth(config.APPSTATE);
+const _exp = appstateExpiry(config.APPSTATE);
 if (!config.APPSTATE.length) {
   console.warn('[CONFIG] APPSTATE missing — bot cannot log into Facebook.');
 } else if (!_state.hasCUser || !_state.hasXs) {
@@ -184,6 +221,31 @@ if (!config.APPSTATE.length) {
   );
 } else {
   console.log(`[LOGIN] Loaded ${_state.count} cookies from ENV (c_user + xs present)`);
+}
+
+// Cookie expiry. A week-long run on a session whose only timed cookie dies
+// at hour 12 is how a bot "goes offline" with no warning, so say when the
+// first one is due rather than letting the operator find out at 03:00.
+if (_state.ok && _exp.total) {
+  if (_exp.expired) {
+    console.warn(
+      `[CONFIG] ${_exp.expired} of ${_exp.total} cookies have already expired — `
+      + 'the session is dying. Refresh the appstate and redeploy.',
+    );
+  } else if (_exp.soonest) {
+    const ms = (_exp.soonest * 1000) - Date.now();
+    const hours = Math.max(0, Math.round(ms / 3600000));
+    const days = Math.floor(hours / 24);
+    const label = days > 0 ? `${days}d ${hours % 24}h` : `${hours}h`;
+    if (hours < 24) {
+      console.warn(
+        `[CONFIG] Nearest cookie (\`${_exp.soonestName}\`) expires in ${label} — `
+        + 'refresh the appstate before then or the bot stops replying.',
+      );
+    } else {
+      console.log(`[CONFIG] Nearest cookie (\`${_exp.soonestName}\`) expires in ${label}.`);
+    }
+  }
 }
 if (!config.MONGO_URI) console.warn('[CONFIG] MONGO_URI missing — database features disabled.');
 // Every owner-only command is refused without an admin id, and the bot gives no
@@ -195,4 +257,4 @@ if (!config.ADMIN_IDS.length && !config.OWNER_ID) {
 }
 
 module.exports = config;
-module.exports._internals = { env, envBool, envInt, parseAdminIds, parseAppState, appstateHealth, resolvePrefix };
+module.exports._internals = { env, envBool, envInt, parseAdminIds, parseAppState, appstateHealth, appstateExpiry, resolvePrefix };
