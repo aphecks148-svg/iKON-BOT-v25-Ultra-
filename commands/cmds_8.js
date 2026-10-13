@@ -26,7 +26,9 @@
  * reply({ body, attachment }, messageID).
  *
  * AI — GROQ ONLY
- * Every handler routes through askGroq(). That is the single place that knows
+ * Every handler routes through askGroq(), passing the hunter's chosen
+ * language so a Spanish-speaking hunter gets a Spanish answer. That is the
+ * single place that knows
  * how to talk to api.groq.com, which matters for two reasons: the endpoint is
  * spelt the same way 37 times or it is spelt wrong 37 times, and a missing API
  * key has to degrade to a placeholder in exactly one spot instead of crashing
@@ -88,12 +90,20 @@ const LORE = [
  * @param {string} style extra persona instruction for this kind of task
  * @returns {Promise<string>} never throws
  */
-async function askGroq(prompt, style = '') {
+async function askGroq(prompt, style = '', lang = 'en') {
   const text = String(prompt || '').trim();
   if (!text) return aiOffline('', style);
 
+  // A hunter's chosen language is a persona instruction, not a translation
+  // request: the bot still writes in its own voice, in the language the hunter
+  // asked for. `!setlang off` sends 'en', which is a no-op instruction.
+  const locale = String(lang || 'en').trim().toLowerCase();
+  const langInstruction = locale && locale !== 'en'
+    ? `Answer in ${locale}. Keep the iKON voice — savage, short, useful.`
+    : '';
+
   const answer = await groq.ask(text, {
-    system: LORE,
+    system: [LORE, langInstruction, style].filter(Boolean).join('\n'),
     style,
     maxTokens: 2048,
   });
@@ -881,8 +891,8 @@ const commands = [];
         `Write a short savage Facebook caption for this video, and give it a title line. `
         + `Platform: Facebook. Link: ${link}. Under 40 words total.`,
         'Style: a caption someone would actually post. Punchy, no emoji spam.',
+      userDoc.lang || 'en',
       );
-
       await sendFile({
         reply,
         messageID: event.messageID,
@@ -928,8 +938,8 @@ const commands = [];
         `Write one savage two-sentence roast of whatever this TikTok is probably about, `
         + `based on the link: ${link}. Title it in one line first.`,
         'Style: brutal, funny, and harmless. No hate, no real names.',
+      userDoc.lang || 'en',
       );
-
       await sendFile({
         reply,
         messageID: event.messageID,
@@ -976,8 +986,8 @@ const commands = [];
       const caption = await askGroq(
         `Write a short Instagram caption for this post, plus a one-line title. Link: ${link}.`,
         'Style: cool and dry. Emoji only if earned.',
+      userDoc.lang || 'en',
       );
-
       await sendFile({
         reply,
         messageID: event.messageID,
@@ -1037,8 +1047,8 @@ const commands = [];
         + `and give it a one-line iKON verdict on whether it is worth the watch. `
         + `Title: "${String(title).slice(0, 160)}". Be honest that you are guessing from the title.`,
         'Style: short, opinionated, chat-ready.',
+      userDoc.lang || 'en',
       );
-
       await sendFile({
         reply,
         messageID: event.messageID,
@@ -1084,8 +1094,8 @@ const commands = [];
         `One line: what this track sounds like from its title alone, and whether it is worth `
         + `saving. Title: "${String((resolved && resolved.title) || 'unknown').slice(0, 160)}".`,
         'Style: a DJ who has heard everything and is not impressed yet.',
+      userDoc.lang || 'en',
       );
-
       await sendFile({
         reply,
         messageID: event.messageID,
@@ -1190,8 +1200,8 @@ const commands = [];
         `Explain what this tweet is reacting to and give it a one-line savage read. Link: ${link}.`
         + (statusId ? ` Status id: ${statusId}.` : ''),
         'Style: funny, mean in a harmless way.',
+      userDoc.lang || 'en',
       );
-
       await sendFile({
         reply,
         messageID: event.messageID,
@@ -1258,8 +1268,8 @@ const commands = [];
         `Describe what this Pinterest pin probably shows and give it a one-line iKON title. `
         + `Pin title on the page: "${pin.title || 'not found'}". Link: ${link}.`,
         'Style: vivid, a bit mean, short.',
+      userDoc.lang || 'en',
       );
-
       const sent = await sendPhoto({
         reply,
         messageID: event.messageID,
@@ -1313,6 +1323,7 @@ const commands = [];
           + `a specific search term, then why it finds something good. `
           + `Do not invent pin URLs.`,
           'Style: a curator with taste, not a keyword list.',
+        userDoc.lang || 'en',
         );
         await reply(
           `⚠️ **Every image source is down right now**, so here are search terms instead:\n\n`
@@ -1408,6 +1419,7 @@ const commands = [];
           + `do not reuse or imitate the lyrics of any real song, and do not name a real artist. `
           + `Keep it singable: short lines, one idea per line.`,
           'Style: a real songwriter, not a wiki entry. No preamble.',
+        userDoc.lang || 'en',
         );
         await reply(`🎤 **ORIGINAL: ${q.toUpperCase()}**\n· · · · · · ·\n${song}`, event.messageID);
         return;
@@ -1427,6 +1439,7 @@ const commands = [];
           + `the lyrics of any real song, and never claim a real artist wrote them. `
           + `Keep lines short so it can be sung out loud.`,
           'Style: catchy, a bit savage, singable.',
+        userDoc.lang || 'en',
         );
         await reply(
           `🎤 **${q.toUpperCase()}**\n· · · · · · ·\n`
@@ -1442,8 +1455,8 @@ const commands = [];
         + `Song: ${q}.`
         + `\nFirst lines of the lyrics for context:\n${String(found).slice(0, 400)}`,
         'Style: literary but chat-ready. No essay.',
+      userDoc.lang || 'en',
       );
-
       const text = String(found).trim();
       await reply(
         `🎤 **${String(data.title || q).toUpperCase()}**${data.artist ? `\n🎙️ ${data.artist}` : ''}\n`
@@ -1488,8 +1501,8 @@ const commands = [];
         + `and a 4-line "warm up like this" exercise. Song: ${q}.`
         + (found ? `\nLyrics:\n${String(found).slice(0, 900)}` : '\nNo lyrics were found, so write the guide from the title and say so.'),
         'Style: a coach who is honest about how hard it is.',
+      userDoc.lang || 'en',
       );
-
       const lines = found
         ? String(found).trim().split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 16)
         : [];
@@ -1504,6 +1517,7 @@ const commands = [];
           + `One idea per line, no title, no labels, and the words must be yours — `
           + `never reuse the lyrics of a real song.`,
           'Style: singable, catchy, four bars.',
+        userDoc.lang || 'en',
         );
         sung = String(written)
           .split('\n')
@@ -1558,8 +1572,8 @@ const commands = [];
         `Rewrite this in maximum iKON savage mode. Keep the original meaning, hit harder. `
         + `Give 3 versions: savage, colder, and funny. Text: "${text}"`,
         'Style: brutal, harmless, no slurs, no real names.',
+      userDoc.lang || 'en',
       );
-
       const card = await captionCard({
         title: 'iKON SAVAGE MODE',
         subtitle: 'say',
@@ -1597,7 +1611,7 @@ const commands = [];
         return;
       }
 
-      const answer = await askGroq(q, `Answer as iKON-BOT v2 Ultra. The owner is ${OWNER}. Be brief and useful.`);
+      const answer = await askGroq(q, `Answer as iKON-BOT v2 Ultra. The owner is ${OWNER}. Be brief and useful.`, userDoc.lang || 'en');
       await reply(`🤖 **${q.slice(0, 80)}**\n━━━━━━━━━━━━━━━\n${answer}\n💸 ${kc(FEES.ask)}`, event.messageID);
     }),
   });
@@ -1629,6 +1643,7 @@ const commands = [];
         `Answer this properly. State the answer in the first line, then give the reasoning in at most 4 short lines. `
         + `Question: ${q}`,
         `Style: iKON pro mode. Sharper than !ask, same brevity rule. Owner is ${OWNER}.`,
+      userDoc.lang || 'en',
       );
       await reply(`⚡ **PRO MODE**\n━━━━━━━━━━━━━━━\n${answer}\n💸 ${kc(FEES.ai)}`, event.messageID);
     }),
@@ -1665,6 +1680,7 @@ const commands = [];
       const answer = await askGroq(
         q,
         `Full iKON persona, no hedging. You are ${OWNER}'s bot. Answer like you have opinions and they are correct.`,
+      userDoc.lang || 'en',
       );
       await reply(`💎 **GROQ**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.groq)}`, event.messageID);
     }),
@@ -1699,8 +1715,8 @@ const commands = [];
         + `Show only the translation, then one line explaining any phrase that had no direct equivalent. `
         + `Text: "${text}"`,
         'Style: a good translator who also knows the vibe.',
+      userDoc.lang || 'en',
       );
-
       const card = await captionCard({
         title: `${text.slice(0, 40)}`,
         subtitle: `→ ${lang.toUpperCase()}`,
@@ -1754,8 +1770,8 @@ const commands = [];
         + `colour palette and mood. Output ONLY the prompt, no preamble, under 60 words. `
         + `Original: ${want}`,
         'Style: cinematic, specific, no text in the image.',
+      userDoc.lang || 'en',
       );
-
       // Strip anything that would break the URL, and fall back to the raw ask
       // if Groq handed back an essay with a "here is your prompt" intro.
       const clean = (enhanced.replace(/[*_#`]/g, '').match(/^[\s\S]{0,400}?(?:\n|$)/) || [want])[0]
@@ -1811,8 +1827,8 @@ const commands = [];
         + `write one line on what this picture would feel like to stand in front of. `
         + `Idea: ${want}`,
         'Style: poetic but brief.',
+      userDoc.lang || 'en',
       );
-
       const [promptPart, ...rest] = enhanced.split('---');
       const clean = String(promptPart || enhanced).replace(/[*_#`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 400) || want;
       const thought = rest.join(' ').trim() || `Generated from: ${want}`;
@@ -1839,6 +1855,15 @@ const commands = [];
       await reply(`🖼️ **IMAGINED**\n━━━━━━━━━━━━━━━\n📝 ${clean}\n\n${thought}\n\n🖼️ ${url}`, event.messageID);
     }),
   });
+
+  // ───────────────────────────────────────────────────────────
+  // IMAGE AI — reply-to-photo transforms
+  //
+  // `!4k`, `!upscale`, `!enhance` and `!bgremove` all read the image the user
+  // replied to, so they share one pipeline: fetch the bytes, Groq describes
+  // what it sees and what it changed, canvas does the pixel work. They differ
+  // only in scale factor and filter.
+  // ───────────────────────────────────────────────────────────
 
   commands.push({
     name: '4k',
@@ -1868,8 +1893,8 @@ const commands = [];
         `Describe what is in this photo and what an upscale pass improves on it. `
         + `Be specific about detail, edges and any text. If it is low quality, say so.`,
         'Style: a photo technician who is honest about the source.',
+      userDoc.lang || 'en',
       );
-
       if (!shot) {
         await reply(
           `⚠️ **That image would not load**, so there was nothing to upscale.\n\n${read}\n\n`
@@ -1917,8 +1942,8 @@ const commands = [];
         `Describe this photo and say honestly whether a 4x upscale will make it look better `
         + `or just bigger. Mention anything a viewer would notice.`,
         'Style: blunt technical opinion.',
+      userDoc.lang || 'en',
       );
-
       if (!shot) {
         await reply(
           `⚠️ **That image would not load**, so there was nothing to upscale.\n\n${read}\n\n`
@@ -1968,6 +1993,7 @@ const commands = [];
         + `first "WHY: <one sentence>", second "FIX: <contrast|saturation|sharpen|brightness|grayscale> <number 0.5 to 2>". `
         + `Say what is wrong with the image and what would fix it.`,
         'Style: terse technician.',
+      userDoc.lang || 'en',
       );
       const fix = (plan.match(/FIX:\s*([a-z]+)\s*([\d.]+)/i) || [])[1] || 'contrast';
       const amount = parseFloat((plan.match(/FIX:\s*[a-z]+\s*([\d.]+)/i) || [])[1] || '1.2');
@@ -2019,6 +2045,7 @@ const commands = [];
         `What is the main subject of this photo, in one word, and what colour is the background `
         + `it sits on? Answer as "SUBJECT: x / BG: y" and nothing else.`,
         'Style: one line, no prose.',
+      userDoc.lang || 'en',
       );
       const colour = ((subject.match(/BG:\s*([a-z ]{3,20})/i) || [])[1] || '').trim();
 
@@ -2078,6 +2105,7 @@ const commands = [];
         + `Say who is winning, what the story is, and give one prediction for the day. `
         + `If the list is empty, say plainly that no fixtures were available.`,
         'Style: a commentator who has seen the numbers.',
+      userDoc.lang || 'en',
       );
       await reply(`⚽ **FOOTBALL**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.football)}`, event.messageID);
     }),
@@ -2111,6 +2139,7 @@ const commands = [];
         `Which OpenLigaDB numeric league id is "${league}"? Answer with the number only, `
         + `or 0 if you are not sure. EPL is 1, La Liga is 2, Serie A is 3, Bundesliga is 4.`,
         'Style: numbers only.',
+      userDoc.lang || 'en',
       );
       const code = parseInt((id.match(/\d+/) || [])[0], 10);
       const matches = code > 0
@@ -2122,6 +2151,7 @@ const commands = [];
         + `Give the scorelines, who is in control, and the one match worth watching. `
         + `If there is no data, say so.`,
         'Style: urgent, clipped, like a live blog.',
+      userDoc.lang || 'en',
       );
       await reply(`🔴 **LIVE ${league.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.livefootball)}`, event.messageID);
     }),
@@ -2155,6 +2185,7 @@ const commands = [];
         + `Report the score. If the team is not in it, say the data does not cover them and `
         + `give your honest win probability for their next fixture instead.`,
         'Style: scoreboard voice, then one line of opinion.',
+      userDoc.lang || 'en',
       );
       await reply(`📊 **${team.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.score)}`, event.messageID);
     }),
@@ -2184,6 +2215,7 @@ const commands = [];
         + `line on why it matters. If you are not certain something is real today, mark it `
         + `"(unverified)" rather than inventing a fee or a quote.`,
         'Style: tabloid energy, honest about uncertainty.',
+      userDoc.lang || 'en',
       );
       await reply(`📰 **FOOTBALL NEWS**\n━━━━━━━━━━━━━━━\n${news}\n💸 ${kc(FEES.footballnews)}`, event.messageID);
     }),
@@ -2216,6 +2248,7 @@ const commands = [];
         + `reasons, then one "dark horse" line. Base it on form and squad strength, `
         + `and say it is a prediction, not a fact.`,
         'Style: pundit who wants to be right and admits he might not be.',
+      userDoc.lang || 'en',
       );
       const card = await captionCard({
         title: 'MATCH PREDICTION',
@@ -2255,6 +2288,7 @@ const commands = [];
         + `and what the interesting story is right now. If you do not know a live score, `
         + `say that clearly and talk about the series instead of guessing a number.`,
         'Style: cricket writer who knows the formats cold.',
+      userDoc.lang || 'en',
       );
       await reply(`🏏 **CRICKET**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.cricketscore)}`, event.messageID);
     }),
@@ -2304,8 +2338,8 @@ const commands = [];
         + `day high ${max}C low ${min}C. Give the outfit call: what to wear, and one savage `
         + `line about it. WMO code ${cur.weather_code ?? 'unknown'}.`,
         'Style: fashion editor who does not care about your feelings.',
+      userDoc.lang || 'en',
       );
-
       await reply(
         `🌦️ **${String(spot && spot.name ? spot.name : place).toUpperCase()}**\n`
         + '· · · · · · ·\n'
@@ -2338,6 +2372,7 @@ const commands = [];
         + `anyone should care. If you are not certain a story is current, mark it `
         + `"(unverified)". Never invent a named quote or a specific number.`,
         'Style: sharp, weary, allergic to filler.',
+      userDoc.lang || 'en',
       );
       await reply(`🌍 **THE WORLD**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.newsai)}`, event.messageID);
     }),
@@ -2380,8 +2415,8 @@ const commands = [];
         + `One paragraph, then one fun fact.${extract ? `\nReference material: ${extract}` : ''}`
         + `${extract ? '' : '\nI could not fetch the article, so use your own knowledge and say if it is outside what you know.'}`,
         'Style: clear, funny, never condescending.',
+      userDoc.lang || 'en',
       );
-
       await reply(
         `📚 **${String((data && data.title) || topic).toUpperCase()}**\n`
         + '· · · · · · ·\n'
@@ -2428,8 +2463,8 @@ const commands = [];
         + `of using it.`
         + (defs.length ? `\nDictionary says: ${defs.slice(0, 3).join(' | ')}` : '\nNo dictionary entry was found, so use your own knowledge.'),
         'Style: concise, slightly rude about how people misuse words.',
+      userDoc.lang || 'en',
       );
-
       await reply(
         `📖 **${String(word).toUpperCase()}**${phonetic ? ` ${phonetic}` : ''}\n`
         + '· · · · · · ·\n'
@@ -2478,6 +2513,7 @@ const commands = [];
         `Summarise this in 3 lines maximum, then one line naming the real story underneath it. `
         + `Text: ${text.slice(0, 3000)}`,
         'Style: the friend who tells you what actually happened.',
+      userDoc.lang || 'en',
       );
       await reply(`📋 **THE SHORT VERSION**\n━━━━━━━━━━━━━━━\n${brief}\n💸 ${kc(FEES.summarize)}`, event.messageID);
     }),
@@ -2518,6 +2554,7 @@ const commands = [];
       const out = await askGroq(
         `${styles[mode]} Output only the rewrite, nothing else. Original: "${text}"`,
         'Style: one rewrite. Do not add a preamble or offer alternatives.',
+      userDoc.lang || 'en',
       );
       await reply(`✍️ **${mode.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${out}`, event.messageID);
     }),
@@ -2549,8 +2586,8 @@ const commands = [];
         `Write a short story about "${topic}". Make ${userDoc.name} the main character by name. `
         + `Under 300 words. End on a line that lands.`,
         'Style: real prose, not a chat reply. No preamble of any kind.',
+      userDoc.lang || 'en',
       );
-
       const card = await captionCard({
         title: 'iKON STORY',
         subtitle: topic.toUpperCase(),
@@ -2594,8 +2631,8 @@ const commands = [];
         + `FIX (a corrected version), SCORE out of 10. Do not invent bugs that are not there. `
         + `Code:\n\`\`\`\n${code.slice(0, 2500)}\n\`\`\``,
         'Style: senior engineer, kind about the code and blunt about the habits.',
+      userDoc.lang || 'en',
       );
-
       await reply(
         `🧑‍💻️ **CODE REVIEW**\n━━━━━━━━━━━━━━━\n${review}\n💸 ${kc(FEES.codeai)}`,
         event.messageID,
@@ -2632,8 +2669,8 @@ const commands = [];
         + `guide with the vocal note that fits. The words must be original — never reuse the `
         + `lyrics of any real song. No copyrighted melodies.`,
         'Style: real lyrics. No commentary before or after.',
+      userDoc.lang || 'en',
       );
-
       const card = await captionCard({
         title: 'iKON SONG',
         subtitle: `FOR ${String(userDoc.name).toUpperCase()}`,
@@ -2679,7 +2716,7 @@ const commands = [];
   commands.push({
     name: 'setlang',
     aliases: ['lang', 'setlanguage'],
-    category: 'ai',
+    category: 'downloader',
     description: '🌐 Set the language the bot answers you in, or show what it is',
     usage: '!setlang <lang> | !setlang off',
     cooldown: 10,
@@ -2712,6 +2749,7 @@ const commands = [];
         `Is "${want}" a real human language? Answer ONLY with the two-letter ISO code `
         + `if it is (lowercase), or the word "no" if it is not.`,
         'Style: one word, no punctuation, no commentary.',
+        userDoc.lang || 'en',
       );
       const code = String(check || '').trim().toLowerCase().match(/^[a-z]{2}$/);
       if (!code) {
