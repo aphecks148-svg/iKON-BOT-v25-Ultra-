@@ -740,6 +740,30 @@ async function sendVoice({ reply, messageID, text, body = '' }) {
   return Boolean(sent);
 }
 
+/**
+ * Send an audio file (mp3 or voice note) by URL.
+ *
+ * `!aisong` and `!lyricsvideo` need a real recording rather than the TTS the
+ * voice box produces, so this takes a remote URL and streams it through the
+ * same attachment path every other media command uses.
+ *
+ * @param {object} opts
+ * @returns {Promise<boolean>}
+ */
+async function sendAudio({ reply, messageID, url, body = '' }) {
+  if (!url) {
+    await reply(`${body}\n\n🔕 No audio URL was returned.`, messageID);
+    return false;
+  }
+  const stream = await media.attachment(url, { type: 'audio' });
+  if (!stream) {
+    await reply(`${body}\n\n🔕 The audio file would not load.`, messageID);
+    return false;
+  }
+  const sent = await reply({ body, attachment: stream }, messageID);
+  return Boolean(sent);
+}
+
 // ───────────────────────────────────────────────────────────
 // SMALL HELPERS
 // ───────────────────────────────────────────────────────────
@@ -798,6 +822,19 @@ const FEES = {
   storyai: 100,
   codeai: 100,
   songai: 150,
+  botnick: 0,
+  setlang: 0,
+  album: 150,
+  god: 100,
+  gcimg: 100,
+  pfp: 100,
+  setname: 0,
+  setpfp: 100,
+  theme: 0,
+  lyricsvideo: 200,
+  animation: 200,
+  cartoon: 200,
+  aisong: 200,
 };
 
 /** Every command in this module, in registration order. */
