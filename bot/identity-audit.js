@@ -303,6 +303,8 @@ function mockApi(port) {
     async deleteAdmin() { return true; },
     async addAdmin() { return true; },
     async setThreadName() { return true; },
+    async setNickname() { return true; },
+    async getCurrentUserID() { return '999000111'; },
   };
 }
 

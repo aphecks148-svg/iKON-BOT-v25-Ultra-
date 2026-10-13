@@ -444,6 +444,32 @@ async function threadAdmins(api, event) {
 }
 
 /**
+ * Thread info, best effort. A failed lookup returns null rather than throwing,
+ * so a read-only command can degrade to a text reply instead of crashing.
+ */
+async function safeThreadInfo(api, event) {
+  try {
+    return await api.getThreadInfo(event.threadID);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * This bot's own uid in this thread, for looking up its nickname.
+ *
+ * api.getCurrentUserID is the only reliable source: event.threadAdmins is a
+ * list of names, and event.participantIDs is empty on some builds.
+ */
+function botUid(api, event) {
+  try {
+    return String(api && api.getCurrentUserID ? api.getCurrentUserID() : (event && event.botID) || '');
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Who must never be muted or kicked here: this chat's admins, the bot admins
  * from ADMIN_IDS/OWNER_ID, and the acting user.
  *
@@ -1945,7 +1971,7 @@ const commands = [];
         await reply({ attachment: { type: 'image', data: { url: made } } });
         return;
       }
-      await reply(
+await reply(
         `🖼️ **${icon}** would be the icon for this chat.\n`
         + '· · · · · · ·\n'
         + '⚠️ This build of ws3-fca cannot change a chat icon, so nothing was applied.',
@@ -1954,8 +1980,72 @@ const commands = [];
     }),
   });
 
-// ───────────────────────────────────────────────────────────
-// GROUP INFO
+  commands.push({
+    name: 'botnick',
+    aliases: ['setbotnick', 'botname'],
+    category: 'group',
+    description: '🪪 Set this bot\'s name in the chat, or show what it is',
+    usage: '!botnick <name> | !botnick off',
+    cooldown: 20,
+    permission: 'groupAdmin',
+    execute: async ({ api, event, args, reply, react }) => guard(reply, event.messageID, 'botnick', async () => {
+      await react('🪪');
+      const name = String(args[0] || '').trim();
+      if (!name) {
+        // A read-only call: show what the bot is called here, or admit it is
+        // unreadable. A bot with no nickname is not "the bot" — it is a blank
+        // slot, and saying so beats inventing a name from the account.
+        const info = await safeThreadInfo(api, event);
+        const nick = info && info.nicknames && info.nicknames[botUid(api, event)]
+          ? info.nicknames[botUid(api, event)].nickname
+          : '';
+        await reply(
+          `🪪 **BOT NICKNAME**\n`
+          + '· · · · · · ·\n'
+          + (nick ? `Current: \`${nick}\`` : 'No nickname set on this build.'),
+          event.messageID,
+        );
+        return;
+      }
+
+      if (/^(off|reset|clear|none)$/i.test(name)) {
+        if (typeof api.setNickname !== 'function') {
+          await reply(
+            '🪪 This build of ws3-fca cannot clear a nickname.\n'
+            + '📖 Clear it in the Messenger app by long-pressing the bot\'s name.',
+            event.messageID,
+          );
+          return;
+        }
+        try {
+          await api.setNickname('', String(event.threadID));
+          await reply('🪪 Nickname cleared — the bot is back to its account name.', event.messageID);
+        } catch (err) {
+          await reply(`🪪 Could not clear the nickname: ${err.message}`, event.messageID);
+        }
+        return;
+      }
+
+      if (typeof api.setNickname !== 'function') {
+        await reply(
+          `🪪 **${name}** would be the bot\'s name in this chat.\n`
+          + '⚠️ This build of ws3-fca cannot set a nickname, so nothing was applied.',
+          event.messageID,
+        );
+        return;
+      }
+
+      try {
+        await api.setNickname(name, String(event.threadID));
+        await reply(`🪪 The bot is now called **${name}** in this chat.`, event.messageID);
+      } catch (err) {
+        await reply(`🪪 Messenger refused the nickname (${err.message}).`, event.messageID);
+      }
+    }),
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // GROUP INFO
 // ───────────────────────────────────────────────────────────
 
   commands.push({
