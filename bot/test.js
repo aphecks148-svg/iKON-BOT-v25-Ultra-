@@ -6203,7 +6203,7 @@ const PIKACHU = dex.find('pikachu');
   }
 
   await step('a kingdom is founded, joined and paid for', async () => {
-    const cmds11 = require('../commands/cmds_11');
+    const cmds3 = require('../commands/cmds_3');
     const { store, restore } = kingdomStore();
     const User = require('../models/User');
     const realUserFindOne = User.findOne;
@@ -6240,9 +6240,9 @@ const PIKACHU = dex.find('pikachu');
     };
 
     try {
-      const kingdom = cmds11.find((c) => c.name === 'kingdom');
-      const join = cmds11.find((c) => c.name === 'kingdomjoin');
-      const donate = cmds11.find((c) => c.name === 'kingdomdonate');
+      const kingdom = cmds3.find((c) => c.name === 'kingdom');
+      const join = cmds3.find((c) => c.name === 'kingdomjoin');
+      const donate = cmds3.find((c) => c.name === 'kingdomdonate');
 
       const founded = await run(kingdom, ['create', 'Lovelace'], founder);
       assert.ok(/KINGDOM FOUNDED: Lovelace/.test(founded), founded);
@@ -6273,7 +6273,7 @@ const PIKACHU = dex.find('pikachu');
   });
 
   await step('a kingdom war pays the pot to the winner and mints nothing', async () => {
-    const cmds11 = require('../commands/cmds_11');
+    const cmds3 = require('../commands/cmds_3');
     const { store, restore } = kingdomStore();
 
     const mkUser = (uid, name, kingdom) => ({
@@ -6304,7 +6304,7 @@ const PIKACHU = dex.find('pikachu');
     });
 
     const api = { async getThreadInfo() { return { participantIDs: [], userInfo: [] }; } };
-    const war = cmds11.find((c) => c.name === 'kingdomwar');
+    const war = cmds3.find((c) => c.name === 'kingdomwar');
     const out = [];
     const before = store[0].treasury + store[1].treasury;
 
@@ -6350,7 +6350,7 @@ const PIKACHU = dex.find('pikachu');
   });
 
   await step('only the monarch may run the crown commands', async () => {
-    const cmds11 = require('../commands/cmds_11');
+    const cmds3 = require('../commands/cmds_3');
     const { store, restore } = kingdomStore();
 
     const mkUser = (uid, name) => ({
@@ -6381,10 +6381,10 @@ const PIKACHU = dex.find('pikachu');
 
     try {
       // Every crown command refuses a peasant before it touches anything.
-      const invite = cmds11.find((c) => c.name === 'kingdominvite');
-      const kick = cmds11.find((c) => c.name === 'kingdomkick');
-      const disband = cmds11.find((c) => c.name === 'kingdom');
-      const war = cmds11.find((c) => c.name === 'kingdomwar');
+      const invite = cmds3.find((c) => c.name === 'kingdominvite');
+      const kick = cmds3.find((c) => c.name === 'kingdomkick');
+      const disband = cmds3.find((c) => c.name === 'kingdom');
+      const war = cmds3.find((c) => c.name === 'kingdomwar');
       for (const [cmd, args] of [[invite, ['@Grace']], [kick, ['@Grace']], [disband, ['disband']], [war, ['Beta']]]) {
         const said = await run(cmd, args);
         assert.ok(/Only the monarch/.test(said), `a peasant must be refused: ${said}`);
