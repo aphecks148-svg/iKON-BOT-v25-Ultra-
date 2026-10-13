@@ -84,10 +84,6 @@ const UserSchema = new mongoose.Schema(
       ghosted: { type: Number, default: 0 },
       invites: { type: Number, default: 0 },
     },
-    // module 8 — what language the bot answers in. Stored per hunter so
-    // `!setlang` survives a restart and a different hunter can swear in
-    // Spanish while the rest of the city keeps English.
-    lang: { type: String, default: 'en', lowercase: true, trim: true },
 
     // module 9 — the social half. Everything here is a counter or a score that
     // some meter in the fun module reads back out. Kept in one subdocument so
