@@ -1680,8 +1680,6 @@ const commands = [];
         'Style: a coach who is honest about how hard it is.',
       userDoc.lang || 'en',
       );
-<<<<<<< HEAD
-=======
 
       if (yt && yt.audio && yt.audio.url) {
         const sent = await sendAudio({
@@ -1703,7 +1701,6 @@ const commands = [];
       // copyright — and a fallback that just says "sorry" is a wasted coin.
       const data = await fetchJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(q)}`);
       const found = data && data.lyrics;
->>>>>>> origin/main
       const lines = found
         ? String(found).trim().split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 16)
         : [];
@@ -2379,6 +2376,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         `Normalise this football league name to its canonical form: "${league}". `
         + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
         'Style: one short phrase.',
+        userDoc.lang || 'en',
 >>>>>>> origin/main
       );
       const matches = await footballData('livescore', canon || league);
