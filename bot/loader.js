@@ -15,7 +15,7 @@ const path = require('path');
 const { log, error } = require('./helpers');
 const deckMeta = require('./categories');
 
-const MODULE_COUNT = 11;
+const MODULE_COUNT = 12;
 const COMMANDS_DIR = path.join(__dirname, '..', 'commands');
 
 /**

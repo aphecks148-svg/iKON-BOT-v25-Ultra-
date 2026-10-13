@@ -55,11 +55,35 @@ const groq = require('../bot/groq');
 const media = require('../bot/media');
 
 const config = require('../config');
+const Group = require('../models/Group');
+const cache = require('../bot/cache');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
 const POLLINATIONS = 'https://image.pollinations.ai/prompt/';
 const OPENLIGADB = 'https://www.openligadb.de/api/getmatchdata';
+const THESPORTSDB = 'https://www.thesportsdb.com/api/v1/json/3';
+const APIFOOTBALL = process.env.FOOTBALL_API_KEY ? `https://v3.football-data.org/v4` : '';
+const THESPORTSDB_BASE = THESPORTSDB;
+
+/**
+ * The free football platforms this module talks to, in priority order.
+ *
+ * TheSportsDB v1 is the primary source: it is unauthenticated, covers 100+
+ * leagues, and serves livescores, fixtures, standings and team details from
+ * one base URL. OpenLigaDB is the fallback — same shape, different host, and
+ * the two together mean a Cloudflare block on one is not a broken bot.
+ *
+ * API-Football (v3) is the third source and only answers when the operator has
+ * set a key, which is why it is last: it is the best data available and it is
+ * also the only one that costs. The commands say which source answered.
+ *
+ * @type {string[]}
+ */
+const FOOTBALL_SOURCES = [
+  'https://www.thesportsdb.com/api/v1/json/3',
+  'https://www.openligadb.de/api/getmatchdata',
+];
 
 /**
  * The persona prefix. Injected into every prompt so that a raw Groq call and
@@ -158,6 +182,147 @@ async function fetchBuffer(url, options = {}) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Pull football data from every free platform, in order, and merge it.
+ *
+ * TheSportsDB v1 is the primary source (unauthenticated, 100+ leagues,
+ * livescores, fixtures, standings and team details from one base URL).
+ * OpenLigaDB is the fallback — same shape, different host, so a Cloudflare
+ * block on one is not a broken bot. API-Football v3 is the third source and
+ * only answers when the operator has set a key, which is why it is last.
+ *
+ * Every source returns null on failure and the merge is a flat array, so the
+ * caller hands the whole thing to Groq and never has to know which host
+ * answered. The commands say which source answered in their receipt.
+ *
+ * @param {string} what livescore|fixtures|standings|team|league
+ * @param {string} [query] a league or team name, for the shaped endpoints
+ * @returns {Promise<{data:object[], source:string|null}>}
+ */
+async function footballData(what, query = '') {
+  const sources = [];
+  if (APIFOOTBALL) sources.push({ base: APIFOOTBALL, path: apiFootballPath(what, query), auth: true });
+  sources.push({ base: THESPORTSDB_BASE, path: footballPath(what, query) });
+  sources.push({ base: OPENLIGADB, path: openligaPath(what, query) });
+  for (const s of sources) {
+    if (!s.path) continue;
+    const opts = s.auth ? { headers: { 'X-Api-Key': process.env.FOOTBALL_API_KEY } } : {};
+    const data = await fetchJson(`${s.base}${s.path}`, opts);
+    if (data && typeof data === 'object') {
+      const arr = footballArray(what, data);
+      if (arr && arr.length) return { data: arr, source: s.auth ? 'api-football' : (s.base === THESPORTSDB_BASE ? 'thesportsdb' : 'openligadb') };
+    }
+  }
+  return { data: [], source: null };
+}
+
+/**
+ * API-Football v3 path. Only used when the operator has set FOOTBALL_API_KEY —
+ * it is the best data available and it is also the only one that costs, so it
+ * is tried first and the free sources are the fallback.
+ *
+ * @param {string} what
+ * @param {string} query
+ * @returns {string|null}
+ */
+function apiFootballPath(what, query) {
+  const q = String(query || '').trim();
+  switch (what) {
+    case 'fixtures': return q ? `/teams/${q}/matches?status=FT,SHT,PEN,HPT` : '/matches?status=FT,SHT,PEN,HPT&limit=25';
+    case 'livescore': return '/matches?status=IN,PEN,HPT&live=1&limit=25';
+    case 'standings': return q ? `/competitions/${q}/standings` : null;
+    case 'team': return q ? `/teams/${q}` : null;
+    default: return null;
+  }
+}
+
+/**
+ * TheSportsDB v1 path for each kind of request.
+ *
+ * @param {string} what
+ * @param {string} query
+ * @returns {string|null}
+ */
+function footballPath(what, query) {
+  const q = encodeURIComponent(String(query || '').trim());
+  switch (what) {
+    case 'fixtures': return q ? `/searchevents.php?e=${q}` : '/eventsnext.php?id=Soccer';
+    case 'standings': return q ? `/lookupleague.php?l=${q}` : '/search_all_leagues.php?c=Soccer';
+    case 'team': return q ? `/searchteams.php?t=${q}` : null;
+    case 'league': return q ? `/lookupleague.php?l=${q}` : '/search_all_leagues.php?c=Soccer';
+    case 'livescore':
+    default: return q ? `/livescore.php?l=${q}` : `/livescore.php?l=Soccer`;
+  }
+}
+
+/**
+ * OpenLigaDB path for each kind of request.
+ *
+ * @param {string} what
+ * @param {string} query
+ * @returns {string|null}
+ */
+function openligaPath(what, query) {
+  const q = encodeURIComponent(String(query || '').trim());
+  switch (what) {
+    case 'fixtures': return q ? `/getmatchdata/leagueId/${q}` : `/getmatchdata`;
+    case 'livescore':
+    default: return q ? `/getmatchdata/leagueId/${q}` : `/getmatchdata`;
+  }
+}
+
+/**
+ * Normalise whatever a football API returned into a flat array of match
+ * objects. TheSportsDB nests under `events`/`matches`/`teams`/`leagues`,
+ * OpenLigaDB returns the array directly, and a null response is an empty
+ * array — never null, so the caller can always iterate.
+ *
+ * @param {string} what
+ * @param {object} data
+ * @returns {object[]}
+ */
+function footballArray(what, data) {
+  if (!data || typeof data !== 'object') return [];
+  for (const key of ['events', 'matches', 'teams', 'leagues', 'table']) {
+    if (Array.isArray(data[key]) && data[key].length) return data[key];
+  }
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * The group document for this thread, or null when the database is down.
+ *
+ * Mirrors the `liveGroup` helper in module 6 rather than duplicating it: the
+ * football commands need the same read path as the welcome and moderation
+ * commands, and a second implementation would drift.
+ *
+ * @param {object} event
+ * @param {object} api
+ * @returns {Promise<object|null>}
+ */
+async function footballGroup(event, api) {
+  if (!mongo.isReady() || !event || !event.threadID) return null;
+  return Group.findOne({ tid: String(event.threadID) }).catch(() => null);
+}
+
+/**
+ * The football subdocument on a group, backfilled the same way the schema
+ * states it. A document written before module 12 has no `football` at all, and
+ * assigning to `group.football.subscriptions` on undefined throws — which is
+ * what made `!follow` crash on every established group.
+ *
+ * @param {object} group
+ * @returns {object}
+ */
+function ensureFootball(group) {
+  if (!group.football || typeof group.football !== 'object') group.football = {};
+  const f = group.football;
+  if (typeof f.on !== 'boolean') f.on = false;
+  if (!Array.isArray(f.subscriptions)) f.subscriptions = [];
+  if (!f.lastScore || typeof f.lastScore !== 'object') f.lastScore = {};
+  return f;
 }
 
 // ───────────────────────────────────────────────────────────
@@ -789,6 +954,12 @@ const FEES = {
   score: 50,
   footballnews: 50,
   matchpredict: 100,
+  leaderboard: 50,
+  nextwinner: 50,
+  teaminfo: 50,
+  fixtures: 50,
+  follow: 0,
+  alerts: 0,
   cricketscore: 50,
   weatherai: 50,
   newsai: 50,
@@ -2055,9 +2226,9 @@ const commands = [];
         return;
       }
 
-      const fixtures = await fetchJson(`${OPENLIGADB}?matches`);
+      const fixtures = await footballData('livescore');
       const read = await askGroq(
-        `Here are football fixtures: ${JSON.stringify(fixtures || [])}. `
+        `Here are live football fixtures right now: ${JSON.stringify(fixtures || [])}. `
         + `Say who is winning, what the story is, and give one prediction for the day. `
         + `If the list is empty, say plainly that no fixtures were available.`,
         'Style: a commentator who has seen the numbers.',
@@ -2068,7 +2239,7 @@ const commands = [];
 
   commands.push({
     name: 'livefootball',
-    aliases: ['livefix', 'livescores'],
+    aliases: ['livefix', 'livescores', 'livescore'],
     category: 'downloader',
     description: '🔴 Live football by league — Groq breaks down what it is watching',
     usage: '!livefootball <league>',
@@ -2078,7 +2249,7 @@ const commands = [];
       await react('🔴');
       const league = args.join(' ').trim();
       if (!league) {
-        await reply('❌ Usage: `!livefootball EPL`\nTry: EPL, La Liga, Serie A, Bundesliga', event.messageID);
+        await reply('❌ Usage: `!livefootball EPL`\nTry: EPL, Premier League, La Liga, Serie A, Bundesliga', event.messageID);
         return;
       }
 
@@ -2088,31 +2259,28 @@ const commands = [];
         return;
       }
 
-      // OpenLigaDB keys on a numeric league id; ask Groq to map the word to
-      // one rather than hard-coding a table that goes stale.
-      const id = await askGroq(
-        `Which OpenLigaDB numeric league id is "${league}"? Answer with the number only, `
-        + `or 0 if you are not sure. EPL is 1, La Liga is 2, Serie A is 3, Bundesliga is 4.`,
-        'Style: numbers only.',
+      // TheSportsDB keys on a league name; ask Groq to map the word to the
+      // canonical name rather than hard-coding a table that goes stale.
+      const canon = await askGroq(
+        `Normalise this football league name to its canonical form: "${league}". `
+        + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
+        'Style: one short phrase.',
       );
-      const code = parseInt((id.match(/\d+/) || [])[0], 10);
-      const matches = code > 0
-        ? await fetchJson(`${OPENLIGADB}?matches&league=${encodeURIComponent(String(code))}`)
-        : null;
+      const matches = await footballData('livescore', canon || league);
 
       const read = await askGroq(
-        `Live ${league} matches: ${JSON.stringify(matches || [])}. `
+        `Live ${canon || league} matches: ${JSON.stringify(matches || [])}. `
         + `Give the scorelines, who is in control, and the one match worth watching. `
         + `If there is no data, say so.`,
         'Style: urgent, clipped, like a live blog.',
       );
-      await reply(`🔴 **LIVE ${league.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.livefootball)}`, event.messageID);
+      await reply(`🔴 **LIVE ${(canon || league).toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.livefootball)}`, event.messageID);
     }),
   });
 
   commands.push({
     name: 'score',
-    aliases: ['teamscore', 'whowon'],
+    aliases: ['teamscore', 'whowon', 'livescore'],
     category: 'downloader',
     description: '📊 One team, one number — Groq puts a probability on it',
     usage: '!score <team>',
@@ -2132,7 +2300,7 @@ const commands = [];
         return;
       }
 
-      const matches = await fetchJson(`${OPENLIGADB}?matches`);
+      const matches = await footballData('livescore');
       const read = await askGroq(
         `Find any match involving "${team}" in this data: ${JSON.stringify(matches || [])}. `
         + `Report the score. If the team is not in it, say the data does not cover them and `
@@ -2212,6 +2380,275 @@ const commands = [];
         return;
       }
       await reply(`🔮 **${fixture.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}`, event.messageID);
+    }),
+  });
+
+  // ── FOOTBALL LEADERBOARDS ──────────────────────────────────
+  // The top of every league, and the teams that can win their next match.
+  // Both come from the same standings feed, so one fetch serves two
+  // commands and neither has to know which host answered.
+
+  commands.push({
+    name: 'leaderboard',
+    aliases: ['table', 'standings', 'lb', 'formtable'],
+    category: 'downloader',
+    description: '🏆 The top of the league — Groq ranks the form and names the one to watch',
+    usage: '!leaderboard <league>',
+    hint: 'With no league it lists every league the feed knows about, which is a lot.',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'leaderboard', async () => {
+      await react('🏆');
+      const league = args.join(' ').trim();
+      if (!league) {
+        await reply('❌ Usage: `!leaderboard Premier League`', event.messageID);
+        return;
+      }
+      const paid = await charge(userDoc, FEES.leaderboard, 'downloader:leaderboard');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+      const canon = await askGroq(
+        `Normalise this football league name to its canonical form: "${league}". `
+        + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
+        'Style: one short phrase.',
+      );
+      const { data: rows, source } = await footballData('standings', canon || league);
+      const read = await askGroq(
+        `Here is the standings table for ${canon || league}: ${JSON.stringify(rows || [])}. `
+        + `List the top 20 in order with their points, then name the one team that can win its next match `
+        + `and why. If the table is empty, say plainly that the feed had nothing.`,
+        'Style: table voice, then one line of genuine opinion.',
+      );
+      await reply(`🏆 **${(canon || league).toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.leaderboard)}${source ? `\n📡 ${source}` : ''}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'nextwinner',
+    aliases: ['nextmatch', 'nextwin', 'whothenext'],
+    category: 'downloader',
+    description: '⚡ Who wins next — Groq reads the fixtures and picks the sure things',
+    usage: '!nextwinner <league>',
+    hint: 'Looks at the next fixture for every team in the league and says which ones are effectively decided.',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'nextwinner', async () => {
+      await react('⚡');
+      const league = args.join(' ').trim();
+      if (!league) {
+        await reply('❌ Usage: `!nextwinner Premier League`', event.messageID);
+        return;
+      }
+      const paid = await charge(userDoc, FEES.nextwinner, 'downloader:nextwinner');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+      const canon = await askGroq(
+        `Normalise this football league name to its canonical form: "${league}". `
+        + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
+        'Style: one short phrase.',
+      );
+      const { data: rows, source } = await footballData('fixtures', canon || league);
+      const read = await askGroq(
+        `Here are the next fixtures for ${canon || league}: ${JSON.stringify(rows || [])}. `
+        + `Name the teams that can win their next match and the ones that cannot, `
+        + `and say which of the "can win" ones are actually sure things. `
+        + `If there are no fixtures, say so.`,
+        'Style: short, punchy, like a runner-up bulletin.',
+      );
+      await reply(`⚡ **NEXT WINNERS — ${(canon || league).toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.nextwinner)}${source ? `\n📡 ${source}` : ''}`, event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'teaminfo',
+    aliases: ['team', 'teaminfo', 'squad'],
+    category: 'downloader',
+    description: '🛡️ One club, one card — Groq reads the squad and the badge',
+    usage: '!teaminfo <team>',
+    hint: 'The badge URL is sent as the picture when the feed has one, so the card looks like the club.',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'teaminfo', async () => {
+      await react('🛡️');
+      const team = args.join(' ').trim();
+      if (!team) {
+        await reply('❌ Usage: `!teaminfo Liverpool`', event.messageID);
+        return;
+      }
+      const paid = await charge(userDoc, FEES.teaminfo, 'downloader:teaminfo');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+      const canon = await askGroq(
+        `Normalise this football team name to its canonical form: "${team}". `
+        + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
+        'Style: one short phrase.',
+      );
+      const { data: rows, source } = await footballData('team', canon || team);
+      const badge = rows[0] && (rows[0].strTeamBadge || rows[0].badge || rows[0].logo);
+      const read = await askGroq(
+        `Here is everything the football feeds know about ${canon || team}: ${JSON.stringify(rows || [])}. `
+        + `Give the league, the stadium, the manager, the star player, and one line on their style of play. `
+        + `If the feed had nothing, say so and talk about the club from general knowledge, labelled as such.`,
+        'Style: club programme voice, warm and specific.',
+      );
+      await sendPhoto({
+        reply,
+        messageID: event.messageID,
+        url: badge,
+        body: `🛡️ **${(canon || team).toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}${source ? `\n\n📡 Data from ${source}.` : ''}`,
+        title: canon || team,
+      });
+    }),
+  });
+
+  commands.push({
+    name: 'fixtures',
+    aliases: ['fix', 'schedule', 'nextgames'],
+    category: 'downloader',
+    description: '📅 The next batch of fixtures — Groq lists them and the ones that matter',
+    usage: '!fixtures <league>',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'fixtures', async () => {
+      await react('📅');
+      const league = args.join(' ').trim();
+      if (!league) {
+        await reply('❌ Usage: `!fixtures Premier League`', event.messageID);
+        return;
+      }
+      const paid = await charge(userDoc, FEES.fixtures, 'downloader:fixtures');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+      const canon = await askGroq(
+        `Normalise this football league name to its canonical form: "${league}". `
+        + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
+        'Style: one short phrase.',
+      );
+      const { data: rows, source } = await footballData('fixtures', canon || league);
+      const read = await askGroq(
+        `Here are the next fixtures for ${canon || league}: ${JSON.stringify(rows || [])}. `
+        + `List them in order, and call out the two that could change the title race. `
+        + `If there are no fixtures, say so.`,
+        'Style: fixture list, then one line of genuine interest.',
+      );
+      await reply(`📅 **${(canon || league).toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.fixtures)}${source ? `\n📡 ${source}` : ''}`, event.messageID);
+    }),
+  });
+
+  // ── FOOTBALL SUBSCRIPTIONS ────────────────────────────────
+  // Follow a team and get a goal alert in this chat the moment they score.
+  // The commands are free (no fee) because the value is in the alerts, and the
+  // ticker is what does the work: it asks the feeds every few minutes and
+  // posts only when a subscribed team's score moves.
+
+  commands.push({
+    name: 'follow',
+    aliases: ['sub', 'subscribe', 'track'],
+    category: 'downloader',
+    description: '🔔 Follow a club — get a goal alert in this chat when they score',
+    usage: '!follow <team> | !follow off <team> | !follow list',
+    hint: 'Free. The alerts are the point, so the command does not charge.',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'follow', async () => {
+      await react('🔔');
+      const group = await footballGroup(event, api);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const sub = ensureFootball(group);
+      const first = String(args[0] || '').toLowerCase();
+      if (!first || first === 'list') {
+        const list = sub.subscriptions || [];
+        if (!list.length) {
+          await reply('🔔 **FOLLOWING NOTHING**\n· · · · · · ·\n`!follow Liverpool` to get goal alerts here.', event.messageID);
+          return;
+        }
+        await reply(
+          `🔔 **FOLLOWING ${list.length}**\n· · · · · · ·\n`
+          + list.map((t, i) => `${i + 1}. ${t}`).join('\n')
+          + `\n📖 \`!follow off <team>\` to stop one.`,
+          event.messageID,
+        );
+        return;
+      }
+      if (first === 'off' || first === 'unsub' || first === 'unfollow') {
+        const team = args.slice(1).join(' ').trim();
+        if (!team) {
+          await reply('❌ Usage: `!follow off Liverpool`', event.messageID);
+          return;
+        }
+        const idx = sub.subscriptions.findIndex((t) => t.toLowerCase() === team.toLowerCase());
+        if (idx < 0) {
+          await reply(`🔔 You are not following \`${team}\`.`, event.messageID);
+          return;
+        }
+        sub.subscriptions.splice(idx, 1);
+        await group.save();
+        await reply(`🔔 Stopped following **${team}**.`, event.messageID);
+        return;
+      }
+      const team = args.join(' ').trim();
+      if (sub.subscriptions.some((t) => t.toLowerCase() === team.toLowerCase())) {
+        await reply(`🔔 Already following **${team}**.`, event.messageID);
+        return;
+      }
+      sub.subscriptions.push(team);
+      sub.on = true;
+      await group.save();
+      await reply(
+        `🔔 **FOLLOWING ${team}**\n· · · · · · ·\n`
+        + `Goal alerts fire in this chat the moment they score. `
+        + `${sub.subscriptions.length} club${sub.subscriptions.length === 1 ? '' : 's'} total.`,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'alerts',
+    aliases: ['alertstatus', 'footbalalerts'],
+    category: 'downloader',
+    description: '🔔 What the football ticker is watching in this chat',
+    usage: '!alerts',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'alerts', async () => {
+      await react('🔔');
+      const group = await footballGroup(event, api);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const sub = ensureFootball(group);
+      const list = sub.subscriptions || [];
+      const last = sub.lastScore || {};
+      const lastLine = last.team
+        ? `🔔 Last alert: **${last.team}** ${last.score || ''} in ${last.league || 'unknown league'}`
+        : '🔔 No alert has fired yet.';
+      if (!list.length) {
+        await reply(
+          `🔔 **NO ALERTS**\n· · · · · · ·\n${lastLine}\n📖 \`!follow <team>\` to start getting goal calls here.`,
+          event.messageID,
+        );
+        return;
+      }
+      await reply(
+        `🔔 **ALERTS ${sub.on ? 'ON' : 'OFF'}**\n· · · · · · ·\n`
+        + `${list.map((t, i) => `${i + 1}. ${t}`).join('\n')}\n`
+        + `${lastLine}\n`
+        + `📖 \`!follow off <team>\` stops one. To stop every alert here, remove the clubs.`,
+        event.messageID,
+      );
     }),
   });
 
@@ -2712,3 +3149,62 @@ commands.push({
 
 
 module.exports = commands;
+
+/**
+ * The football ticker. Attached to the commands array rather than a separate
+ * module so the loader's `Array.isArray` check still passes and the engine can
+ * reach it as `require('./cmds_8').football`.
+ *
+ * It is the thing that makes `!follow` worth anything: the commands store the
+ * subscriptions, and this asks the feeds every few minutes and posts to a chat
+ * the moment a subscribed team's score moves. Without it `!follow` is just a
+ * list, and with it the bot answers a goal before the room refreshes the app.
+ *
+ * @param {object} api ws3-fca client
+ * @returns {Promise<number>} chats that got an alert
+ */
+async function footballTick(api) {
+  if (!api || !mongo.isReady()) return 0;
+  const Group = require('../models/Group');
+  const groups = await Group.find({ 'football.on': true }).catch(() => []);
+  let posted = 0;
+  for (const group of groups) {
+    const sub = ensureFootball(group);
+    const list = sub.subscriptions || [];
+    if (!list.length) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const { data } = await footballData('livescore');
+    for (const row of data) {
+      const name = String(row.strHomeTeam || row.strAwayTeam || row.homeTeam || row.awayTeam || '').trim();
+      if (!name) continue;
+      const match = list.find((t) => name.toLowerCase() === String(t).toLowerCase());
+      if (!match) continue;
+      const home = Number(row.intHomeScore || row.homeScore || 0);
+      const away = Number(row.intAwayScore || row.awayScore || 0);
+      if (home === 0 && away === 0) continue; // not a goal, just a fixture
+      const league = row.strLeague || row.league || 'unknown league';
+      const key = `${name}|${league}|${home}-${away}`;
+      const prev = sub.lastScore && sub.lastScore.key;
+      if (prev === key) continue; // already announced this exact score
+      sub.lastScore = { team: name, score: `${home}-${away}`, league, key };
+      try {
+        await group.save();
+      } catch { /* the alert still goes out */ }
+      try {
+        await api.sendMessage(
+          `⚽ **GOAL ALERT — ${name}**\n`
+          + `· · · · · · ·\n`
+          + `${row.strHomeTeam || 'Home'} ${home} - ${away} ${row.strAwayTeam || 'Away'}\n`
+          + `🏆 ${league}`,
+          String(group.tid),
+        );
+        posted += 1;
+      } catch (err) {
+        error(`[FOOTBALL] alert failed for ${group.tid}: ${err.message}`);
+      }
+    }
+  }
+  return posted;
+}
+
+commands.football = { tick: footballTick, ensure: ensureFootball, group: footballGroup };

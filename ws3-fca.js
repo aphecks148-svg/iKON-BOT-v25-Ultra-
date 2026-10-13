@@ -34,6 +34,7 @@ const cards = require('./bot/cards');
 const pending = require('./bot/pending');
 const flood = require('./bot/flood');
 const moderation = require('./bot/moderation');
+const footballCmds = require('./commands/cmds_8');
 
 const { log, error, reply, react, safe } = helpers;
 
@@ -1673,6 +1674,13 @@ async function boot() {
       // moderation drops chats it has not been asked about in a while.
       flood.sweep();
       moderation.sweep();
+      // Football goal alerts. A chat following a club gets a message the
+      // moment its score moves, which is the whole point of `!follow`; this
+      // runs in the same minute sweep as the cleanup so the bot has one
+      // background clock for every periodic job.
+      if (api && footballCmds && footballCmds.football) {
+        footballCmds.football.tick(api).catch((err) => error(`[FOOTBALL] tick: ${err.message}`));
+      }
     }, 60 * 1000);
     if (typeof housekeeping.unref === 'function') housekeeping.unref();
   }

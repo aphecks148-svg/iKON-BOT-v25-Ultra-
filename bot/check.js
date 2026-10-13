@@ -17,7 +17,7 @@ const loader = require('./loader');
 const config = require('../config');
 
 const SHAPE = ['name', 'aliases', 'category', 'description', 'usage', 'cooldown', 'permission', 'execute'];
-const MODULES = 11;
+const MODULES = 12;
 const TARGET_PER_MODULE = 35;
 
 /**
