@@ -34,6 +34,7 @@ const cards = require('./bot/cards');
 const pending = require('./bot/pending');
 const flood = require('./bot/flood');
 const moderation = require('./bot/moderation');
+const footballCmds = require('./commands/cmds_8');
 
 const { log, error, reply, react, safe } = helpers;
 
@@ -53,6 +54,17 @@ const STATE = {
   lastSendError: '',
   lastCommands: [],
 };
+
+/**
+ * How many login attempts have failed. Counts only attempts that actually
+ * reached ws3-fca, so a boot that dies before login does not inflate it — the
+ * backoff in getRetryDelay() is driven by this, and it is what decides when the
+ * bot stops hammering Facebook and waits for a manual refresh.
+ *
+ * @type {number}
+ */
+let loginAttempts = 0;
+const LOGIN_MAX_ATTEMPTS = 5;
 
 /** Record a successful send. */
 function noteSendOk(name) {
@@ -113,17 +125,34 @@ let retryTimer = null;
  * appstate, a rate limit, a network blip. Exiting makes Render mark the deploy
  * dead; retrying in place keeps the process (and /health) alive until the
  * account links again.
+ *
+ * The delay is exponential and capped, not a fixed 30s. A bot that retries a
+ * blocked login every 30 seconds is a bot Facebook bans in about five minutes;
+ * one that waits 30s, 45s, 67s… up to ten minutes gives the block time to cool.
  */
 function scheduleRetry() {
   if (retryTimer) return;
+  const delay = getRetryDelay();
   retryTimer = setTimeout(() => {
     retryTimer = null;
     boot().catch((err) => {
       error(`[BOOT] Retry failed: ${err && err.message ? err.message : err}`);
       scheduleRetry();
     });
-  }, 30000);
+  }, delay);
+  log(`[BOOT] Next login attempt in ${Math.round(delay / 1000)}s (attempt ${loginAttempts + 1})`);
   if (typeof retryTimer.unref === 'function') retryTimer.unref();
+}
+
+/**
+ * Exponential backoff for login retries: 30s, 45s, 67s, 100s, 150s, 225s…
+ * capped at 10 minutes. Each failure is counted once a login actually happens,
+ * so a boot that never reaches the login step does not inflate the counter.
+ *
+ * @returns {number} milliseconds to wait
+ */
+function getRetryDelay() {
+  return Math.min(30000 * Math.pow(1.5, loginAttempts), 600000);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -196,6 +225,20 @@ function startServer() {
       spam: flood.stats(),
       moderation: moderation.stats(),
       uptime: Math.floor((Date.now() - STATE.startedAt) / 1000),
+      // Login posture. "Blocked N times" is the one line that separates an
+      // expired appstate from a rate-limited account, and both look identical
+      // from the chat: the bot is simply not replying.
+      loginAttempts,
+      loginMaxAttempts: LOGIN_MAX_ATTEMPTS,
+      // Cookie expiry, computed at boot from the appstate. A week-long run on a
+      // session whose only timed cookie dies at hour 12 is how a bot "goes
+      // offline" with no warning; this is the number the operator refreshes
+      // against. `null` means every cookie is a session cookie with no fixed
+      // expiry, which is not a problem — it just means there is nothing to count.
+      cookieExpiry: (() => {
+        try { return config._internals.appstateExpiry(config.APPSTATE); }
+        catch { return null; }
+      })(),
     });
   });
 
@@ -375,24 +418,9 @@ async function handleMessage(api, event) {
     }
   }
 
-  // ── PER-USER COOLDOWN ───────────────────────────────────────
-  // No single user can fire commands faster than once every 5s, which is
-  // enough headroom to type and click without triggering FB's spam filters.
-  // Owner/admin IDs are exempt — operators need to test commands without
-  // being rate-limited, and a compromised admin account is a different threat.
-  const now = Date.now();
-  const userKey = String(senderID);
-  if (!permissions.isOwner(userKey)) {
-    const lastCmd = global.commandCooldowns.get(userKey) || 0;
-    if (now - lastCmd < USER_COOLDOWN_MS) {
-      global.commandCooldowns.set(userKey, lastCmd);
-      return;
-    }
-    global.commandCooldowns.set(userKey, now);
-  }
-
   // ── PER-THREAD RATE LIMIT ───────────────────────────────────
   // Cap at 20 sends/min per chat; pause the thread for 60s when exceeded.
+  const now = Date.now();
   const tKey = String(threadID);
   const pausedUntil = threadPaused.get(tKey);
   if (pausedUntil && now < pausedUntil) return;
@@ -420,13 +448,35 @@ async function handleMessage(api, event) {
   let commandName = 'incoming';
   const say = async (text, replyTo = messageID, label = commandName) => {
     helpers.clearSendError();
-    // Global send throttle — minimum gap between ANY two messages leaving the bot.
+
+    // Human-like posture before every reply. Three things, in this order:
+    //
+    //   typing indicator ON — the single most visible bot signal there is. A
+    //     person pauses to read and think; a bot answers in the same millisecond
+    //     it receives the message, and that rhythm is what Facebook notices
+    //     regardless of how quiet the bot is otherwise. Turned off again after
+    //     the send, so it does not sit on for the next message in the thread.
+    //
+    //   random thinking pause — a fixed delay makes the bot rhythmic, and
+    //     rhythm is the other thing that gets flagged. The range is short
+    //     enough that a two-second command still feels snappy.
+    //
+    //   global send throttle — minimum gap between ANY two messages, which is
+    //     the rate limit that stops rapid-fire messaging entirely.
+    if (typeof helpers.typing === 'function') {
+      await helpers.typing(api, threadID, true).catch(() => { /* cosmetic */ });
+    }
+    const pause = helpers.thinkPause ? helpers.thinkPause() : 0;
+    if (pause > 0) await new Promise((r) => setTimeout(r, pause));
     const sinceLast = Date.now() - global.lastSent;
     if (sinceLast < SEND_DELAY_MS) await new Promise((r) => setTimeout(r, SEND_DELAY_MS - sinceLast));
     global.lastSent = Date.now();
     // event.isGroup, not a threadID guess: a group can arrive with a bare
     // numeric id, and treating it as a DM makes every reply fail with 1545012.
     const res = await reply(api, threadID, text, replyTo ?? messageID, event.isGroup);
+    if (typeof helpers.typing === 'function') {
+      await helpers.typing(api, threadID, false).catch(() => { /* cosmetic */ });
+    }
     if (res) noteSendOk(label);
     else noteSendFailure(label, helpers.lastSendError() || 'sendMessage returned nothing');
     return res;
@@ -454,6 +504,41 @@ async function handleMessage(api, event) {
 
   const spam = await spamGate(event, { body, parsed, say });
   if (!spam.allowed) return;
+
+  // ── AUTO-DOWNLOAD SHARED VIDEOS ────────────────────────────
+  // A link shared in a group chat, or replied to, is usually a video the
+  // sender wants the room to see. Downloading it is the whole point of a
+  // downloader bot, and doing it on the link rather than on a command means
+  // the room gets the file without anybody typing `!yt`.
+  //
+  // Group chats only, and only when the sender is not the bot itself: a bot
+  // replying to its own download with another download is a spiral. The
+  // download is best-effort — a link that is not a video is skipped, and a
+  // video that will not download is answered with the plain link.
+  if (event.isGroup && !event.isSelf) {
+    const link = media.pickVideoLink(body);
+    if (link) {
+      try {
+        const dl = await media.downloadVideo(link);
+        if (dl && dl.url) {
+          await reply(
+            api,
+            threadID,
+            {
+              body: dl.caption || `🎬 ${link}`,
+              attachment: { type: 'video', data: { url: dl.url } },
+            },
+            event.messageID,
+            event.isGroup,
+          );
+          await recordActivity(senderID, false, threadID);
+          return;
+        }
+      } catch (err) {
+        error(`[DOWNLOAD] auto-download of ${link.slice(0, 60)} failed: ${err.message}`);
+      }
+    }
+  }
 
   // ── WILD POKEMON ──────────────────────────────────────────
   // A reply to a spawn message, carrying that Pokemon's name, is a catch. This
@@ -492,6 +577,25 @@ async function handleMessage(api, event) {
   // `parsed` was computed above, ahead of the spam gate, and is reused here.
   if (!parsed) {
     if (body) log(`[PARSE] no command for "${body.slice(0, 60)}" (prefix ${JSON.stringify(prefix)})`);
+
+    // A bare prefix is not a command and is not chatter — it is the single
+    // most common "what is the prefix?" message, and answering it is the whole
+    // point. The system prefix is what the bot was told to use and the group
+    // prefix is what this chat actually uses, so say both: the first is the
+    // answer to "what is the prefix", the second is the answer to "why did
+    // !ping not work here". Without this, a reader in a renamed-prefix chat
+    // types the prefix they were given, gets silence, and concludes the bot
+    // is dead — which is exactly the deafness this log line exists to catch.
+    if (body.trim() === prefix || body.trim() === config.PREFIX) {
+      const groupPrefix = prefix !== config.PREFIX ? prefix : null;
+      await say(
+        `📖 The prefix here is \`${prefix}\` — the system default is \`${config.PREFIX}\`.`
+        + (groupPrefix ? `\n\nThis chat uses \`${groupPrefix}\` — \`${groupPrefix}help\` lists the commands.` : `\n\nTry \`${config.PREFIX}help\`.`),
+      );
+      await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
+      return;
+    }
+
     // Not a command. Count the message for the RPG profile and stop.
     await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
     return;
@@ -521,9 +625,17 @@ async function handleMessage(api, event) {
   const cmd = loader.findCommand(parsed.name, registry, aliases);
   commandName = (cmd && cmd.name) || parsed.commandName || parsed.name;
   if (!cmd) {
-    // Unknown command: stay silent. No "❌ Unknown command" reply — a quiet bot
-    // is a surviving bot. FB's spam filters penalise reply volume, and a bot
-    // that answers every unrecognized word trains users to flood it.
+    // Unknown command: say so, briefly. This used to stay silent on purpose —
+    // "a quiet bot is a surviving bot" — but silence here is the wrong answer
+    // for the person who typed it: they get nothing back, conclude the bot is
+    // dead, and either stop using it or start flooding it with "are you ok?".
+    // A one-line "unknown" teaches the command list without training a spam
+    // habit, and it is the same line every time so it costs nothing.
+    //
+    // Bare chat words never reach this point — they are handled above at the
+    // "not a command" branch — so this only ever answers an actual command
+    // prefix, which is the only place a reply is useful.
+    await say(`❌ Unknown command \`${parsed.name}\`. Try \`${config.PREFIX}help\`.`);
     await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
     return;
   }
@@ -562,6 +674,48 @@ async function handleMessage(api, event) {
       await say(`⛔ ${gate.reason}`);
       return;
     }
+  }
+
+  // ── PER-USER COOLDOWN ─────────────────────────────────────
+  // No single user can fire commands faster than once every 5s, which is
+  // enough headroom to type and click without triggering FB's spam filters.
+  // Owner/admin IDs are exempt — operators need to test commands without
+  // being rate-limited, and a compromised admin account is a different threat.
+  //
+  // AFTER command lookup, not before it. This used to sit above the parse,
+  // which meant a user who typed fast got silence for their typos: the
+  // cooldown returned before the word was even recognised, so `!ping`
+  // followed by `!definitelynotacommand` answered the first and dropped the
+  // second with no "unknown command" to explain it. A cooldown is about
+  // stopping a person spamming a real command; a word that is not a command
+  // is answered, not throttled, because the answer is the only useful thing
+  // about it.
+  //
+  // AFTER the toggle gate, not before it. The gate answers "is this command
+  // allowed in this chat at all", and that answer has to come first: a member
+  // in a chat with the system module disabled gets "module disabled here",
+  // not "cooldown". Putting the cooldown before the gate made the wrong
+  // message win, because the cooldown is keyed per-user and survives across
+  // messages — the first thing a held user hears about a disabled module is
+  // a rate-limit notice.
+  const userKey = String(senderID);
+  let isOperator = false;
+  try { isOperator = permissions.isOwner(userKey) || await permissions.canModerate(api, event); }
+  catch { isOperator = false; }
+  if (!isOperator) {
+    const lastCmd = global.commandCooldowns.get(userKey) || 0;
+    if (now - lastCmd < USER_COOLDOWN_MS) {
+      // Say something. This gate used to return in silence, which is the worst
+      // of both worlds: the person gets no feedback that they are being held,
+      // so they press again and are held again — and the per-command cooldown
+      // notice they would otherwise get never appears, because this returns
+      // before the command's own bucket is even checked. A short line costs
+      // one message and teaches the rate without training a spam habit.
+      const wait = Math.ceil((USER_COOLDOWN_MS - (now - lastCmd)) / 1000);
+      await say(`⏳ Cooldown: wait ${helpers.fmt.dur(wait)}.`);
+      return;
+    }
+    global.commandCooldowns.set(userKey, now);
   }
 
   // ── ADMINS-ONLY (!onlyadminon) ─────────────────────────────
@@ -1441,7 +1595,26 @@ function login() {
       done(null);
     }, 120000);
 
+    // A bot that logs in the instant the process starts looks like a bot. A
+    // random 5-10s delay before the first attempt is the difference between
+    // "account logging in from a new device" and "account logging in from a new
+    // device at machine speed", and Facebook notices the second one.
+    const preDelay = 5000 + Math.random() * 5000;
+    log(`[LOGIN] Waiting ${Math.round(preDelay / 1000)}s before the first attempt...`);
+
     const options = {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        + '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      // Anti-detection. Each of these stops the bot doing something Facebook
+      // uses as a bot signal:
+      //   autoMarkDelivery:false - read receipts on every message.
+      //   autoMarkRead:false      - same, on the other side of the pair.
+      //   updatePresence:false    - presence pings, another spam signal.
+      //   online:false            - don't announce the session as active.
+      //   selfListen:false        - our own messages must not come back to us.
+      //   listenEvents:true       - group join/leave events, used by !autoadd.
+      //   logLevel:'silent'       - ws3-fca's own chatter is noise in the logs.
+      //   forceLogin:false        - let ws3-fca reuse the session where it can.
       listenEvents: true,
       listenTyping: false,
       autoMarkRead: false,
@@ -1449,12 +1622,36 @@ function login() {
       updatePresence: false,
       selfListen: false,
       online: false,
+      logLevel: 'silent',
+      forceLogin: false,
+      autoReconnect: true,
     };
 
     try {
       fcaLogin({ appState: config.APPSTATE }, options, async (err, api) => {
         if (err || !api) {
-          error(`[LOGIN] ${(err && err.message) || 'no api returned'}`);
+          const msg = (err && err.message) || 'no api returned';
+          error(`[LOGIN] ${msg}`);
+          loginAttempts += 1;
+
+          // "Error retrieving userID" is what Facebook returns for a blocked
+          // login as well as a bad cookie. Retrying it in a tight loop is how
+          // a bot gets permanently banned, so count the blocks and stop
+          // hammering once the account has clearly been rate-limited.
+          if (/retrieving userID|blocked|try again later|captcha/i.test(msg)) {
+            if (loginAttempts >= LOGIN_MAX_ATTEMPTS) {
+              error(
+                `[LOGIN] Blocked ${loginAttempts} times - the account is rate-limited. `
+                + 'Stopping retries. Refresh the appstate and redeploy.',
+              );
+              done(null);
+              return;
+            }
+            error(
+              `[LOGIN] Blocked (${loginAttempts}/${LOGIN_MAX_ATTEMPTS}) - waiting `
+              + `${Math.round(getRetryDelay() / 1000)}s before the next attempt.`,
+            );
+          }
           done(null);
           return;
         }
@@ -1478,7 +1675,7 @@ function login() {
             await api.setOptions({
               selfListen: false, listenEvents: true,
               autoMarkRead: false, autoMarkDelivery: false,
-              updatePresence: false,
+              updatePresence: false, online: false,
             });
           } catch (err) {
             error(`[LOGIN] setOptions failed: ${err.message}`);
@@ -1486,6 +1683,10 @@ function login() {
         }
 
         STATE.loggedIn = true;
+        // A successful login resets the block counter. The backoff only grows
+        // across consecutive failures; one good login clears the slate so the
+        // next block starts from 30s instead of 10 minutes.
+        loginAttempts = 0;
         STATE.userID = await selfUid(api, null);
         log(`[LOGIN] ${config.BOT_NAME} logged in as ${STATE.userID || 'unknown'}`);
 
@@ -1550,7 +1751,7 @@ async function boot() {
   // 5. LOGIN
   const api = await login();
   if (!api) {
-    error('[BOOT] Login failed — retrying in 30s. /health stays up meanwhile.');
+    error(`[BOOT] Login failed — retrying in ${Math.round(getRetryDelay() / 1000)}s. /health stays up meanwhile.`);
     scheduleRetry();
   } else {
     log(`[BOOT] ${config.BOT_NAME} is online with ${registry.size} commands. Try \`${config.PREFIX}ping\``);
@@ -1584,6 +1785,13 @@ async function boot() {
       // moderation drops chats it has not been asked about in a while.
       flood.sweep();
       moderation.sweep();
+      // Football goal alerts. A chat following a club gets a message the
+      // moment its score moves, which is the whole point of `!follow`; this
+      // runs in the same minute sweep as the cleanup so the bot has one
+      // background clock for every periodic job.
+      if (api && footballCmds && footballCmds.football) {
+        footballCmds.football.tick(api).catch((err) => error(`[FOOTBALL] tick: ${err.message}`));
+      }
     }, 60 * 1000);
     if (typeof housekeeping.unref === 'function') housekeeping.unref();
   }

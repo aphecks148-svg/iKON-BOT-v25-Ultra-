@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 9 — FUN / SOCIAL (35 commands)
+ * MODULE 9 — FUN / SOCIAL (33 commands)
  *
  * iKON-BOT v2 — Fun and social. The reason anyone adds the bot to a group chat.
  *
@@ -2668,4 +2668,145 @@ const commands = [];
     }),
   });
 
-module.exports = commands;
+commands.push({
+    name: 'shipcard',
+    aliases: ['shipstatus', 'relationshipcard', 'shipviz'],
+    category: 'fun',
+    description: '❤️ Render a relationship as a picture — compatibility, status',
+    usage: '!shipcard [@user]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'shipcard', async () => {
+      await react('❤️');
+      const target = await userTarget.resolve(api, event, args, userDoc);
+      if (!target) { await reply('❌ I could not find that hunter.', event.messageID); return; }
+      const tdoc = await cache.getOrCreateUser(target.uid, api);
+      const comp = Math.floor((Number(userDoc.uid) + Number(target.uid)) % 100);
+      const rows = [
+        ['With', target.name],
+        ['Compatibility', comp + '%'],
+        ['Status', 'it is complicated'],
+      ];
+      const card = await cards.duoCard({
+        emoji: '❤️', title: 'SHIP', subtitle: userDoc.name + ' + ' + target.name, threadID: String(event.threadID), chatName: 'the city',
+        left: { uid: userDoc.uid, name: userDoc.name }, right: { uid: target.uid, name: target.name },
+        body: comp + '% compatible', footer: 'NONE OF THIS IS REAL', api,
+      });
+      if (card) {
+        await reply({ body: '❤️ **SHIP**\n· · · · · · ·\n' + userDoc.name + ' + ' + target.name + ' — ' + comp + '%', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('❤️ **SHIP**\n· · · · · · ·\n' + userDoc.name + ' + ' + target.name + ' — ' + comp + '%\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'flexcard',
+    aliases: ['showoff', 'brag', 'flexviz'],
+    category: 'fun',
+    description: '💪 Render your flex as a picture — stats, title, wealth',
+    usage: '!flexcard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'flexcard', async () => {
+      await react('💪');
+      const card = await cards.userCard({
+        emoji: '💪', title: 'THE FLEX', subtitle: userDoc.title || 'Citizen', api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
+        rows: [
+          ['Title', userDoc.title || 'Citizen'],
+          ['Level', userDoc.level],
+          ['XP', num(userDoc.xp)],
+          ['Wealth', kc(userDoc.coins)],
+          ['Wins', num(userDoc.wins || 0)],
+        ],
+      });
+      if (card) {
+        await reply({ body: '💪 **THE FLEX**\n· · · · · · ·\n' + userDoc.name + ' · Lv ' + userDoc.level, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('💪 **THE FLEX**\n· · · · · · ·\n' + userDoc.name + ' · Lv ' + userDoc.level + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'roastcard',
+    aliases: ['burncard', 'roastviz'],
+    category: 'fun',
+    description: '🔥 Render a roast as a picture — targeted, in the house style',
+    usage: '!roastcard [@user]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'roastcard', async () => {
+      await react('🔥');
+      const target = await userTarget.resolve(api, event, args, userDoc);
+      if (!target) { await reply('❌ I could not find that hunter.', event.messageID); return; }
+      const tdoc = await cache.getOrCreateUser(target.uid, api);
+      const roast = 'Your balance is ' + kc(tdoc.coins) + ' and your level is ' + tdoc.level + '. The city feels bad for you, but not enough to help.';
+      const card = await cards.userCard({
+        emoji: '🔥', title: 'THE ROAST', subtitle: target.name, api,
+        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
+        rows: [
+          ['Cash', kc(tdoc.coins)],
+          ['Level', tdoc.level],
+          ['Verdict', roast.slice(0, 40)],
+        ],
+      });
+      if (card) {
+        await reply({ body: '🔥 **THE ROAST**\n· · · · · · ·\n' + roast.slice(0, 120), attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+await reply('🔥 **THE ROAST**\n· · · · · · ·\n' + roast.slice(0, 200) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  // ── VIBE CHECK ─────────────────────────────────────────────
+  // Five cards, all of them pictures of a feeling. They use the same
+  // userCard path as the flex and the roast, so a missing canvas binary or a
+  // failed avatar lookup leaves the text reply — never a silent card.
+
+  const vibeVerdicts = [
+    { key: 'aura', emoji: '🌀', title: 'THE AURA CHECK', noun: 'aura', review: 'Your aura is a whole weather system and half the chat is checking their umbrella.' },
+    { key: 'glowup', emoji: '✨', title: 'THE GLOW UP', noun: 'glow up', review: 'You have been levelling in the dark and the chat just noticed.' },
+    { key: 'sigma', emoji: '🧎', title: 'THE SIGMA TEST', noun: 'sigma', review: 'You do not need the room to approve of you. The room is quieter for it.' },
+    { key: 'redflag', emoji: '🚩', title: 'RED FLAGS', noun: 'red flag', review: 'There are some. They are real. They are not all yours.' },
+    { key: 'greenflag', emoji: '💚', title: 'GREEN FLAGS', noun: 'green flag', review: 'You have some. They are the reason people stay.' },
+  ];
+
+  for (const v of vibeVerdicts) {
+    commands.push({
+      name: v.key,
+      aliases: [v.key + 'check', v.key + 'card'],
+      category: 'fun',
+      description: `${v.emoji} The ${v.noun} check — a picture card of your vibe`,
+      usage: `!${v.key} [@user]`,
+      hint: 'A vibe check is a picture now. It says the thing, and it says it about the person you tag.',
+      cooldown: 30,
+      permission: 'all',
+      execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, v.key, async () => {
+        await react(v.emoji);
+        const target = await userTarget.resolve(api, event, args, userDoc);
+        if (!target) { await reply(`❌ I could not find that hunter.`, event.messageID); return; }
+        const tdoc = await cache.getOrCreateUser(target.uid, api);
+        const aiLine = await aifun.genLine(v.key, target.name);
+        const verdict = aiLine || v.review;
+        const card = await cards.userCard({
+          emoji: v.emoji, title: v.title, subtitle: target.name, api,
+          user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
+          rows: [
+            ['Vibe', verdict.slice(0, 40)],
+            ['Cash', kc(tdoc.coins)],
+            ['Level', tdoc.level],
+            ['Wins', num(tdoc.wins || 0)],
+          ],
+        });
+        if (card) {
+          await reply({ body: `${v.emoji} **${v.title}**\n· · · · · · ·\n${target.name}\n${verdict}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+          return;
+        }
+        await reply(`${v.emoji} **${v.title}**\n· · · · · · ·\n${target.name}\n${verdict}\n📖 Canvas unavailable — text fallback`, event.messageID);
+      }),
+    });
+  }
+
+  module.exports = commands;

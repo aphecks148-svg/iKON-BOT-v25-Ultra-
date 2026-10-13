@@ -368,22 +368,53 @@ async function genRoast(name) {
 }
 
 /** One compliment with a backhand buried in it, aimed at a named player. */
-async function genCompliment(name) {
-  const n = clean(name);
-  if (!n) return null;
-  return generate(
-    'compliment',
-    `Write one compliment for a group chat member named ${n} with a backhand buried in it. The surface must still read as praise. You know only the name, so invent no facts about them. Reply with just the sentence.`,
-    (text) => oneLiner(text, 200),
-    (v) => sig(v),
-  );
-}
+  async function genCompliment(name) {
+    const n = clean(name);
+    if (!n) return null;
+    return generate(
+      'compliment',
+      `Write one compliment for a group chat member named ${n} with a backhand buried in it. The surface must still read as praise. You know only the name, so invent no facts about them. Reply with just the sentence.`,
+      (text) => oneLiner(text, 200),
+      (v) => sig(v),
+    );
+  }
 
-/** Test seam: forget served signatures and last picks. */
-function _reset() {
-  recent.clear();
-  lastPick.clear();
-}
+  /**
+   * A vibe check for a named player, dispatched by key so the same generator
+   * serves five different cards without five copies of the prompt.
+   *
+   * The key is also the cache signature, which is the point: a person who
+   * runs `!aura` twice in a row gets the same answer, because the answer was
+   * written once and served again rather than re-asked of the model.
+   *
+   * @param {string} key aura|glowup|sigma|redflag|greenflag
+   * @param {string} name
+   */
+  async function genLine(key, name) {
+    const n = clean(name);
+    if (!n) return null;
+    const prompts = {
+      aura: `Write one sentence describing the aura of a group chat member named ${n}. One feeling, no facts invented about them. Reply with just the sentence.`,
+      glowup: `Write one sentence about the glow up of a group chat member named ${n}. Something that changed, not something they were born with. Reply with just the sentence.`,
+      sigma: `Write one sentence calling a group chat member named ${n} a sigma. They do not need the room's approval. Reply with just the sentence.`,
+      redflag: `Name one red flag about a group chat member named ${n}. Make it a real behavioural flag, banter not abuse, and invent nothing about their real life. Reply with just the phrase.`,
+      greenflag: `Name one green flag about a group chat member named ${n}. Make it a real behavioural strength. Reply with just the phrase.`,
+    };
+    const prompt = prompts[key];
+    if (!prompt) return null;
+    return generate(
+      key,
+      prompt,
+      (text) => oneLiner(text, 160),
+      (v) => sig(v),
+    );
+  }
+
+  /** Test seam: forget served signatures and last picks. */
+  function _reset() {
+    recent.clear();
+    lastPick.clear();
+  }
 
 module.exports = {
   genRiddle,
@@ -398,6 +429,7 @@ module.exports = {
   genLie,
   genRoast,
   genCompliment,
+  genLine,
   pickFresh,
   answerHits,
   _reset,

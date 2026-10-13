@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 7 — GTA (35 commands)
+ * MODULE 7 — STREET LIFE (38 commands)
  *
  * iKON-BOT v2 Ultra. The crime half of iKON City. This module is deliberately
  * a coin sink: cars run to a million, guns to three hundred thousand, and fuel
@@ -2727,4 +2727,35 @@ const commands = [];
     }),
   });
 
-module.exports = commands;
+commands.push({
+    name: 'gtacard',
+    aliases: ['gtacardboard', 'vehicard'],
+    category: 'gta',
+    description: '🚗 Render your garage as a picture — cars, stats, wanted level',
+    usage: '!gtacard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'gtacard', async () => {
+      await react('🚗');
+      const userDoc2 = await cache.getOrCreateUser(userDoc.uid, api);
+      const car = (userDoc2.gta && userDoc2.gta.cars && userDoc2.gta.cars[0]) || null;
+      const rows = [
+        ['Cash', kc(userDoc2.coins)],
+        ['Wanted', num(userDoc2.gta && userDoc2.gta.wantedLevel ? userDoc2.gta.wantedLevel : 0)],
+        ['Fuel', num(userDoc2.gta && userDoc2.gta.fuel != null ? userDoc2.gta.fuel : 100)],
+        ['Cars', num(userDoc2.gta && userDoc2.gta.cars ? userDoc2.gta.cars.length : 0)],
+      ];
+      const card = await cards.userCard({
+        emoji: '🚗', title: 'GARAGE', subtitle: car ? car.name : 'no car', api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
+        rows,
+      });
+      if (card) {
+        await reply({ body: '🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no car') + ' · ' + kc(userDoc2.coins), attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+await reply('🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no car') + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  module.exports = commands;

@@ -260,6 +260,20 @@ const GroupSchema = new mongoose.Schema(
       lastDrawAt: { type: Date, default: null },
       lastWinner: { uid: { type: String, default: '' }, name: { type: String, default: '' }, amount: { type: Number, default: 0 } },
     },
+
+    // module 12 — football. Live scores, fixtures, and the alerts that fire
+    // in this chat the moment a subscribed team scores.
+    //
+    // `subscriptions` is the only part that matters for the ticker: it is a
+    // list of team names, and the scheduler asks SportsDB "did any of these
+    // score in the last five minutes" once per tick. `lastScore` is the goal
+    // the ticker already announced, so a team that scores twice in one tick
+    // only fires once — without it a hat-trick would post three alerts.
+    football: {
+      on: { type: Boolean, default: false },
+      subscriptions: { type: [String], default: [] },
+      lastScore: { type: Object, default: {} },
+    },
   },
   { timestamps: true },
 );

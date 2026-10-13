@@ -41,6 +41,7 @@
 const User = require('../models/User');
 const Kingdom = require('../models/Kingdom');
 const Economy = require('../models/Economy');
+const War = require('../models/War');
 const mongo = require('../bot/mongo');
 const userTarget = require('../bot/target');
 
@@ -868,4 +869,91 @@ commands.push({
   }),
 });
 
+commands.push({
+    name: 'kingdomcard',
+    aliases: ['kingdomsheet', 'kcinfo'],
+    category: 'kingdom',
+    description: '👑 Render a kingdom as a picture — treasury, members, ranks',
+    usage: '!kingdomcard [name]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'kingdomcard', async () => {
+      await react('👑');
+      const name = args.join(' ').trim() || userDoc.kingdom;
+      if (!name) { await reply('❌ You are not in a kingdom. Found one with `!kingdom create <name>`.', event.messageID); return; }
+      const k = await Kingdom.findOne({ name: new RegExp('^' + reEsc(name) + '$', 'i') }).lean().catch(() => null);
+      if (!k) { await reply('❌ No kingdom called `' + name + '`.', event.messageID); return; }
+      const members = Array.isArray(k.members) ? k.members : [];
+      const card = await cards.userCard({
+        emoji: '👑', title: 'KINGDOM', subtitle: k.name, api,
+        user: { uid: k.name, name: k.name, level: Math.floor((k.treasury || 0) / 1000) + 1, xp: k.treasury || 0 },
+        rows: [
+          ['Treasury', kc(k.treasury || 0)],
+          ['Monarch', k.monarch || '—'],
+          ['Members', num(members.length)],
+          ['Founded', k.foundedAt ? String(k.foundedAt).slice(0, 10) : '—'],
+        ],
+      });
+      if (card) {
+        await reply({ body: '👑 **' + k.name + '**\n· · · · · · ·\nTreasury: ' + kc(k.treasury || 0) + ' · ' + num(members.length) + ' members', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('👑 **' + k.name + '**\n· · · · · · ·\nTreasury: ' + kc(k.treasury || 0) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'kingdomboard',
+    aliases: ['kingdomsboard', 'kboard', 'topkingdoms'],
+    category: 'kingdom',
+    description: '🏆 The kingdoms, ranked by treasury',
+    usage: '!kingdomboard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'kingdomboard', async () => {
+      await react('🏆');
+      const ks = await Kingdom.find({}).sort({ treasury: -1 }).limit(10).lean().catch(() => []);
+      if (!ks.length) { await reply('❌ No kingdoms yet. Found one with `!kingdom create <name>`.', event.messageID); return; }
+      const rows = ks.map((k, i) => ({ uid: String(i + 1), name: k.name, level: Math.floor((k.treasury || 0) / 1000) + 1, xp: k.treasury || 0 }));
+      const card = await cards.boardCard({
+        emoji: '🏆', title: 'KINGDOM BOARD', subtitle: ks.length + ' kingdoms', rows,
+        value: (b) => kc(b.xp || 0),
+        detail: (b) => 'monarch: ' + (b.monarch || '—'),
+      });
+      if (card) {
+        await reply({ body: '🏆 **KINGDOM BOARD** — ' + ks.length + ' kingdoms\n· · · · · · ·\nRanked by treasury', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      const lines = rows.map((b, i) => (i + 1) + '. ' + b.name + ' — ' + kc(b.xp || 0)).join('\n');
+      await reply('🏆 **KINGDOM BOARD** — ' + ks.length + ' kingdoms\n· · · · · · ·\n' + lines + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'warcard',
+    aliases: ['warchart', 'warstatus'],
+    category: 'kingdom',
+    description: '⚔️ Render a war as a picture — the two sides, the stakes',
+    usage: '!warcard [kingdom]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'warcard', async () => {
+      await react('⚔️');
+      const name = args.join(' ').trim() || userDoc.kingdom;
+      if (!name) { await reply('❌ You are not in a kingdom.', event.messageID); return; }
+      const w = await War.findOne({ kingdom: new RegExp('^' + reEsc(name) + '$', 'i') }).sort({ startedAt: -1 }).lean().catch(() => null);
+      if (!w) { await reply('❌ No active war for `' + name + '`.', event.messageID); return; }
+      const card = await cards.duoCard({
+        emoji: '⚔️', title: 'WAR', subtitle: w.kingdom + ' vs ' + (w.opponent || '—'),
+        threadID: String(event.threadID), chatName: 'the city',
+        left: { uid: w.kingdom, name: w.kingdom }, right: { uid: w.opponent || '—', name: w.opponent || '—' },
+        body: 'stake ' + kc(w.stake || 0), footer: 'NONE OF THIS IS REAL', api,
+      });
+      if (card) {
+        await reply({ body: '⚔️ **WAR**\n· · · · · · ·\n' + w.kingdom + ' vs ' + (w.opponent || '—') + ' · stake ' + kc(w.stake || 0), attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('⚔️ **WAR**\n· · · · · · ·\n' + w.kingdom + ' vs ' + (w.opponent || '—') + ' · stake ' + kc(w.stake || 0) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
 module.exports = commands;

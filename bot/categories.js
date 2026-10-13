@@ -129,6 +129,15 @@ const CATEGORIES = [
     hint: 'Found with `!kingdom create <name>` — the treasury is the whole game.',
     lookfor: ['kingdom', 'kingdoms', 'guild', 'crew', 'war', 'monarch'],
   },
+  {
+    key: 'football',
+    label: 'Football',
+    emoji: '⚽',
+    symbol: '✦',
+    blurb: 'Live scores, fixtures and the alerts that fire when your team scores.',
+    hint: 'Subscribe with `!follow <team>` and the bot posts the goal to this chat the moment it lands.',
+    lookfor: ['football', 'soccer', 'premier', 'league', 'fixture', 'score', 'match', 'goal'],
+  },
 ];
 
 const BY_KEY = new Map(CATEGORIES.map((c) => [c.key, c]));

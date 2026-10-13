@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 5 — GAMES (35 commands)
+ * MODULE 5 — GAMES (38 commands)
  *
  * iKON-BOT v2 Ultra. The arcade in iKON City is the only place the Klerks
  * still gamble against each other instead of paperwork. Every game here moves
@@ -28,11 +28,18 @@ const Group = require('../models/Group');
 const cache = require('../bot/cache');
 const mongo = require('../bot/mongo');
 const { fmt } = require('../bot/helpers');
+const cards = require('../bot/cards');
 const userTarget = require('../bot/target');
 const aifun = require('../bot/aifun');
 
 const CASH = 'K-Cash';
 const ULTRA = 'iKON-BOT v2 Ultra';
+
+/** Parse a leading integer from the args, falling back when it is not a number. */
+function amountArg(args, fallback) {
+  const v = Number(args[0]);
+  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : fallback;
+}
 const BROKE = `💸 **Broke ass.** Farm \`!daily\` (10,000), \`!hourly\` (2,500) first.`;
 
 // ───────────────────────────────────────────────────────────
@@ -2465,4 +2472,93 @@ const commands = [];
     }),
   });
 
+commands.push({
+    name: 'casinocard',
+    aliases: ['casino', 'arcadecard', 'house'],
+    category: 'games',
+    description: '🃏 The arcade — odds, tables, and the house edge',
+    usage: '!casinocard',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'casinocard', async () => {
+      await react('🃏');
+      const card = await cards.userCard({
+        emoji: '🃏', title: 'THE ARCADE', subtitle: 'the house always wins', api,
+        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
+        rows: [
+          ['Tables', 'Blackjack · Dice · RPS · Trivia'],
+          ['House edge', '5% on every bet'],
+          ['Your balance', kc(userDoc.coins)],
+          ['Streak', num(userDoc.gambleStreak || 0)],
+        ],
+      });
+      if (card) {
+        await reply({ body: '🃏 **THE ARCADE**\n· · · · · · ·\n' + kc(userDoc.coins) + ' on hand · ' + num(userDoc.gambleStreak || 0) + ' win streak', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('🃏 **THE ARCADE**\n· · · · · · ·\nBalance: ' + kc(userDoc.coins) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'duelcard',
+    aliases: ['duelrecord', 'rivalcard'],
+    category: 'games',
+    description: '⚔️ Your duel record — wins, losses, win rate',
+    usage: '!duelcard [@user]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'duelcard', async () => {
+      await react('⚔️');
+      const target = await userTarget.resolve(api, event, args, userDoc);
+      if (!target) { await reply('❌ I could not find that hunter.', event.messageID); return; }
+      const tdoc = await cache.getOrCreateUser(target.uid, api);
+      const wins = clamp(tdoc.duelWins || 0);
+      const losses = clamp(tdoc.duelLosses || 0);
+      const total = wins + losses;
+      const rate = total ? Math.round((wins / total) * 100) : 0;
+      const card = await cards.userCard({
+        emoji: '⚔️', title: 'DUEL', subtitle: 'the record', api,
+        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
+        rows: [
+          ['Wins', num(wins)],
+          ['Losses', num(losses)],
+          ['Win rate', rate + '%'],
+          ['Streak', num(tdoc.duelStreak || 0)],
+        ],
+      });
+      if (card) {
+        await reply({ body: '⚔️ **' + target.name + ' — DUEL RECORD**\n· · · · · · ·\n' + wins + 'W ' + losses + 'L · ' + rate + '%', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('⚔️ **' + target.name + ' — DUEL RECORD**\n· · · · · · ·\nWins: ' + num(wins) + '\nLosses: ' + num(losses) + '\nRate: ' + rate + '%\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'trivianight',
+    aliases: ['quiznight', 'trivia', 'quiz'],
+    category: 'games',
+    description: '❓ Host a trivia night — first correct answer wins the pot',
+    usage: '!trivianight <bet>',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, reply, react, event, userDoc }) => guard(reply, event.messageID, 'trivianight', async () => {
+      await react('❓');
+      const bet = clamp(amountArg(args, 1));
+      if (bet <= 0) { await reply('📖 Usage: `!trivianight <bet>`.', event.messageID); return; }
+      if (clamp(userDoc.coins) < bet) { await reply('💸 You need ' + kc(bet) + ' and have ' + kc(userDoc.coins) + '.', event.messageID); return; }
+      userDoc.coins = clamp(userDoc.coins) - bet;
+      await userDoc.save();
+      const q = pick(TRIVIA);
+      await reply(
+        '❓ **TRIVIA NIGHT** — pot ' + kc(bet) + '\n'
+        + '· · · · · · ·\n'
+        + q.q + '\n'
+        + '📖 Reply with your answer. First correct reply wins the pot.\n'
+        + '⏱️ 30 seconds.',
+        event.messageID,
+      );
+    }),
+  });
 module.exports = commands;

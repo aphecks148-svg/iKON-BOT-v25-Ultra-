@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 6 — GROUP ADMINISTRATION (35 commands)
+ * MODULE 6 — GROUP ADMINISTRATION (48 commands)
  *
  * iKON-BOT v2 Ultra. This is the module that makes a group admin fight to keep
  * the bot: welcome cards, anti-raid locks, a warzone that taxes the wealthy,
@@ -2581,7 +2581,7 @@ await reply(
     category: 'group',
     description: '📡 Every group chat the bot is in, up to 100',
     usage: '!gclist',
-    hint: 'Asks Facebook for 100 chats, not 10. Anything past the first ten used to be invisible.',
+    hint: 'Asks Facebook for 100 chats, not 10. Anything past the first ten used to be invisible. To remove the bot from one without opening it: `!leavegc <threadID>`.',
     cooldown: 30,
     permission: 'owner',
     execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'gclist', async () => {
@@ -2607,7 +2607,8 @@ await reply(
         `📡 **GROUP CHATS** (${threads.length})\n`
         + '· · · · · · ·\n'
         + `${rows.join('\n')}\n`
-        + '📖 More than ten is normal. All of them are served.',
+        + '📖 More than ten is normal. All of them are served.\n'
+        + `🚪 To remove the bot from one without opening it: \`${config.PREFIX}leavegc <threadID>\`.`,
         event.messageID,
       );
     }),
@@ -3077,4 +3078,178 @@ await reply(
     }),
   });
 
-module.exports = commands;
+commands.push({
+    name: 'gcpicture',
+    aliases: ['gcavatar', 'groupavatar', 'gciconcard'],
+    category: 'group',
+    description: '🖼️ Render this chat as a picture — name, members, level',
+    usage: '!gcpicture',
+    cooldown: 60,
+    permission: 'groupAdmin',
+    execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'gcpicture', async () => {
+      await react('🖼️');
+      const Group = require('../models/Group');
+      const g = await Group.findOne({ tid: String(event.threadID) }).lean().catch(() => null);
+      if (!g) { await reply('❌ No record for this chat.', event.messageID); return; }
+      const card = await cards.userCard({
+        emoji: '🏛️', title: 'GROUP', subtitle: g.threadName || String(g.tid), api,
+        user: { uid: g.tid, name: g.threadName || 'Group', level: g.gcLevel || 1, xp: g.gcXp || 0 },
+        rows: [
+          ['Name', g.threadName || '—'],
+          ['Level', g.gcLevel || 1],
+          ['XP', num(g.gcXp || 0)],
+          ['Members', num(g.gcMembers || 0)],
+          ['Status', g.isEnabled ? '✅ running' : '⏸️ paused'],
+        ],
+      });
+      if (card) {
+        await reply({ body: '🏛️ **' + (g.threadName || 'Group') + '**\n· · · · · · ·\nLevel ' + (g.gcLevel || 1) + ' · ' + num(g.gcXp || 0) + ' XP', attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply('🏛️ **' + (g.threadName || 'Group') + '**\n· · · · · · ·\nLevel: ' + (g.gcLevel || 1) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'lockdowncard',
+    aliases: ['lockdown', 'seal', 'gclockdown'],
+    category: 'group',
+    description: '🔒 Render the lockdown state of this chat as a picture',
+    usage: '!lockdowncard',
+    cooldown: 30,
+    permission: 'groupAdmin',
+    execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'lockdowncard', async () => {
+      await react('🔒');
+      const Group = require('../models/Group');
+      const g = await Group.findOne({ tid: String(event.threadID) }).lean().catch(() => null);
+      const rows = [
+        ['Chat', g ? (g.threadName || String(g.tid)) : '—'],
+        ['Enabled', g ? (g.isEnabled ? '✅ yes' : '⏸️ paused') : '—'],
+        ['Maintenance', g ? (g.maintenance ? '🛑 yes' : '✅ no') : '—'],
+        ['Admins only', g ? (g.adminsOnly ? '🔒 yes' : '🔓 no') : '—'],
+        ['Pending', g ? (g.pendingApproval ? '⏳ yes' : '✅ no') : '—'],
+      ];
+      const card = await cards.userCard({
+        emoji: '🔒', title: 'LOCKDOWN', subtitle: 'the chat under test', api,
+        user: { uid: String(event.threadID), name: 'Chat', level: 1, xp: 0 },
+        rows,
+      });
+      if (card) {
+        await reply({ body: '🔒 **LOCKDOWN STATE**\n· · · · · · ·\n' + (g ? (g.isEnabled ? 'running' : 'paused') : 'unknown'), attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavailable — text fallback', event.messageID);
+    }),
+  });
+
+  // ── LEAVE A GROUP CHAT ──────────────────────────────────────
+  // The one thing `!gclist` always promised and never delivered: a way to
+  // remove the bot from a chat without opening it. An owner who found the bot
+  // in a chat they no longer admin used to have to go find the group, open it,
+  // and remove it by hand — which is exactly the situation where you cannot.
+  //
+  // The thread id comes from the argument, never from the current chat, so this
+  // command can be run from a DM or from any other group: the owner is asking
+  // about a chat they are not standing in. The bot checks it is actually in the
+  // requested chat before leaving, because leaving a chat the bot was never in
+  // is an error Facebook reports back as a failure and the command should say
+  // so rather than pretending it worked.
+
+  commands.push({
+    name: 'leavegc',
+    aliases: ['leavegroup', 'leavethread', 'gcremove', 'removebot'],
+    category: 'group',
+    description: '🚪 Remove the bot from a group chat — by thread id, without opening it',
+    usage: '!leavegc <threadID> | !leavegc list',
+    hint: '`!gclist` shows the thread ids. The bot refuses to leave a chat it is not in, and never leaves the chat you are standing in.',
+    cooldown: 30,
+    permission: 'owner',
+    execute: async ({ api, event, reply, react, args, config }) => guard(reply, event.messageID, 'leavegc', async () => {
+      await react('🚪');
+      const first = String(args[0] || '').toLowerCase();
+
+      if (!first || first === 'list') {
+        const threads = await gcs.listThreads(api, gcs.THREAD_LIMIT);
+        if (!threads.length) {
+          await reply('📡 **NO GROUP CHATS**\n· · · · · · ·\nNothing to leave.', event.messageID);
+          return;
+        }
+        const rows = threads.slice(0, 50).map((t, i) => {
+          const tid = gcs.tidOf(t);
+          const name = (t && (t.name || t.threadName)) || '—';
+          return `${i + 1}. \`${tid}\` ${String(name).slice(0, 34)}`;
+        });
+        await reply(
+          `🚪 **CHATS THE BOT CAN LEAVE** (${threads.length})\n`
+          + '· · · · · · ·\n'
+          + `${rows.join('\n')}\n`
+          + `📖 \`${config.PREFIX}leavegc <threadID>\` removes the bot from one.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const target = String(args[0] || '').trim();
+      if (!/^\d{6,}$/.test(target)) {
+        await reply('❌ That does not look like a thread id. Try `!leavegc list` to see them.', event.messageID);
+        return;
+      }
+      if (String(target) === String(event.threadID)) {
+        await reply('❌ You asked me to leave the chat you are standing in. Say it from somewhere else.', event.messageID);
+        return;
+      }
+
+      // Confirm the bot is actually in this chat. Leaving a chat it is not in
+      // is an error Facebook reports back, and the command should say so.
+      const threads = await gcs.listThreads(api, gcs.THREAD_LIMIT);
+      const inChat = threads.some((t) => gcs.tidOf(t) === target);
+      if (!inChat) {
+        await reply(
+          `❌ The bot is not in \`${target}\`. It may have left already, or the id is wrong. `
+          + 'Try `!leavegc list`.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const canLeave = api && typeof api.leaveThread === 'function';
+      if (!canLeave) {
+        await reply(
+          `⚠️ This build of ws3-fca has no leaveThread(). The bot cannot leave \`${target}\` from here.`
+          + ' Remove it from the group chat directly instead.',
+          event.messageID,
+        );
+        return;
+      }
+
+      let left = false;
+      let errMsg = '';
+      try {
+        left = await api.leaveThread(target);
+      } catch (err) {
+        errMsg = (err && err.message) || String(err);
+      }
+
+      // The database record is dropped regardless: a chat the bot has left is
+      // not a chat it should keep polling or answering in.
+      const Group = require('../models/Group');
+      await Group.deleteOne({ tid: target }).catch(() => { /* cosmetic */ });
+
+      if (left) {
+        await reply(
+          `🚪 **LEFT**\n· · · · · · ·\nThe bot has left \`${target}\`.`
+          + ' Its record is gone from the database, so it will not answer there again.',
+          event.messageID,
+        );
+        return;
+      }
+      await reply(
+        `⚠️ **DID NOT LEAVE**\n· · · · · · ·\nFacebook refused to remove the bot from \`${target}\`.`
+        + (errMsg ? `\nReason: ${errMsg}` : '')
+        + '\nRemove it from the group chat directly.',
+        event.messageID,
+      );
+    }),
+  });
+
+  module.exports = commands;

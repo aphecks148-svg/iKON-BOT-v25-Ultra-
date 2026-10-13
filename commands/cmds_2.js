@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 2 — ECONOMY & TREASURY (35 commands)
+ * MODULE 2 — ECONOMY & TREASURY (41 commands)
  *
  * iKON-BOT is a Messenger RPG city. Coins are K-Cash, the bank is a secure
  * vault, and every user is a hunter working the streets for Owner Aphecks.
@@ -24,6 +24,7 @@ const Economy = require('../models/Economy');
 const Inventory = require('../models/Inventory');
 const Group = require('../models/Group');
 const mongo = require('../bot/mongo');
+const cache = require('../bot/cache');
 const { fmt } = require('../bot/helpers');
 const cards = require('../bot/cards');
 const userTarget = require('../bot/target');
@@ -2074,6 +2075,100 @@ module.exports = [
         + '· · · · · · ·\n'
         + `🎒 Every crate opens straight into your inventory.\n`
         + `⚖️ Resale is 50% — the market is greedy.`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ───────────────────────────────────────────────────────────
+  // 37$  — debt ledger
+  // ───────────────────────────────────────────────────────────
+  {
+    name: 'debt',
+    aliases: ['debts', 'owes', 'ledger'],
+    category: 'economy',
+    description: '📋 Who owes what — your IOUs and who owes you',
+    usage: '!debt [@user]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args, config }) => guard(reply, event.messageID, 'debt', async () => {
+      await react('📋');
+      const target = await userTarget.resolve(api, event, args, userDoc);
+      if (!target) {
+        await reply('❌ I could not find that hunter.', event.messageID);
+        return;
+      }
+      const tdoc = await cache.getOrCreateUser(target.uid, api);
+      const owes = clamp(tdoc.debtOwed || 0);
+      const isOwed = clamp(tdoc.debtRepaid || 0);
+      const card = await cards.userCard({
+        emoji: '📋', title: 'DEBT', subtitle: 'the ledger', api,
+        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
+        rows: [
+          ['Owes', kc(owes)],
+          ['Is owed', kc(isOwed)],
+          ['Net', kc(isOwed - owes)],
+        ],
+      });
+      if (card) {
+        await reply({ body: `📋 **${target.name} — THE LEDGER**\n· · · · · · ·\nOwes: ${kc(owes)} · Is owed: ${kc(isOwed)}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(
+        `📋 **${target.name} — THE LEDGER**\n`
+        + '· · · · · · ·\n'
+        + `Owes: ${kc(owes)}\n`
+        + `Is owed: ${kc(isOwed)}\n`
+        + `Net: ${kc(isOwed - owes)}\n`
+        + `📖 Canvas unavailable — text fallback`,
+        event.messageID,
+);
+    }),
+  },
+
+  // ───────────────────────────────────────────────────────────
+  // 36$  — wealth card (picture of your treasury)
+  // ───────────────────────────────────────────────────────────
+  {
+    name: 'wealthcard',
+    aliases: ['networthcard', 'bankcard', 'richcard'],
+    category: 'economy',
+    description: '💳 Render your treasury as a picture — cash, bank, net worth',
+    usage: '!wealthcard [@user]',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ api, event, reply, react, userDoc, args, config }) => guard(reply, event.messageID, 'wealthcard', async () => {
+      await react('💳');
+      const target = await userTarget.resolve(api, event, args, userDoc);
+      if (!target) {
+        await reply('❌ I could not find that hunter.', event.messageID);
+        return;
+      }
+      const tdoc = await cache.getOrCreateUser(target.uid, api);
+      const cash = clamp(tdoc.coins);
+      const bank = clamp(tdoc.bank);
+      const net = cash + bank;
+      const card = await cards.userCard({
+        emoji: '💳', title: 'WEALTH', subtitle: 'the treasury', api,
+        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
+        rows: [
+          ['Cash on hand', kc(cash)],
+          ['Vault', kc(bank)],
+          ['Net worth', kc(net)],
+          ['Level', tdoc.level],
+        ],
+      });
+      if (card) {
+        await reply({ body: `💳 **${target.name} — THE TREASURY**\n· · · · · · ·\nCash: ${kc(cash)} · Vault: ${kc(bank)} · Net: ${kc(net)}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(
+        `💳 **${target.name} — THE TREASURY**\n`
+        + '· · · · · · ·\n'
+        + `Cash: ${kc(cash)}\n`
+        + `Vault: ${kc(bank)}\n`
+        + `Net worth: ${kc(net)}\n`
+        + `📖 Canvas unavailable — text fallback`,
         event.messageID,
       );
     }),
