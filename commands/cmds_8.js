@@ -2361,23 +2361,13 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         return;
       }
 
-<<<<<<< HEAD
-      // OpenLigaDB keys on a numeric league id; ask Groq to map the word to
-      // one rather than hard-coding a table that goes stale.
-      const id = await askGroq(
-        `Which OpenLigaDB numeric league id is "${league}"? Answer with the number only, `
-        + `or 0 if you are not sure. EPL is 1, La Liga is 2, Serie A is 3, Bundesliga is 4.`,
-        'Style: numbers only.',
-      userDoc.lang || 'en',
-=======
-      // TheSportsDB keys on a league name; ask Groq to map the word to the
+// TheSportsDB keys on a league name; ask Groq to map the word to the
       // canonical name rather than hard-coding a table that goes stale.
       const canon = await askGroq(
         `Normalise this football league name to its canonical form: "${league}". `
         + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
         'Style: one short phrase.',
         userDoc.lang || 'en',
->>>>>>> origin/main
       );
       const matches = await footballData('livescore', canon || league);
 
