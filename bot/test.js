@@ -4328,6 +4328,7 @@ const PIKACHU = dex.find('pikachu');
     const dex = require('./pokemon');
     const mongo = require('./mongo');
     const media = require('./media');
+    const cards = require('./cards');
     const Group = require('../models/Group');
 
     // THE PROOF, not a description of one. An hour of real ticks against a fake
@@ -4340,10 +4341,16 @@ const PIKACHU = dex.find('pikachu');
     const realReady = mongo.isReady;
     const realFind = Group.find;
     const realAttachment = media.attachment;
+    const realPokemonCard = cards.pokemonCard;
+    const uploadedImages = [];
     mongo.isReady = () => true;
-    // The sprite fetch is the only part that touches the network. Replaced with a
-    // stream so this test measures the schedule and not GitHub's uptime.
-    media.attachment = async () => require('stream').Readable.from([Buffer.from('sprite')]);
+    // Stub the canvas and sprite download so this proves the scheduler attaches
+    // the rendered card without depending on native canvas or GitHub uptime.
+    cards.pokemonCard = async (pokemon) => Buffer.from('canvas-card:' + pokemon.id);
+    media.attachment = async (source) => {
+      uploadedImages.push(source);
+      return require('stream').Readable.from([Buffer.from('image')]);
+    };
 
     const mkGroup = (tid, over = {}) => ({
       tid,
@@ -4372,7 +4379,7 @@ const PIKACHU = dex.find('pikachu');
       const api = {
         now: 0,
         async sendMessage(msg, tid) {
-          at.push({ tid, body: msg.body, at: T0 + api.now });
+          at.push({ tid, body: msg.body, hasImage: Boolean(msg.attachment && typeof msg.attachment.pipe === 'function'), at: T0 + api.now });
           return { messageID: `M_${tid}_${at.length}` };
         },
       };
@@ -4402,6 +4409,7 @@ const PIKACHU = dex.find('pikachu');
 
       // Every message is a real announcement, not a placeholder.
       assert.ok(seen.every((s) => /wild/i.test(s.body) && /reply to this message/i.test(s.body)), 'each spawn announces itself and how to catch it');
+      assert.ok(seen.every((s) => s.hasImage), 'every scheduled spawn carries a readable image attachment');
 
       // 2. The switches. Every one of these is an admin switch, and every one of
       // them used to be ignored by the one thing the bot does on its own.
@@ -4425,12 +4433,15 @@ const PIKACHU = dex.find('pikachu');
       const ignored = mkGroup('ignored');
       const ignoredSeen = await runHour([ignored]);
       assert.strictEqual(ignoredSeen.length, 5, 'nobody caught a single one, and the fifteen minutes still held');
+      assert.strictEqual(uploadedImages.length, 15, 'every successful spawn rendered a picture');
+      assert.ok(uploadedImages.every((image) => Buffer.isBuffer(image) && image.toString('utf8').startsWith('canvas-card:')), 'scheduled spawns upload the canvas card, not the raw sprite');
 
       return `5 spawns an hour, 15 min apart, and 5 admin switches all stop it`;
     } finally {
       mongo.isReady = realReady;
       Group.find = realFind;
       media.attachment = realAttachment;
+      cards.pokemonCard = realPokemonCard;
     }
   });
 

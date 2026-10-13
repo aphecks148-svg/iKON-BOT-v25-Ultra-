@@ -16,6 +16,7 @@
 
 const canvasKit = require('./canvas');
 const profile = require('./profile');
+const dex = require('./pokemon');
 const { error } = require('./helpers');
 
 const W = 900;
@@ -359,6 +360,99 @@ async function duoCard({ title, emoji = '', subtitle = '', threadID, chatName = 
  * @param {object} opts.user lean-ish user document with uid
  * @returns {Promise<string|null>} PNG data URL, or null without the canvas binary
  */
+
+/**
+ * A wild Pokemon encounter card with official artwork, type and rarity.
+ * The generated PNG is used for both the scheduled spawn and its catch reply.
+ *
+ * @param {object} pokemon from the dex
+ * @returns {Promise<Buffer|null>} PNG bytes, or null for the raw-sprite fallback
+ */
+async function pokemonCard(pokemon) {
+  const id = Number(pokemon && pokemon.id);
+  if (!Number.isInteger(id) || id < 1 || !canvasKit.available()) return null;
+
+  const height = 560;
+  const tier = dex.tier(pokemon);
+  const accents = {
+    common: '#b9c2d0',
+    uncommon: '#5dd39e',
+    rare: '#56b0ff',
+    epic: '#c083ff',
+    legendary: '#ffbd59',
+    mythic: '#ff5577',
+  };
+  const accent = accents[pokemon.rarity] || '#00d4ff';
+
+  try {
+    const cv = canvasKit.create(W, height);
+    if (!cv) return null;
+    const ctx = cv.ctx;
+    paintBackground(ctx, height);
+
+    // Thin rarity-coloured frame, with enough contrast to survive Messenger's
+    // image compression and the dark background.
+    roundRect(ctx, 16, 16, W - 32, height - 32, 26);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    paintHeader(ctx, '🌿', 'WILD ENCOUNTER', 'A Pokemon appeared in this chat');
+
+    // Keep the official artwork uncropped: the sprite is the point of the card.
+    ctx.fillStyle = 'rgba(255,255,255,0.045)';
+    roundRect(ctx, 32, 154, 340, 330, 24);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(202, 317, 126, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,212,255,0.09)';
+    ctx.fill();
+
+    const imageBytes = await thumbBuffer(dex.sprite(id));
+    const art = await loadImage(imageBytes);
+    if (!art) return null;
+    const maxArt = 286;
+    const scale = Math.min(maxArt / art.width, maxArt / art.height);
+    const imageWidth = art.width * scale;
+    const imageHeight = art.height * scale;
+    ctx.drawImage(art, 202 - imageWidth / 2, 317 - imageHeight / 2, imageWidth, imageHeight);
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 50px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(fit(ctx, pokemon.name || 'Unknown Pokemon', 438), 410, 205);
+
+    ctx.font = '24px sans-serif';
+    ctx.fillStyle = '#9aa0b5';
+    ctx.fillText('#' + String(id).padStart(3, '0') + '  ·  ' + dex.typeLabel(pokemon), 414, 252);
+
+    roundRect(ctx, 414, 286, 238, 56, 16);
+    ctx.fillStyle = accent;
+    ctx.fill();
+    ctx.font = 'bold 23px sans-serif';
+    ctx.fillStyle = '#0f0f1a';
+    ctx.fillText(tier.symbol + '  ' + tier.label, 434, 315);
+
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('Reply with its name to catch it.', 414, 386);
+    ctx.font = '21px sans-serif';
+    ctx.fillStyle = '#9aa0b5';
+    ctx.fillText('First correct reply wins · disappears after ' + Math.round(dex.DEFAULT_TTL_MS / 60000) + ' min', 414, 426);
+
+    ctx.font = '19px sans-serif';
+    ctx.fillStyle = 'rgba(154,160,181,0.85)';
+    ctx.textAlign = 'right';
+    ctx.fillText('iKON-BOT  ·  POKEDEX #' + String(id).padStart(3, '0'), W - 36, height - 38);
+
+    return await canvasKit.toBuffer(cv.canvas);
+  } catch (err) {
+    error('[CARD] pokemonCard failed: ' + err.message);
+    return null;
+  }
+}
+
 async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
   if (!canvasKit.available()) return null;
   try {
@@ -770,6 +864,7 @@ module.exports = {
   userCard,
   boardCard,
   pairCard,
+  pokemonCard,
   drawAvatar,
   loadImage,
   thumbBuffer,

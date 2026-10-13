@@ -577,7 +577,8 @@ async function handleMessage(api, event) {
           // Awaited because the catcher's name is looked up rather than trusted:
           // a stored "Facebook User" went out to the whole chat as the winner.
           body: await pokemonSpawn.catchBody(caught.pokemon, caught.userDoc, caught.isNew, caught.reward, api),
-          attachment: { type: 'image', data: { url: dex.sprite(caught.pokemon.id) } },
+          attachment: await cards.pokemonCard(caught.pokemon)
+            || { type: 'image', data: { url: dex.sprite(caught.pokemon.id) } },
         },
         // Reply to the REPLY, so the confirmation hangs off the answer rather
         // than off the spawn and the thread still reads top to bottom.

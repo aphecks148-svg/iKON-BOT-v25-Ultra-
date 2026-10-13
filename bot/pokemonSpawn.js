@@ -29,6 +29,7 @@ const Group = require('../models/Group');
 const mongo = require('./mongo');
 const dex = require('./pokemon');
 const media = require('./media');
+const cards = require('./cards');
 const toggles = require('./toggles');
 const pending = require('./pending');
 const config = require('../config');
@@ -193,11 +194,16 @@ async function spawnOne(api, group, now = Date.now()) {
   group.pokemon.lastAttemptAt = new Date(now);
   let sent = null;
   try {
-    // A stream, not a descriptor: ws3-fca 3.5.2 rejects `{ type, data: { url } }`
-    // with "Attachment should be a readable stream", and this catch used to
-    // swallow it, so every spawn was posted as text with no picture at all.
-    const sprite = await media.attachment(dex.sprite(p.id), { type: 'image' });
-    if (!sprite) throw new Error(`no sprite bytes for ${p.name}`);
+    // Prefer the rendered encounter card; if canvas or artwork decoding is
+    // unavailable, the official sprite still goes out as a regular image.
+    let card = null;
+    try {
+      card = await cards.pokemonCard(p);
+    } catch (err) {
+      io.error(`[POKEMON] canvas card failed for ${p.name}: ${err.message}`);
+    }
+    const sprite = await media.attachment(card || dex.sprite(p.id), { type: 'image' });
+    if (!sprite) throw new Error(`no image bytes for ${p.name}`);
     sent = await api.sendMessage(
       {
         body: spawnBody(p),
