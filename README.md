@@ -25,9 +25,9 @@ iKON-BOT/
 ├── ws3-fca.js          central engine (Express, login, routing, permissions, cooldowns)
 ├── config.js           env-only configuration
 ├── commands/
-│   ├── cmds_1.js … cmds_12.js    12 modules, 421 commands
+│   ├── cmds_1.js … cmds_10.js    10 modules, 418 commands
 ├── bot/
-│   ├── loader.js       scans cmds_1..12, builds registry + alias map
+│   ├── loader.js       scans cmds_1..10, builds registry + alias map
 │   ├── router.js       PARSER: "!bank deposit 500" -> { name, args }
 │   ├── cooldown.js     per-user, per-command cooldowns
 │   ├── permissions.js  all / owner (ADMIN_IDS) / groupAdmin
@@ -127,8 +127,10 @@ first if an admin command never answers.
 
 ### AI — Groq only
 
-Module 8 (cmds_8.js) is the AI and download module, and every one of its 45
-commands routes through `askGroq()`. They share one client, `bot/groq.js`, which
+Module 8 (cmds_8.js) is the AI, download and football module.
+41 of its 46 commands route through `askGroq()`; the rest resolve
+a link through `bot/media.js` or a fixture through `footballData()`.
+They share one client, `bot/groq.js`, which
 POSTs to `https://api.groq.com/openai/v1/chat/completions`. There is no second
 provider and no transport that silently switches.
 
@@ -145,7 +147,7 @@ provider and no transport that silently switches.
 - The token cap is sent as `max_completion_tokens`; Groq has deprecated
   `max_tokens`. Reasoning models count their reasoning against that cap, which
   is why the default is generous for a chat reply.
-- With no key set, `!groq` and the other 44 AI commands answer with an honest
+- With no key set, `!groq` and the other 40 AI commands answer with an honest
   placeholder naming the missing variable, rather than throwing.
 
 The engine exposes the client to handlers as `ai` in the execute context
@@ -160,9 +162,9 @@ The engine exposes the client to handlers as `ai` in the execute context
   so a profile could stay named "Facebook User" on every leaderboard forever.
   Placeholder names are now detected and never persisted; the card shows a short
   uid instead, and a later successful lookup replaces it with the real name.
-- **Pictures.** `!profile`, `!xp`, `!rank`, `!leaderboard`, `!leaderboardrpg`,
-  `!richest`, `!topwins`, `!topxp`, `!bestiesultra`, `!enemiesultra` and
-  `!coupleultra` draw a canvas card with each hunter's real Facebook photo.
+- **Pictures.** `!profile`, `!rank`, `!leaderboard`, `!richest`,
+  `!topwins`, `!topxp`, `!besties`, `!enemies` and `!couple`
+  draw a canvas card with each hunter's real Facebook photo.
   When Facebook has no photo, a deterministic generated avatar is drawn from the
   uid — stable per person, so a board does not flicker between renders.
 - **Fallbacks.** Every card returns `null` when the native canvas binary is
@@ -192,23 +194,21 @@ rounds of this bug look identical from the chat.
 | Module | Commands |
 |---|---|
 | cmds_1 (system) | 42 |
-| cmds_2 (economy) | 41 |
-| cmds_3 (hunter academy) | 38 |
-| cmds_4 (pets) | 43 |
+| cmds_2 (economy) | 39 |
+| cmds_3 (hunter academy + kingdoms) | 50 |
+| cmds_4 (pets) | 41 |
 | cmds_5 (games) | 38 |
-| cmds_6 (group admin) | 48 |
-| cmds_7 (street life) | 38 |
-| cmds_8 (downloads + AI) | 45 |
-| cmds_9 (fun & social) | 33 |
+| cmds_6 (group admin) | 50 |
+| cmds_7 (street life) | 36 |
+| cmds_8 (downloads + AI + football) | 46 |
+| cmds_9 (fun & social) | 38 |
 | cmds_10 (farming) | 38 |
-| cmds_11 (kingdoms) | 13 |
-| cmds_12 (football) | 12 |
 
-**421 commands** across 12 modules, 455 aliases, 0 conflicts. Every command is
+**418 commands** across 10 modules, 562 aliases, 0 conflicts. Every command is
 shaped, aliased and permission-tagged; `node bot/check.js` reports the per-module
 progress and refuses to pass on a malformed entry.
 
-### Football (module 12)
+### Football (a deck in cmds_8.js)
 
 Live scores, fixtures, standings and predictions, all interpreted by Groq. The
 data layer is `footballData()` in `cmds_8.js`, which tries three sources in order:
@@ -221,9 +221,8 @@ data layer is `footballData()` in `cmds_8.js`, which tries three sources in orde
    Used only when `FOOTBALL_API_KEY` is set.
 
 Every command reports which source answered in its receipt line. The commands:
-`!football`, `!livefootball`, `!score`, `!leaderboard` (top 20 plus the team that
-can win next), `!nextwinner`, `!teaminfo` (badge picture card), `!fixtures`,
-`!footballnews`, `!matchpredict`.
+`!football`, `!livefootball`, `!score`, `!nextwinner`, `!teaminfo` (badge
+picture card), `!fixtures`, `!footballnews`, `!matchpredict`, `!cricketscore`.
 
 **Goal alerts.** `!follow <team>` subscribes a club to this chat for free, and
 `!alerts` shows what is being watched. `footballTick()` is attached to the cmds_8

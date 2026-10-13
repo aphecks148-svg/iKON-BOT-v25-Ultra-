@@ -57,7 +57,7 @@ function validate(registry, loaderResult) {
   return { problems, categories: new Set([...registry.values()].map((c) => c.category)).size };
 }
 
-/** Command count per module key (cmds_1 … cmds_11). */
+/** Command count per module key (cmds_1 … cmds_10). */
 function perModule(registry) {
   const all = [...registry.values()];
   const out = [];
