@@ -62,7 +62,7 @@ module.exports = [
     category: 'system',
     description: 'Test the full chain: LOGIN -> DB -> LOADER -> MESSAGE -> PARSER -> COMMAND -> REPLY',
     usage: '!ping',
-    hint: 'The full chain test: login, database, loader, parser and send, all in one line.',
+    hint: 'The full chain test. If the bot answers, it is alive. If it does not, it is dead — and so is your hope of a quick reply.',
     cooldown: 3,
     permission: 'all',
     execute: async ({ reply, react, event }) => {
@@ -86,7 +86,7 @@ module.exports = [
     category: 'system',
     description: 'Browse every deck, or read one command in detail',
     usage: '!help [deck] [page] | !help <command>',
-    hint: 'Start here. `!help <deck>` opens one category, `!help <command>` opens one command.',
+    hint: 'Start here. `!help <deck>` opens one category, `!help <command>` opens one command. Everything else is guesswork.',
     cooldown: 3,
     permission: 'all',
     execute: async ({ args, registry, reply, react, event, config }) => guard(reply, event.messageID, 'help', async () => {
@@ -200,7 +200,7 @@ module.exports = [
     category: 'system',
     description: 'Show bot name, owner, uptime and command count',
     usage: '!botinfo',
-    hint: 'Uptime, version, database state and the live send counters.',
+    hint: 'Uptime, version, database state and the live send counters. It is mostly uptime — the rest is decor.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ config, registry, reply, react, event }) => guard(reply, event.messageID, 'botinfo', async () => {

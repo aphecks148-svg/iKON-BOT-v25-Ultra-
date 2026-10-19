@@ -568,7 +568,7 @@ module.exports = [
     aliases: [],
     category: 'economy',
     usage: '!work',
-    hint: 'The honest income. 500-1500 plus XP, and it never fails — unlike the casino.',
+    hint: 'The honest income. 500-1500 plus XP, and it never fails — unlike the casino. Show up, do the work, get paid. Revolutionary, I know.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'work', async () => {
@@ -728,7 +728,7 @@ module.exports = [
     category: 'economy',
     description: '🎰 Gamble at iKON Casino - 48% win chance, high risk high reward',
     usage: '!gamble <amount>',
-    hint: '48% win rate, so it loses more often than it wins. The house always wins eventually.',
+    hint: '48% win rate, so it loses more often than it wins. The house always wins eventually. You are not the exception.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gamble', async () => {
