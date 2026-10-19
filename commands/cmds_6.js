@@ -2861,7 +2861,7 @@ const commands = [];
     usage: '!pause [reason]',
     cooldown: 10,
     permission: 'groupAdmin',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'pause', async () => {
+    execute: async ({ args, event, reply, react, config }) => guard(reply, event.messageID, 'pause', async () => {
       await react('⏸️');
       const group = await liveGroup(event);
       if (!group) {
