@@ -632,7 +632,7 @@ async function handleMessage(api, event) {
   if (pending.isPending(threadID)) {
     const allowed = pending.mayRun(loader.findCommand(parsed.name, registry, aliases), event);
     if (!allowed) {
-      await say('🔒 This group is pending approval. Contact bot admins.');
+      await say(`🔒 This group is pending approval. ${helpers.savage()} Contact bot admins.`);
       return;
     }
   }
@@ -651,7 +651,7 @@ async function handleMessage(api, event) {
     // Bare chat words never reach this point — they are handled above at the
     // "not a command" branch — so this only ever answers an actual command
     // prefix, which is the only place a reply is useful.
-    await say(`❌ Unknown command \`${parsed.name}\`. Try \`${config.PREFIX}help\`.`);
+      await say(`❌ Unknown command \`${parsed.name}\`. ${helpers.savage()} Try \`${config.PREFIX}help\`.`);
     await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
     return;
   }
@@ -728,7 +728,7 @@ async function handleMessage(api, event) {
       // before the command's own bucket is even checked. A short line costs
       // one message and teaches the rate without training a spam habit.
       const wait = Math.ceil((USER_COOLDOWN_MS - (now - lastCmd)) / 1000);
-      await say(`⏳ Cooldown: wait ${helpers.fmt.dur(wait)}.`);
+      await say(`⏳ Slow down, turbo. ${helpers.savage()} Wait ${helpers.fmt.dur(wait)}.`);
       return;
     }
     global.commandCooldowns.set(userKey, now);
@@ -746,7 +746,7 @@ async function handleMessage(api, event) {
       isAdmin = false; // a failed lookup never grants
     }
     if (!isAdmin) {
-      await say('🔒 Only admins can run commands in this group.');
+      await say(`🔒 Only admins can run commands in this group. ${helpers.savage()}`);
       return;
     }
   }
@@ -759,7 +759,7 @@ async function handleMessage(api, event) {
     error(`[PERM] check failed: ${err.message}`);
   }
   if (!allowed) {
-    await say(`🚫 You do not have permission to use \`${prefix}${cmd.name}\` (needs: ${cmd.permission}).`);
+    await say(`🚫 You do not have permission to use \`${prefix}${cmd.name}\` (needs: ${cmd.permission}). ${helpers.savage()}`);
     return;
   }
 
@@ -769,7 +769,7 @@ async function handleMessage(api, event) {
   // that: the second is refused rather than racing the first.
   const release = lock.acquire(senderID);
   if (!release) {
-    await say(`⏳ Still finishing your last command. Give it a second, then try again.`);
+    await say(`⏳ Still finishing your last command. ${helpers.savage()} Give it a second, then try again.`);
     return;
   }
 
@@ -790,7 +790,7 @@ async function handleMessage(api, event) {
       : cmd.name;
     const left = cooldown.check(senderID, cdKey, cd);
     if (left > 0) {
-      await say(`⏳ Cooldown: wait ${helpers.fmt.dur(left)}.`);
+      await say(`⏳ Slow down, turbo. ${helpers.savage()} Wait ${helpers.fmt.dur(left)}.`);
       return;
     }
 
@@ -813,7 +813,7 @@ async function handleMessage(api, event) {
     // ── MODERATION ────────────────────────────────────────────
     if (userDoc.isBanned) {
       cooldown.clear(senderID, cdKey);
-      await say(`🚫 You are banned from using the bot${userDoc.banReason ? `: ${userDoc.banReason}` : '.'}`);
+      await say(`🚫 You are banned from using the bot${userDoc.banReason ? `: ${userDoc.banReason}` : '.'} ${helpers.savage()}`);
       return;
     }
 

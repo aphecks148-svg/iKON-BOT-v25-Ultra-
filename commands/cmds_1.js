@@ -22,7 +22,7 @@ const toggles = require('../bot/toggles');
 const mongo = require('../bot/mongo');
 const canvas = require('../bot/canvas');
 const loader = require('../bot/loader');
-const { fmt, describeSendError, lastSent, error, reply: helpersReply } = require('../bot/helpers');
+const { fmt, describeSendError, lastSent, error, reply: helpersReply, savage } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
 // The same real-name resolution the cards use, so a text list and a card cannot
 // disagree about who somebody is.
@@ -67,11 +67,10 @@ module.exports = [
     permission: 'all',
     execute: async ({ reply, react, event }) => {
       await react('⚡');
-      // Uptime proves the whole chain: a value here means the process booted,
-      // and the reply itself proves Facebook accepted a send.
       const s = process.uptime();
       await reply(
-        `Pong! Uptime: ${dur(s)}\n`
+        `I am breathing. ${savage()}\n`
+        + `Uptime: ${dur(s)}\n`
         + `Started: ${new Date(Date.now() - s * 1000).toUTCString()}`,
         event.messageID,
       );

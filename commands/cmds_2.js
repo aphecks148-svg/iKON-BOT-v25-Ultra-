@@ -25,7 +25,7 @@ const Inventory = require('../models/Inventory');
 const Group = require('../models/Group');
 const mongo = require('../bot/mongo');
 const cache = require('../bot/cache');
-const { fmt } = require('../bot/helpers');
+const { fmt, savage } = require('../bot/helpers');
 const cards = require('../bot/cards');
 const userTarget = require('../bot/target');
 const { k, ...rarity } = require('../bot/content');
@@ -523,6 +523,7 @@ module.exports = [
           + `• hourly — ${kc(PAYOUT.hourly)} every hour\n`
           + `• weekly — ${kc(PAYOUT.weekly)} every week\n`
           + `• monthly — ${kc(PAYOUT.monthly)} every month\n`
+          + `${savage()}\n`
           + `📖 ${story()}`,
           event.messageID,
         );
@@ -534,7 +535,8 @@ module.exports = [
       const left = claimLeft(userDoc, sub, t.periodMs);
       if (left > 0) {
         await reply(
-          `⏳ Too soon, hunter. Your next ${sub} ${t.label} unlocks in ${fmt.dur(Math.ceil(left / 1000))}.\n`
+          `⏳ Slow down, hunter. ${savage()}\n`
+          + `Your next ${sub} ${t.label} unlocks in ${fmt.dur(Math.ceil(left / 1000))}.\n`
           + `${t.icon} ${kc(t.amount)} is waiting. ${story()}`,
           event.messageID,
         );
@@ -546,7 +548,7 @@ module.exports = [
       await credit(userDoc, t.amount, sub);
 
       await reply(
-        `${t.icon} **${sub.toUpperCase()} CLAIMED!**\n`
+        `${t.icon} **${sub.toUpperCase()} CLAIMED!** ${savage()}\n`
         + '━━━━━━━━━━━━━━━\n'
         + `💰 +${kc(t.amount)}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
@@ -576,7 +578,7 @@ module.exports = [
       await credit(userDoc, pay, 'work', { xp: 50 });
 
       await reply(
-        `💼 You clocked in at the iKON factory, boss Aphecks paid you ${kc(pay)}!\n`
+        `💼 You clocked in at the iKON factory. Boss Aphecks threw ${kc(pay)} at you like spare change. ${savage()}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + `⭐ XP: +50 (total ${Number(userDoc.xp).toLocaleString('en-US')})\n`
         + `📖 ${story()}`,
@@ -601,7 +603,7 @@ module.exports = [
       const won = Math.random() < 0.7;
       if (!won) {
         await reply(
-          `🥺 You held out your hat for an hour. A security guard walked past without looking.\n`
+          `🥺 You held out your hat for an hour. A security guard walked past without looking. ${savage()}\n`
           + `💸 0 ${CASH}. The city is cruel tonight.\n`
           + `📖 ${story()}`,
           event.messageID,
@@ -619,7 +621,7 @@ module.exports = [
       ]);
       await reply(
         `🥺 ${line}\n`
-        + `💰 +${kc(amount)}\n`
+        + `💰 +${kc(amount)}. Somebody actually pitied you. ${savage()}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + `📖 ${story()}`,
         event.messageID,

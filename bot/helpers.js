@@ -405,8 +405,38 @@ const fmt = {
   },
 };
 
+/** Random savage one-liners. Human beings do not say "Pong!" or "Cooldown:
+ *  wait 3s" — they bite back, they sigh, they roll their eyes. These are the
+ *  bot's attempts to sound like someone who has been running a city full of
+ *  hunters and is mildly tired of all of them. Harmless: no slurs, no real
+ *  names, no punching down. Just attitude.
+ */
+const SAVAGE = [
+  'I am breathing. Unlike your last relationship.',
+  'Slow down, turbo.',
+  'Finally. Took you long enough.',
+  'Even Google could not find that one. What makes you think I can?',
+  'The VIP section is closed. You are not on the list.',
+  'Nice try. Come back when you are not on cooldown.',
+  'I was wondering when you would show up.',
+  'Hold my coffee. Oh wait, I am the coffee.',
+  'That is a bold choice. Let us see how it goes.',
+  'Your guess is as good as mine. And mine is excellent.',
+  'I am not arguing. I am explaining why you are wrong.',
+  'Do I look like a walking FAQ? Because I am not.',
+  'Ask me again. I dare you.',
+  'That is not how any of this works, but go off.',
+  'Cool story. Now try a real command.',
+];
+
+/** Pick one savage line at random. */
+function savage() {
+  return SAVAGE[Math.floor(Math.random() * SAVAGE.length)];
+}
+
 module.exports = {
   log, error, reply, react, typing, thinkPause, safe, isGroupThread, fmt,
   clearSendError, lastSendError: () => lastSendError, describeSendError,
   lastSent, rememberLastSent, isSessionLost, noteSessionLost,
+  savage,
 };
