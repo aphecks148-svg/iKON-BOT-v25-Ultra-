@@ -567,6 +567,7 @@ module.exports = [
     name: 'work',
     aliases: [],
     category: 'economy',
+    description: '💼 Work at the iKON factory - Earn 500-1500 K-Cash plus 50 XP',
     usage: '!work',
     hint: 'The honest income. 500-1500 plus XP, and it never fails — unlike the casino. Show up, do the work, get paid. Revolutionary, I know.',
     cooldown: 300,
