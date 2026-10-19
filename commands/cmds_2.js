@@ -173,46 +173,6 @@ function claimLeft(userDoc, field, periodMs) {
 }
 
 /** Build a claim command (daily / hourly / weekly / monthly share one shape). */
-function claim({ name, aliases, description, usage, amount, periodMs, icon, cooldown = 10 }) {
-  return {
-    name,
-    aliases,
-    category: 'economy',
-    description,
-    usage,
-    cooldown,
-    permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, name, async () => {
-      await react(icon);
-
-      const left = claimLeft(userDoc, name, periodMs);
-      if (left > 0) {
-        await reply(
-          `⏳ Too soon, hunter. Your next ${name} blessing unlocks in ${fmt.dur(Math.ceil(left / 1000))}.\n`
-          + `${icon} ${kc(amount)} is waiting. ${story()}`,
-          event.messageID,
-        );
-        return;
-      }
-
-      if (!userDoc.timers) userDoc.timers = {};
-      userDoc.timers[name] = new Date();
-      await credit(userDoc, amount, name);
-
-      await reply(
-        `${icon} **${name.toUpperCase()} CLAIMED!**\n`
-        + `━━━━━━━━━━━━━━━\n`
-        + `💰 +${kc(amount)}\n`
-        + `👛 Wallet: ${kc(userDoc.coins)}\n`
-        + `🏦 Vault: ${kc(userDoc.bank)}\n`
-        + `💎 Total: ${kc((userDoc.coins || 0) + (userDoc.bank || 0))}\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
-    }),
-  };
-}
-
 /** Parse a positive integer amount from args, with a fallback default. */
 function amountArg(args, fallback) {
   const raw = (args[0] || '').replace(/[,k]/gi, (m) => (m.toLowerCase() === 'k' ? '000' : ''));
@@ -533,18 +493,70 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
-  // 5
+  // 5 — CLAIM: daily, hourly, weekly, monthly share one shape.
+  //     Merged four near-identical claim() factory calls into
+  //     one command with subcommands: !claim <daily|hourly|weekly|monthly>
   // ─────────────────────────────────────────────────────────
-  claim({
-    name: 'daily',
+  {
+    name: 'claim',
     aliases: [],
-    description: '🎁 Daily blessing from Owner Aphecks - Claim 10,000 K-Cash every 24h',
-    usage: '!daily',
-    hint: '10,000 K-Cash every 24 hours. Miss a day and the streak is gone, so claim it early.',
-    amount: PAYOUT.daily,
-    periodMs: 86400000,
-    icon: '🎁',
-  }),
+    category: 'economy',
+    description: '🎁 Claim a reward: daily, hourly, weekly or monthly',
+    usage: '!claim <daily|hourly|weekly|monthly>',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'claim', async () => {
+      const sub = String(args[0] || '').toLowerCase();
+      const tiers = {
+        daily: { amount: PAYOUT.daily, periodMs: 86400000, icon: '🎁', label: 'daily blessing' },
+        hourly: { amount: PAYOUT.hourly, periodMs: 3600000, icon: '⏰', label: 'hourly paycheck' },
+        weekly: { amount: PAYOUT.weekly, periodMs: 604800000, icon: '📅', label: 'weekly salary' },
+        monthly: { amount: PAYOUT.monthly, periodMs: 2592000000, icon: '🗓️', label: 'monthly empire reward' },
+      };
+      const t = tiers[sub];
+      if (!t) {
+        await reply(
+          `🎁 **CLAIM A REWARD**\n`
+          + '· · · · · · ·\n'
+          + `Usage: \`!claim <daily|hourly|weekly|monthly>\`\n`
+          + `• daily — ${kc(PAYOUT.daily)} every 24h\n`
+          + `• hourly — ${kc(PAYOUT.hourly)} every hour\n`
+          + `• weekly — ${kc(PAYOUT.weekly)} every week\n`
+          + `• monthly — ${kc(PAYOUT.monthly)} every month\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      await react(t.icon);
+
+      const left = claimLeft(userDoc, sub, t.periodMs);
+      if (left > 0) {
+        await reply(
+          `⏳ Too soon, hunter. Your next ${sub} ${t.label} unlocks in ${fmt.dur(Math.ceil(left / 1000))}.\n`
+          + `${t.icon} ${kc(t.amount)} is waiting. ${story()}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (!userDoc.timers) userDoc.timers = {};
+      userDoc.timers[sub] = new Date();
+      await credit(userDoc, t.amount, sub);
+
+      await reply(
+        `${t.icon} **${sub.toUpperCase()} CLAIMED!**\n`
+        + '━━━━━━━━━━━━━━━\n'
+        + `💰 +${kc(t.amount)}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `🔐 Vault: ${kc(userDoc.bank)}\n`
+        + `💎 Total: ${kc((userDoc.coins || 0) + (userDoc.bank || 0))}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
+    }),
+  },
 
   // ─────────────────────────────────────────────────────────
   // 6
@@ -553,7 +565,6 @@ module.exports = [
     name: 'work',
     aliases: [],
     category: 'economy',
-    description: '💼 Work at iKON factory - Earn 500-1500 and 50 XP, honest living',
     usage: '!work',
     hint: 'The honest income. 500-1500 plus XP, and it never fails — unlike the casino.',
     cooldown: 300,
@@ -1419,45 +1430,6 @@ module.exports = [
       );
     }),
   },
-
-  // ─────────────────────────────────────────────────────────
-  // 24
-  // ─────────────────────────────────────────────────────────
-  claim({
-    name: 'hourly',
-    aliases: [],
-    description: '⏰ Hourly paycheck - 2,500 for staying active',
-    usage: '!hourly',
-    amount: PAYOUT.hourly,
-    periodMs: 3600000,
-    icon: '⏰',
-  }),
-
-  // ─────────────────────────────────────────────────────────
-  // 25
-  // ─────────────────────────────────────────────────────────
-  claim({
-    name: 'weekly',
-    aliases: [],
-    description: '📅 Weekly salary - 75,000 loyal hunter reward',
-    usage: '!weekly',
-    amount: PAYOUT.weekly,
-    periodMs: 604800000,
-    icon: '📅',
-  }),
-
-  // ─────────────────────────────────────────────────────────
-  // 26
-  // ─────────────────────────────────────────────────────────
-  claim({
-    name: 'monthly',
-    aliases: [],
-    description: '🗓️ Monthly empire reward - 300,000! Become a legend',
-    usage: '!monthly',
-    amount: PAYOUT.monthly,
-    periodMs: 2592000000,
-    icon: '🗓️',
-  }),
 
   // ─────────────────────────────────────────────────────────
   // 27
