@@ -2520,7 +2520,7 @@ const commands = [];
     hint: 'Asks Facebook for 100 chats, not 10. Anything past the first ten used to be invisible. To remove the bot from one without opening it: `!leavegc <threadID>`.',
     cooldown: 30,
     permission: 'owner',
-    execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'gclist', async () => {
+    execute: async ({ api, event, reply, react, config }) => guard(reply, event.messageID, 'gclist', async () => {
       await react('📡');
       const threads = await gcs.listThreads(api, gcs.THREAD_LIMIT);
       if (!threads.length) {
