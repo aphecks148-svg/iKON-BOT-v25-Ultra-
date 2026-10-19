@@ -2936,7 +2936,7 @@ const commands = [];
     usage: '!unpauseall',
     cooldown: 30,
     permission: 'owner',
-    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'unpauseall', async () => {
+    execute: async ({ args, event, reply, react, config }) => guard(reply, event.messageID, 'unpauseall', async () => {
       await react('▶️');
       const dryRun = /^(dry|check|list)$/i.test(String(args[0] || '').trim());
       if (dryRun) {
