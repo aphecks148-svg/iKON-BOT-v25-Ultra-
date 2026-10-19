@@ -2991,7 +2991,7 @@ const commands = [];
     usage: '!pausedlist',
     cooldown: 20,
     permission: 'owner',
-    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'pausedlist', async () => {
+    execute: async ({ event, reply, react, config }) => guard(reply, event.messageID, 'pausedlist', async () => {
       await react('⏸️');
       const paused = await toggles.listPaused();
       if (!paused.length) {
