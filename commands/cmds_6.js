@@ -2904,7 +2904,7 @@ const commands = [];
         await reply('❌ Give me a chat id: `!unpause`, or `!unpause <tid>`.', event.messageID);
         return;
       }
-      const group = await toggles.findGroup(tid);
+      const group = await toggles.getGroup(tid);
       if (!group) {
         await reply(`❌ No record for \`${tid}\`. Nothing was paused there.`, event.messageID);
         return;
