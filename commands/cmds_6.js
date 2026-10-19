@@ -2985,7 +2985,7 @@ const commands = [];
 
   commands.push({
     name: 'pausedlist',
-    aliases: ['paused', 'listpaused', 'gcpaused'],
+    aliases: ['paused', 'listpaused', 'gcpaused', 'pauselist'],
     category: 'group',
     description: '⏸️ List every chat the bot is switched off in',
     usage: '!pausedlist',
