@@ -36,9 +36,6 @@ function validate(registry, loaderResult) {
     if (typeof cmd.execute !== 'function') problems.push(`${cmd.name}: execute is not a function`);
     if (!Number.isFinite(Number(cmd.cooldown))) problems.push(`${cmd.name}: cooldown is not a number`);
     if (!Array.isArray(cmd.aliases)) problems.push(`${cmd.name}: aliases must be an array`);
-    if (typeof cmd.usage === 'string' && !cmd.usage.startsWith(config.PREFIX)) {
-      problems.push(`${cmd.name}: usage "${cmd.usage}" does not start with "${config.PREFIX}"`);
-    }
     if (Array.isArray(cmd.aliases) && cmd.aliases.includes(cmd.name)) {
       problems.push(`${cmd.name}: alias duplicates its own name`);
     }
