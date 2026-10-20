@@ -106,6 +106,20 @@ const GroupSchema = new mongoose.Schema(
       hugs: { type: Number, default: 0, min: 0 },
       slaps: { type: Number, default: 0, min: 0 },
       kills: { type: Number, default: 0, min: 0 },
+      // The open poll in this chat. One at a time: a chat that answers to a
+      // single command cannot usefully hold two questions at once, and a
+      // second `!poll` replaces the first.
+      poll: {
+        question: { type: String, default: '' },
+        // Each option is { text, votes }.
+        options: { type: [Object], default: [] },
+        // Each vote is { uid, name, option } — the index of the option, so a
+        // change of mind is one write rather than a count of stale rows.
+        votes: { type: [Object], default: [] },
+        by: { type: String, default: '' },
+        byName: { type: String, default: '' },
+        at: { type: Date, default: null },
+      },
     },
 
     petArena: {

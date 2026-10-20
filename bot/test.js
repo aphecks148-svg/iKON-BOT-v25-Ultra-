@@ -1553,12 +1553,12 @@ function query(doc) {
     const loaded = loader.loadCommands(path.resolve(__dirname, '../commands'));
     const c9 = [...loaded.registry.values()].filter((c) => c.module === 'cmds_9');
     // 35 after the rename, 36 since !pair landed, 39 since the three card
-    // commands (shipcard, flexcard, roastcard) were added, and 33 since the
+    // commands (shipcard, flexcard, roastcard) were added, 33 since the
     // cleanup retired five of them (flexcard, roastcard, auramax, simpmeter,
-    // susmeter). A count here is a change-detector: a command added on
-    // purpose should be the only thing that moves it, and adding one silently
-    // should fail.
-    assert.strictEqual(c9.length, 33, 'cmds_9 should hold 33 commands');
+    // susmeter), and 35 since the poll and the vote landed. A count here is a
+    // change-detector: a command added on purpose should be the only thing
+    // that moves it, and adding one silently should fail.
+    assert.strictEqual(c9.length, 35, 'cmds_9 should hold 35 commands');
 
     const dirty = c9.filter((c) => /ultra/i.test(c.name) || (c.aliases || []).some((a) => /ultra/i.test(a)));
     assert.deepStrictEqual(dirty.map((c) => c.name), [], 'these still say ultra');
@@ -5103,6 +5103,49 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(/function moodOf/.test(src), 'the pet module must work a mood out of the record');
     assert.ok(!/pet\.mood \|\|/.test(body), 'the pet card must not print a field that does not exist');
     return 'the card reads ownerUid, equipped and a real mood';
+  });
+
+  await step('a poll takes one vote per person, and a change of mind moves it', async () => {
+    const cmds9 = require('../commands/cmds_9');
+    const poll = cmds9.find((c) => c.name === 'poll');
+    const vote = cmds9.find((c) => c.name === 'vote');
+    assert.ok(poll && vote, 'the poll commands exist');
+
+    const realFindOne = Group.findOne;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+    const GROUP = { tid: 'g_poll', fun: {}, save: async () => {} };
+    Group.findOne = () => Promise.resolve(GROUP);
+
+    const run = async (cmd, args, uid, name) => {
+      const out = [];
+      await cmd.execute({
+        api: {}, args, event: { threadID: 'g_poll', messageID: 'm1', senderID: uid, isGroup: true },
+        config, reply: async (t) => { out.push(String(t)); }, react: async () => true,
+        userDoc: { uid, name, coins: 1000 },
+      });
+      return out.join('\n');
+    };
+
+    try {
+      const opened = await run(poll, ['Lunch', 'or', 'dinner', '|', 'Lunch', '|', 'Dinner'], 'u_a', 'Alice');
+      assert.ok(/Lunch or dinner/.test(opened), 'the question is shown');
+      assert.ok(/1\. Lunch/.test(opened) && /2\. Dinner/.test(opened), 'both options are numbered');
+
+      await run(vote, ['1'], 'u_a', 'Alice');
+      const two = await run(vote, ['1'], 'u_b', 'Bob');
+      assert.ok(/1\. Lunch\n\s+[█░]+ 2 votes/.test(two), `two people, two votes — got: ${two}`);
+
+      // Changing your mind moves the vote. It does not add one.
+      const moved = await run(vote, ['2'], 'u_a', 'Alice');
+      assert.ok(/1\. Lunch\n\s+[█░]+ 1 vote\b/.test(moved), `the first option keeps one vote — got: ${moved}`);
+      assert.ok(/2\. Dinner\n\s+[█░]+ 1 vote\b/.test(moved), `the second option takes one — got: ${moved}`);
+      assert.ok(/👥 2 votes/.test(moved), 'and the head count is still two people');
+    } finally {
+      Group.findOne = realFindOne;
+      mongo.isReady = realReady;
+    }
+    return 'one vote per person, and a change of mind moves it';
   });
 
 // ── a list of people is a list of names ──────────────────

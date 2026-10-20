@@ -385,6 +385,32 @@ async function groupOf(event) {
 }
 
 /**
+ * The poll, drawn.
+ *
+ * The counts are recomputed from the votes rather than read off the options,
+ * so a tally that has drifted from the votes it claims to count cannot be
+ * shown to anybody.
+ *
+ * @param {object} poll
+ * @returns {string}
+ */
+function pollReply(poll) {
+  const votes = (poll.votes || []).filter(Boolean);
+  const total = votes.length;
+  const lines = (poll.options || []).map((o, i) => {
+    const count = votes.filter((v) => Number(v.option) === i).length;
+    const filled = total ? Math.round((count / total) * 10) : 0;
+    const bar = '█'.repeat(filled) + '░'.repeat(Math.max(0, 10 - filled));
+    return `${i + 1}. ${o.text}\n   ${bar} ${count} vote${count === 1 ? '' : 's'}`;
+  });
+  return `🗳️ **${poll.question}**\n`
+    + '· · · · · · ·\n'
+    + `${lines.join('\n')}\n`
+    + `👥 ${total} vote${total === 1 ? '' : 's'} · asked by ${poll.byName || 'someone'}\n`
+    + '📖 `!vote <number>` to vote. Change your mind any time.';
+}
+
+/**
  * Add score to a pair on a board.
  *
  * The two uids are sorted so that a+b and b+a are one row. That is the entire
@@ -2621,5 +2647,140 @@ commands.push({
       }),
     });
   }
+
+  // ── THE POLL ───────────────────────────────────────────────
+  // A question the chat can answer, and the answers counted where everybody
+  // can see them. It lives on the group document, so it survives a restart —
+  // a poll that vanishes when the bot restarts is a poll nobody voted in.
+
+  commands.push({
+    name: 'poll',
+    aliases: ['polls', 'newpoll'],
+    category: 'fun',
+    description: '🗳️ Start a poll — `!poll Lunch or dinner? | Lunch | Dinner`',
+    usage: '!poll <question> | <option> | <option>...',
+    hint: 'Separate the question and the options with a vertical bar. One poll at a time — a new one replaces the old.',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, event, reply, react, userDoc }) => guard(reply, event.messageID, 'poll', async () => {
+      await react('🗳️');
+      const group = await groupOf(event);
+      if (!group) {
+        await reply('🗳️ Polls need a chat to live in. Use it in a group.', event.messageID);
+        return;
+      }
+      if (!group.fun.poll || typeof group.fun.poll !== 'object') group.fun.poll = {};
+      const poll = group.fun.poll;
+      if (!Array.isArray(poll.options)) poll.options = [];
+      if (!Array.isArray(poll.votes)) poll.votes = [];
+
+      // "question | a | b" — the bar is the separator. A pipe typed with no
+      // spaces around it still works.
+      const parts = args.join(' ').split('|').map((p) => p.trim()).filter(Boolean);
+      if (!parts.length) {
+        if (!poll.question) {
+          await reply(
+            '🗳️ **NO POLL IS OPEN**\n'
+            + '· · · · · · ·\n'
+            + '📖 `!poll Lunch or dinner? | Lunch | Dinner` to start one.',
+            event.messageID,
+          );
+          return;
+        }
+        await reply(pollReply(poll), event.messageID);
+        return;
+      }
+
+      const question = parts.shift();
+      if (question.length > 200) {
+        await reply('❌ The question is too long. Keep it under 200 characters.', event.messageID);
+        return;
+      }
+      if (parts.length < 2) {
+        await reply('❌ A poll needs at least two options.\n`!poll Question | Yes | No`', event.messageID);
+        return;
+      }
+      if (parts.length > 10) {
+        await reply('❌ Ten options is the most. Pick the ones that matter.', event.messageID);
+        return;
+      }
+      const long = parts.find((p) => p.length > 80);
+      if (long) {
+        await reply('❌ An option is too long. Keep each one under 80 characters.', event.messageID);
+        return;
+      }
+
+      poll.question = question;
+      poll.options = parts.map((text) => ({ text, votes: 0 }));
+      poll.votes = [];
+      poll.by = String(userDoc.uid);
+      poll.byName = String(userDoc.name || '');
+      poll.at = new Date();
+      try { await group.save(); } catch { /* the reply still reports the poll */ }
+
+      await reply(pollReply(poll), event.messageID);
+    }),
+  });
+
+  commands.push({
+    name: 'vote',
+    aliases: ['votes', 'castvote'],
+    category: 'fun',
+    description: '🗳️ Vote in the open poll — `!vote 2`',
+    usage: '!vote <option number>',
+    hint: 'One vote each, and you can change it — the count follows you, it does not double.',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, event, reply, react, userDoc }) => guard(reply, event.messageID, 'vote', async () => {
+      await react('🗳️');
+      const group = await groupOf(event);
+      if (!group) {
+        await reply('🗳️ Polls need a chat to live in. Use it in a group.', event.messageID);
+        return;
+      }
+      if (!group.fun.poll || typeof group.fun.poll !== 'object') group.fun.poll = {};
+      const poll = group.fun.poll;
+      if (!Array.isArray(poll.options)) poll.options = [];
+      if (!Array.isArray(poll.votes)) poll.votes = [];
+
+      if (!poll.question || !poll.options.length) {
+        await reply('🗳️ There is no poll open. `!poll Question | Yes | No` to start one.', event.messageID);
+        return;
+      }
+
+      const n = Number.parseInt(String(args[0] || '').replace(/[^0-9]/g, ''), 10);
+      if (!Number.isFinite(n) || n < 1 || n > poll.options.length) {
+        await reply(
+          `🗳️ Pick a number between 1 and ${poll.options.length}.\n`
+          + '· · · · · · ·\n'
+          + pollReply(poll),
+          event.messageID,
+        );
+        return;
+      }
+
+      // One row per voter, so changing your mind is one write.
+      const uid = String(userDoc.uid);
+      const existing = poll.votes.find((v) => v && String(v.uid) === uid);
+      if (existing) {
+        existing.option = n - 1;
+        existing.name = String(userDoc.name || existing.name || '');
+      } else {
+        poll.votes.push({ uid, name: String(userDoc.name || ''), option: n - 1 });
+      }
+
+      // The counts are derived from the votes, never incremented separately,
+      // so the tally cannot drift away from the votes that produced it.
+      poll.options.forEach((o) => { o.votes = 0; });
+      for (const v of poll.votes) {
+        if (!v) continue;
+        const idx = Number(v.option);
+        if (poll.options[idx]) poll.options[idx].votes += 1;
+      }
+      try { await group.save(); } catch { /* the reply still reports the tally */ }
+
+      await reply(pollReply(poll), event.messageID);
+    }),
+  });
 
   module.exports = commands;
