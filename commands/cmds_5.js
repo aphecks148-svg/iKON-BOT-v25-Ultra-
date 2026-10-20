@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 5 — GAMES (38 commands)
+ * MODULE 5 — GAMES (40 commands)
  *
  * iKON-BOT v2 Ultra. The arcade in iKON City is the only place the Klerks
  * still gamble against each other instead of paperwork. Every game here moves

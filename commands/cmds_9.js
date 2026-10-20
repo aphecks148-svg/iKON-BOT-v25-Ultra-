@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 9 — FUN / SOCIAL (33 commands)
+ * MODULE 9 — FUN / SOCIAL (35 commands)
  *
  * iKON-BOT v2 — Fun and social. The reason anyone adds the bot to a group chat.
  *

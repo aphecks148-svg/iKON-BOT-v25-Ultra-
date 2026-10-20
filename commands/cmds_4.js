@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 4 — DANGEROUS PETS (40 commands)
+ * MODULE 4 — DANGEROUS PETS (43 commands)
  *
  * iKON-BOT v2 Ultra. Pets in iKON City are not decoration, they are assets.
  * Fifteen species of them are genuinely dangerous, they evolve through

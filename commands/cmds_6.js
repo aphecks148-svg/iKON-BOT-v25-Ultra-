@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 6 — GROUP ADMINISTRATION (48 commands)
+ * MODULE 6 — GROUP ADMINISTRATION (50 commands)
  *
  * iKON-BOT v2 Ultra. This is the module that makes a group admin fight to keep
  * the bot: welcome cards, anti-raid locks, a warzone that taxes the wealthy,

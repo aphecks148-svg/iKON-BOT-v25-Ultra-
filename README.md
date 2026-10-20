@@ -25,7 +25,7 @@ iKON-BOT/
 ├── ws3-fca.js          central engine (Express, login, routing, permissions, cooldowns)
 ├── config.js           env-only configuration
 ├── commands/
-│   ├── cmds_1.js … cmds_10.js    10 modules, 407 commands
+│   ├── cmds_1.js … cmds_10.js    10 modules, 427 commands
 ├── bot/
 │   ├── loader.js       scans cmds_1..10, builds registry + alias map
 │   ├── router.js       PARSER: "!bank deposit 500" -> { name, args }
@@ -136,7 +136,7 @@ first if an admin command never answers.
 ### AI — Groq only
 
 Module 8 (cmds_8.js) is the AI, download and football module.
-35 of its 42 commands route through `askGroq()`; the rest resolve
+35 of its 44 commands route through `askGroq()`; the rest resolve
 a link through `bot/media.js` or a fixture through `footballData()`.
 They share one client, `bot/groq.js`, which
 POSTs to `https://api.groq.com/openai/v1/chat/completions`. There is no second
@@ -201,18 +201,18 @@ rounds of this bug look identical from the chat.
 
 | Module | Commands |
 |---|---|
-| cmds_1 (system) | 45 |
-| cmds_2 (economy) | 36 |
-| cmds_3 (hunter academy + kingdoms) | 50 |
-| cmds_4 (pets) | 41 |
-| cmds_5 (games) | 38 |
-| cmds_6 (group admin) | 48 |
-| cmds_7 (street life) | 36 |
-| cmds_8 (downloads + AI + football) | 42 |
-| cmds_9 (fun & social) | 33 |
-| cmds_10 (farming) | 38 |
+| cmds_1 (system) | 47 |
+| cmds_2 (economy) | 38 |
+| cmds_3 (hunter academy + kingdoms) | 52 |
+| cmds_4 (pets) | 43 |
+| cmds_5 (games) | 40 |
+| cmds_6 (group admin) | 50 |
+| cmds_7 (street life) | 38 |
+| cmds_8 (downloads + AI + football) | 44 |
+| cmds_9 (fun & social) | 35 |
+| cmds_10 (farming) | 40 |
 
-**407 commands** across 10 modules, 557 aliases, 0 conflicts. Every command is
+**427 commands** across 10 modules, 601 aliases, 0 conflicts. Every command is
 shaped, aliased and permission-tagged; `node bot/check.js` reports the per-module
 progress and refuses to pass on a malformed entry.
 
@@ -238,6 +238,37 @@ The spellings people already type were carried onto the command that took over,
 so a group does not lose a word it used last week. `bot/test.js` asserts both
 halves of this: the retired names are gone, and the carried spellings still
 reach the right command.
+
+### What is new
+
+Twenty commands, two in every module, each one built on state that was already
+there rather than on a new system:
+
+| Module | Command | What it does |
+|---|---|---|
+| cmds_1 | `!search` | Finds any command by keyword — name, alias or description |
+| cmds_1 | `!time` | The clock in any IANA timezone, and whether that is today or tomorrow there |
+| cmds_2 | `!split` | Splits a bill between the people you tag; the remainder stays with you |
+| cmds_2 | `!interest` | The vault pays 2% a day, once a day, straight back into the vault |
+| cmds_3 | `!simulate` | A battle on paper — the odds, the payoff, and what would improve it |
+| cmds_3 | `!mentor` | The free progress you are leaving on the table |
+| cmds_4 | `!petmood` | The pet's real mood, read off hunger, bond and workload |
+| cmds_4 | `!petbond` | What the bond is worth in permanent power |
+| cmds_5 | `!dicecup` | Rolls dice and shows every face — free, and it wins nothing |
+| cmds_5 | `!streakgame` | A daily streak whose payout grows, and a lucky charm every third day |
+| cmds_6 | `!gcsettings` | Every switch this chat has set, in one read |
+| cmds_6 | `!gcword` | A word filter — a filtered message never lands, and the word is never named back |
+| cmds_7 | `!gtataxi` | A night shift behind the wheel, and the one fare in ten that does not pay |
+| cmds_7 | `!gtapickup` | Sweeps the street for whatever somebody dropped |
+| cmds_8 | `!crypto` | A coin price, from three feeds in order, with the source named |
+| cmds_8 | `!currency` | Converts money off a rates table cached for an hour |
+| cmds_9 | `!poll` / `!vote` | A poll the chat can answer, one vote each, changeable |
+| cmds_10 | `!recipe` | Cooks raw goods into dishes worth 35% more than their parts |
+| cmds_10 | `!almanac` | What to plant right now — profit per hour for every crop |
+
+`!petcard` was broken and is fixed in the same pass: it asked the Pet model for
+`owner` and `active`, which are not fields on it, and read a `PETS` table that
+does not exist, so every call threw and no pet was ever drawn.
 
 ### Football (a deck in cmds_8.js)
 

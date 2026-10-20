@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 2 — ECONOMY & TREASURY (41 commands)
+ * MODULE 2 — ECONOMY & TREASURY (38 commands)
  *
  * iKON-BOT is a Messenger RPG city. Coins are K-Cash, the bank is a secure
  * vault, and every user is a hunter working the streets for Owner Aphecks.

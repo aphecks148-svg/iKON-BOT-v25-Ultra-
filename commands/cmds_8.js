@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 8 — DOWNLOAD + AI, GROQ ONLY (45 commands)
+ * MODULE 8 — DOWNLOAD + AI, GROQ ONLY (44 commands)
  *
  * iKON-BOT v2 Ultra. The download half of the bot and the AI half, wired
  * together: these 37 commands all call Groq, and the downloaders use it to
