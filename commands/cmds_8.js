@@ -133,6 +133,34 @@ async function askGroq(prompt, style = '') {
 }
 
 /**
+ * Ask Groq for the colour, and take the colour or leave it.
+ *
+ * The difference from askGroq is what happens when Groq does not answer.
+ * askGroq substitutes a placeholder that says so loudly, which is right for a
+ * command whose whole job is the AI's answer. It is wrong for a command that
+ * has already shown the facts: there, the placeholder replaces nothing and
+ * only adds noise, so the empty string is the honest answer.
+ *
+ * @param {string} prompt the question, already worded
+ * @param {string} style extra persona instruction
+ * @returns {Promise<string>} the answer, or '' when Groq did not answer
+ */
+async function askGroqQuiet(prompt, style = '') {
+  const text = String(prompt || '').trim();
+  if (!text) return '';
+  try {
+    const answer = await groq.ask(text, {
+      system: LORE,
+      style,
+      maxTokens: 2048,
+    });
+    return answer || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * The offline answer. Deterministic where it can be, and honest about the fact
  * that it is a stand-in, so nobody mistakes it for a real Groq response.
  */
@@ -223,23 +251,40 @@ async function footballData(what, query = '') {
  * it is the best data available and it is also the only one that costs, so it
  * is tried first and the free sources are the fallback.
  *
+ * The query is deliberately NOT used. API-Football wants a numeric league or
+ * team id, and what a person types is a name — "EPL", "Liverpool" — so the
+ * old path built a URL like `/competitions/EPL/standings` and got a 404. The
+ * filters are applied to the text after the feed answers instead, which is
+ * what every source agrees on.
+ *
  * @param {string} what
  * @param {string} query
  * @returns {string|null}
  */
 function apiFootballPath(what, query) {
-  const q = String(query || '').trim();
   switch (what) {
-    case 'fixtures': return q ? `/teams/${q}/matches?status=FT,SHT,PEN,HPT` : '/matches?status=FT,SHT,PEN,HPT&limit=25';
-    case 'livescore': return '/matches?status=IN,PEN,HPT&live=1&limit=25';
-    case 'standings': return q ? `/competitions/${q}/standings` : null;
-    case 'team': return q ? `/teams/${q}` : null;
+    case 'fixtures': return '/fixtures?status=NS&limit=50';
+    case 'livescore': return '/fixtures?status=IN,PEN,HPT&limit=50';
+    case 'standings': return null;
+    case 'team': return null;
     default: return null;
   }
 }
 
 /**
  * TheSportsDB v1 path for each kind of request.
+ *
+ * @param {string} what
+ * @param {string} query
+ * @returns {string|null}
+ */
+/**
+ * TheSportsDB v1 path for each kind of request.
+ *
+ * The league query is dropped for the same reason as above: this feed's
+ * `livescore.php` takes a sport, not a league, so `?l=EPL` was a request for
+ * a sport called EPL and it came back empty. The league is filtered after the
+ * answer instead.
  *
  * @param {string} what
  * @param {string} query
@@ -253,23 +298,26 @@ function footballPath(what, query) {
     case 'team': return q ? `/searchteams.php?t=${q}` : null;
     case 'league': return q ? `/lookupleague.php?l=${q}` : '/search_all_leagues.php?c=Soccer';
     case 'livescore':
-    default: return q ? `/livescore.php?l=${q}` : `/livescore.php?l=Soccer`;
+    default: return '/livescore.php?l=Soccer';
   }
 }
 
 /**
  * OpenLigaDB path for each kind of request.
  *
+ * The league id is dropped for the same reason: OpenLigaDB wants a number
+ * (4079 for the Bundesliga) and no person types that. The whole match list
+ * comes back and the league is filtered from the text.
+ *
  * @param {string} what
  * @param {string} query
  * @returns {string|null}
  */
 function openligaPath(what, query) {
-  const q = encodeURIComponent(String(query || '').trim());
   switch (what) {
-    case 'fixtures': return q ? `/getmatchdata/leagueId/${q}` : `/getmatchdata`;
+    case 'fixtures':
     case 'livescore':
-    default: return q ? `/getmatchdata/leagueId/${q}` : `/getmatchdata`;
+    default: return '/getmatchdata';
   }
 }
 
@@ -326,8 +374,233 @@ function ensureFootball(group) {
 }
 
 // ───────────────────────────────────────────────────────────
+// FOOTBALL — reading the feeds without an AI round trip
+//
+// Every football command used to ask Groq to do two things it did not need
+// an AI for: turn "EPL" into "English Premier League", and turn a wall of
+// JSON into a paragraph.
+//
+// The first one is a table lookup that was being paid for at 50 K-Cash a
+// time, on every single command, for a word the bot already knew. The second
+// one is the reason the commands felt broken: the data came back fine and
+// the paragraph came back empty, because Groq was not answering — and the
+// person had already been charged.
+//
+// So the facts are now read out of the feed directly, and Groq is only ever
+// asked for colour. When Groq is down the command still answers with real
+// scorelines, and the fee is only taken once there is something to show.
+// ───────────────────────────────────────────────────────────
+
+/**
+ * The leagues worth naming, and the words that should find each of them.
+ *
+ * The key is the canonical name the feeds use. The value is every spelling
+ * that should land on it — including the ones people actually type.
+ */
+const FOOTBALL_LEAGUES = {
+  'English Premier League': ['epl', 'premier league', 'premier', 'england', 'english premier league'],
+  'La Liga': ['la liga', 'laliga', 'spanish', 'spain', 'espana'],
+  'Serie A': ['serie a', 'seriea', 'italy', 'italian'],
+  'Bundesliga': ['bundesliga', 'germany', 'german', 'deutschland'],
+  'Ligue 1': ['ligue 1', 'ligue1', 'france', 'french'],
+  'Eredivisie': ['eredivisie', 'netherlands', 'dutch'],
+  'Champions League': ['champions league', 'ucl', 'champions'],
+  'Europa League': ['europa league', 'uel'],
+  'MLS': ['mls', 'major league soccer'],
+  'Scottish Premiership': ['scottish', 'scotland', 'spl'],
+  'Conference League': ['conference league', 'uecl'],
+};
+
+/**
+ * Resolve a typed league name to the name the feeds use.
+ *
+ * A table, not an AI. The old version asked Groq to normalise the league
+ * name — a network round trip and 50 K-Cash to do what a `.toLowerCase()`
+ * and a lookup can do. It also failed in the worst possible way: when Groq
+ * was down the canonical name came back empty and the command queried the
+ * feed with `?l=` and nothing at all.
+ *
+ * @param {string} text what the person typed
+ * @returns {string} the canonical name, or the input trimmed when it is not
+ *   one we know — the feed may still understand it.
+ */
+function canonicalLeague(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  const needle = raw.toLowerCase();
+  for (const [canonical, words] of Object.entries(FOOTBALL_LEAGUES)) {
+    if (words.includes(needle)) return canonical;
+    const cNeedle = canonical.toLowerCase();
+    if (cNeedle === needle || cNeedle.includes(needle)) return canonical;
+  }
+  // Not a league we know by name. It may still be a club ("Liverpool") or a
+  // country the feed knows, so the input goes through unchanged.
+  return raw;
+}
+
+/**
+ * Does this row belong to the league being asked about?
+ *
+ * The feeds do not all filter by league the same way, and OpenLigaDB wants a
+ * numeric league id where the person typed a name. So the filtering happens
+ * here, on the text every feed agrees on.
+ *
+ * @param {object} row a raw feed row
+ * @param {string} league the canonical league name
+ * @returns {boolean}
+ */
+function matchIsLeague(row, league) {
+  if (!league) return true;
+  const m = normaliseMatch(row);
+  if (!m.league) return false;
+  const hay = m.league.toLowerCase();
+  const needle = league.toLowerCase();
+  if (hay.includes(needle) || needle.includes(hay)) return true;
+  return FOOTBALL_LEAGUES[league]
+    ? FOOTBALL_LEAGUES[league].some((w) => hay.includes(w))
+    : false;
+}
+
+/**
+ * Flatten whatever a feed returned into one shape.
+ *
+ * Three feeds, three shapes:
+ *
+ *   TheSportsDB — flat: strHomeTeam, intHomeScore, strProgress.
+ *   OpenLigaDB  — nested: team1.teamName, team1.goals, matchDateTime.
+ *   API-Football — wrapped: teams.home.name, goals.home, fixture.status.
+ *
+ * Every football command reads this and nothing else, so a feed changing
+ * its shape is one edit here rather than ten.
+ *
+ * @param {object} row a raw feed row
+ * @returns {{home:string,away:string,hs:string,as:string,minute:string,league:string,status:string,finished:boolean}}
+ */
+function normaliseMatch(row) {
+  const out = {
+    home: '', away: '', hs: '', as: '', minute: '', league: '', status: '', finished: false,
+  };
+  if (!row || typeof row !== 'object') return out;
+
+  // ── TheSportsDB ────────────────────────────────────────
+  if (row.strHomeTeam || row.strAwayTeam) {
+    out.home = String(row.strHomeTeam || '');
+    out.away = String(row.strAwayTeam || '');
+    out.hs = row.intHomeScore === null || row.intHomeScore === undefined ? '' : String(row.intHomeScore);
+    out.as = row.intAwayScore === null || row.intAwayScore === undefined ? '' : String(row.intAwayScore);
+    out.league = String(row.strLeague || '');
+    out.status = String(row.strStatus || '');
+    out.minute = String(row.strProgress || '');
+    out.finished = /finished|ft/i.test(out.status);
+    return out;
+  }
+
+  // ── OpenLigaDB ─────────────────────────────────────────
+  if (row.team1 || row.team2) {
+    const t1 = row.team1 || {};
+    const t2 = row.team2 || {};
+    out.home = String(t1.teamName || '');
+    out.away = String(t2.teamName || '');
+    out.hs = t1.goals === undefined || t1.goals === null ? '' : String(t1.goals);
+    out.as = t2.goals === undefined || t2.goals === null ? '' : String(t2.goals);
+    out.league = String(row.leagueName || (row.league && row.league.name) || '');
+    out.status = 'Live';
+    out.finished = false;
+    return out;
+  }
+
+  // ── API-Football ───────────────────────────────────────
+  if (row.teams || row.fixture) {
+    const teams = row.teams || {};
+    const fx = row.fixture || {};
+    out.home = String((teams.home && teams.home.name) || '');
+    out.away = String((teams.away && teams.away.name) || '');
+    const goals = row.goals || row.score || {};
+    out.hs = goals.home === null || goals.home === undefined ? '' : String(goals.home);
+    out.as = goals.away === null || goals.away === undefined ? '' : String(goals.away);
+    out.league = String((row.league && (row.league.name || row.league.country)) || '');
+    out.status = String((fx.status && fx.status.short) || '');
+    out.minute = String((fx.status && fx.status.elapsed) || '');
+    out.finished = /finished|ft/i.test(out.status);
+    return out;
+  }
+
+  return out;
+}
+
+/**
+ * One match as a line of text.
+ *
+ * @param {object} row a raw feed row
+ * @returns {string}
+ */
+function matchLine(row) {
+  const m = normaliseMatch(row);
+  if (!m.home && !m.away) return '';
+  const score = m.hs || m.as ? `${m.hs || 0} - ${m.as || 0}` : 'v';
+  const clock = m.minute ? ` (${m.minute})` : '';
+  const league = m.league ? ` · ${m.league}` : '';
+  return `⚽ ${m.home} ${score} ${m.away}${clock}${league}`;
+}
+
+/**
+ * The deterministic block of scorelines.
+ *
+ * This is what the command shows when Groq is not answering, and what it
+ * shows underneath the commentary when it is. The facts come from the feed,
+ * not from a language model, so they are the same either way.
+ *
+ * @param {object[]} rows raw feed rows
+ * @param {number} [limit]
+ * @returns {string}
+ */
+function footballSummary(rows, limit = 8) {
+  const lines = (rows || [])
+    .map(matchLine)
+    .filter(Boolean)
+    .slice(0, limit);
+  return lines.join('\n');
+}
+
+/**
+ * Are these rows worth charging for?
+ *
+ * @param {object[]} rows
+ * @returns {boolean}
+ */
+function footballHasData(rows) {
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+/**
+ * Remove the same match appearing twice.
+ *
+ * The live list and the fixture list overlap — a match that is on now is
+ * also the next fixture — and a command that read both would print the same
+ * scoreline twice. The key is the two teams and the score, which is the same
+ * for one match wherever it appears.
+ *
+ * @param {object[]} rows
+ * @returns {object[]}
+ */
+function dedupeMatches(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows || []) {
+    const m = normaliseMatch(row);
+    if (!m.home && !m.away) continue;
+    const key = `${m.home}|${m.away}|${m.hs}|${m.as}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+// ───────────────────────────────────────────────────────────
 // MONEY
 // ───────────────────────────────────────────────────────────
+
 
 /**
  * Charge a command's fee.
@@ -2248,28 +2521,74 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
 
   commands.push({
     name: 'football',
-    aliases: ['scores', 'fixures'],
+    aliases: ['scores', 'livenow'],
     category: 'football',
-    description: '⚽ Football scores right now — Groq says who is winning and why',
+    description: '⚽ Football right now — live scorelines first, then the next fixtures',
     usage: '!football',
+    hint: 'Shows what is live at this second. When nothing is live it shows the next fixtures instead, so it is never an empty answer.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'football', async () => {
       await react('⚽');
+
+      // Live first, then the day's fixtures.
+      //
+      // The old command asked for live matches and nothing else, so on any
+      // ordinary Tuesday afternoon it had nothing to say — and it said that
+      // AFTER taking the fee. The fixtures are the answer people actually
+      // want most of the time, so they are the fallback rather than an
+      // apology.
+      const live = await footballData('livescore');
+      const liveRows = live.data || [];
+      const upcoming = await footballData('fixtures');
+      const fixtureRows = upcoming.data || [];
+
+      if (!footballHasData(liveRows) && !footballHasData(fixtureRows)) {
+        await reply(
+          '⚽ **NOTHING TO SHOW**\n'
+          + '· · · · · · ·\n'
+          + 'No live matches and no fixtures came back from the feeds.\n'
+          + '📖 The free football feeds go down more often than they admit. Nothing was charged for this.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // Charge only now, and only for what is actually on offer. There is
+      // something to read, so there is something to pay for.
       const paid = await charge(userDoc, FEES.football, 'downloader:football');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
       }
 
-      const fixtures = await footballData('livescore');
-      const read = await askGroq(
-        `Here are live football fixtures right now: ${JSON.stringify(fixtures || [])}. `
-        + `Say who is winning, what the story is, and give one prediction for the day. `
-        + `If the list is empty, say plainly that no fixtures were available.`,
+      const liveBlock = footballSummary(liveRows, 8);
+      const fixtureBlock = footballSummary(fixtureRows, 6);
+      const sections = [];
+      if (liveBlock) sections.push(`🔴 **LIVE NOW**\n· · · · · · ·\n${liveBlock}`);
+      if (fixtureBlock) {
+        sections.push(`📅 **NEXT UP**\n· · · · · · ·\n${fixtureBlock}`);
+      }
+      const facts = sections.join('\n\n');
+
+      // Groq adds the colour. It is optional: if it does not answer, the
+      // scorelines above still stand on their own.
+      const read = await askGroqQuiet(
+        `Here are the current football matches and next fixtures: ${facts}. `
+        + `In three sentences, say who is winning, what the story is, and who to watch. `
+        + `If the live list is empty, talk about the fixtures instead.`,
         'Style: a commentator who has seen the numbers.',
       );
-      await reply(`⚽ **FOOTBALL**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.football)}`, event.messageID);
+
+      await reply(
+        `⚽ **FOOTBALL**\n`
+        + '· · · · · · ·\n'
+        + `${facts}\n\n`
+        + (read ? `${read}\n\n` : '')
+        + `💸 ${kc(FEES.football)}`
+        + `${live.source ? `\n📡 ${live.source}` : ''}`,
+        event.messageID,
+      );
     }),
   });
 
@@ -2277,8 +2596,9 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     name: 'livefootball',
     aliases: ['livefix', 'livescores', 'livescore'],
     category: 'football',
-    description: '🔴 Live football by league — Groq breaks down what it is watching',
+    description: '🔴 Live football in one league — the scorelines, filtered locally',
     usage: '!livefootball <league>',
+    hint: 'EPL, Premier League, La Liga, Serie A, Bundesliga — the league name is matched locally, so it costs nothing to ask.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'livefootball', async () => {
@@ -2289,28 +2609,52 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         return;
       }
 
+      // A table, not an AI. The old command asked Groq to normalise the league
+      // name — a paid round trip to spell "EPL" — and then handed the result
+      // to a feed that wanted a league id.
+      const canon = canonicalLeague(league);
+
+      // Every source is asked, and the filtering happens here on the text all
+      // of them agree on, because the feeds disagree about what a league
+      // parameter is.
+      const { data: rows, source } = await footballData('livescore');
+      const mine = (rows || []).filter((r) => matchIsLeague(r, canon));
+
+      if (!footballHasData(mine)) {
+        const any = footballSummary(rows, 5);
+        await reply(
+          `🔴 **NOTHING LIVE IN ${canon.toUpperCase()}**\n`
+          + '· · · · · · ·\n'
+          + 'No match in that league is on right now.\n'
+          + (any ? `\n📡 Live elsewhere:\n${any}\n` : '')
+          + '📖 Nothing was charged for this.',
+          event.messageID,
+        );
+        return;
+      }
+
       const paid = await charge(userDoc, FEES.livefootball, 'downloader:livefootball');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
       }
 
-      // TheSportsDB keys on a league name; ask Groq to map the word to the
-      // canonical name rather than hard-coding a table that goes stale.
-      const canon = await askGroq(
-        `Normalise this football league name to its canonical form: "${league}". `
-        + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
-        'Style: one short phrase.',
-      );
-      const matches = await footballData('livescore', canon || league);
-
-      const read = await askGroq(
-        `Live ${canon || league} matches: ${JSON.stringify(matches || [])}. `
+      const facts = footballSummary(mine, 10);
+      const read = await askGroqQuiet(
+        `Live ${canon} matches: ${facts}. `
         + `Give the scorelines, who is in control, and the one match worth watching. `
         + `If there is no data, say so.`,
         'Style: urgent, clipped, like a live blog.',
       );
-      await reply(`🔴 **LIVE ${(canon || league).toUpperCase()}**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.livefootball)}`, event.messageID);
+      await reply(
+        `🔴 **LIVE ${canon.toUpperCase()}**\n`
+        + '· · · · · · ·\n'
+        + `${facts}\n\n`
+        + (read ? `${read}\n\n` : '')
+        + `💸 ${kc(FEES.livefootball)}`
+        + `${source ? `\n📡 ${source}` : ''}`,
+        event.messageID,
+      );
     }),
   });
 
@@ -2318,7 +2662,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     name: 'score',
     aliases: ['teamscore', 'whowon'],
     category: 'football',
-    description: '📊 One team, one number — Groq puts a probability on it',
+    description: '📊 One team, one number — their scoreline if it is on, a probability if it is not',
     usage: '!score <team>',
     cooldown: 15,
     permission: 'all',
@@ -2330,57 +2674,110 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         return;
       }
 
+      // Look for the team in the feeds BEFORE charging. The old command
+      // charged first and then asked a question about data it had not
+      // fetched, so a team that was not on the feed cost the person 50
+      // K-Cash for a paragraph about a match that does not exist.
+      const [live, fixtures] = await Promise.all([
+        footballData('livescore'),
+        footballData('fixtures'),
+      ]);
+      const needle = team.toLowerCase();
+      const inAll = dedupeMatches([...(live.data || []), ...(fixtures.data || [])]);
+      const mine = inAll.filter((r) => {
+        const m = normaliseMatch(r);
+        return m.home.toLowerCase().includes(needle) || m.away.toLowerCase().includes(needle);
+      });
+
       const paid = await charge(userDoc, FEES.score, 'downloader:score');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
       }
 
-      const matches = await footballData('livescore');
-      const read = await askGroq(
-        `Find any match involving "${team}" in this data: ${JSON.stringify(matches || [])}. `
-        + `Report the score. If the team is not in it, say the data does not cover them and `
-        + `give your honest win probability for their next fixture instead.`,
+      if (!footballHasData(mine)) {
+        await reply(
+          `📊 **${team.toUpperCase()}**\n`
+          + '· · · · · · ·\n'
+          + 'That team is not in the live list or the fixture list right now.\n'
+          + `📖 The feeds only cover the leagues they cover — try the full club name.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const facts = footballSummary(mine, 5);
+      const read = await askGroqQuiet(
+        `These are the matches involving "${team}": ${facts}. `
+        + `Report the score and who is in control. If it is not on, say the data does not cover them.`,
         'Style: scoreboard voice, then one line of opinion.',
       );
-      await reply(`📊 **${team.toUpperCase()}**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.score)}`, event.messageID);
+      await reply(
+        `📊 **${team.toUpperCase()}**\n`
+        + '· · · · · · ·\n'
+        + `${facts}\n\n`
+        + (read ? `${read}\n\n` : '')
+        + `💸 ${kc(FEES.score)}`,
+        event.messageID,
+      );
     }),
   });
 
-  commands.push({
+    commands.push({
     name: 'footballnews',
-    aliases: ['footballheadlines', 'footballdrama'],
+    aliases: ['footballheadlines'],
     category: 'football',
-    description: '📰 Football news — Groq finds the story and roasts it',
+    description: '📰 Football news — the biggest stories, and what they mean',
     usage: '!footballnews',
     cooldown: 20,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'footballnews', async () => {
       await react('📰');
-      const paid = await charge(userDoc, FEES.footballnews, 'downloader:footballnews');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
 
       // No free football news API that stays up, so the headlines come from
       // Groq. It is told to write them as summaries rather than fabricating
       // specific transfer fees and quotes.
-      const news = await askGroq(
+      const news = await askGroqQuiet(
         `Give the 5 biggest football stories right now. For each: a one line headline and one `
         + `line on why it matters. If you are not certain something is real today, mark it `
         + `"(unverified)" rather than inventing a fee or a quote.`,
         'Style: tabloid energy, honest about uncertainty.',
       );
-      await reply(`📰 **FOOTBALL NEWS**\n· · · · · · ·\n${news}\n💸 ${kc(FEES.footballnews)}`, event.messageID);
+
+      // Charge only for an answer. The old order took the fee first and then
+      // found out that Groq was not answering, so a person paid 50 K-Cash for
+      // an offline notice.
+      if (!news) {
+        await reply(
+          '📰 **NO HEADLINES RIGHT NOW**\n'
+          + '· · · · · · ·\n'
+          + 'The AI that writes the headlines is not answering, and there is no free feed to fall back on.\n'
+          + '📖 Nothing was charged for this.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.footballnews, 'downloader:footballnews');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+      await reply(
+        `📰 **FOOTBALL NEWS**\n`
+        + '· · · · · · ·\n'
+        + `${news}\n`
+        + `💸 ${kc(FEES.footballnews)}`,
+        event.messageID,
+      );
     }),
   });
 
-  commands.push({
+    commands.push({
     name: 'matchpredict',
     aliases: ['predict', 'predictmatch'],
     category: 'football',
-    description: '🔮 "Real vs Barca" — Groq picks a winner and shows its reasoning',
+    description: '🔮 "Real vs Barca" — a winner, the percentages, and the reasoning',
     usage: '!matchpredict <teamA> vs <teamB>',
     cooldown: 20,
     permission: 'all',
@@ -2392,18 +2789,30 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         return;
       }
 
+      const read = await askGroqQuiet(
+        `Predict: ${fixture}. Give win/draw/loss percentages that add to 100, then 3 short `
+        + `reasons, then one "dark horse" line. Base it on form and squad strength, `
+        + `and say it is a prediction, not a fact.`,
+        'Style: pundit who wants to be right and admits he might not be.',
+      );
+      if (!read) {
+        await reply(
+          `🔮 **NO PREDICTION**\n`
+          + '· · · · · · ·\n'
+          + 'The predictor is not answering right now, and a prediction with no numbers behind it '
+          + 'is just an opinion with a fee attached.\n'
+          + '📖 Nothing was charged for this.',
+          event.messageID,
+        );
+        return;
+      }
+
       const paid = await charge(userDoc, FEES.matchpredict, 'downloader:matchpredict');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
       }
 
-      const read = await askGroq(
-        `Predict: ${fixture}. Give win/draw/loss percentages that add to 100, then 3 short `
-        + `reasons, then one "dark horse" line. Base it on form and squad strength, `
-        + `and say it is a prediction, not a fact.`,
-        'Style: pundit who wants to be right and admits he might not be.',
-      );
       const card = await captionCard({
         title: 'MATCH PREDICTION',
         subtitle: fixture.toUpperCase(),
@@ -2415,7 +2824,13 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         await reply({ body: `🔮 **${fixture.toUpperCase()}**\n\n${read}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply(`🔮 **${fixture.toUpperCase()}**\n· · · · · · ·\n${read}`, event.messageID);
+      await reply(
+        `🔮 **${fixture.toUpperCase()}**\n`
+        + '· · · · · · ·\n'
+        + `${read}\n`
+        + `💸 ${kc(FEES.matchpredict)}`,
+        event.messageID,
+      );
     }),
   });
 
@@ -2424,11 +2839,11 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   // Both come from the same standings feed, so one fetch serves two
   // commands and neither has to know which host answered.
 
-  commands.push({
+    commands.push({
     name: 'nextwinner',
     aliases: ['nextmatch', 'nextwin', 'whothenext'],
     category: 'football',
-    description: '⚡ Who wins next — Groq reads the fixtures and picks the sure things',
+    description: '⚡ Who wins next — the fixtures, and the ones that are already decided',
     usage: '!nextwinner <league>',
     hint: 'Looks at the next fixture for every team in the league and says which ones are effectively decided.',
     cooldown: 20,
@@ -2440,33 +2855,52 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         await reply('❌ Usage: `!nextwinner Premier League`', event.messageID);
         return;
       }
+      const canon = canonicalLeague(league);
+      const { data: rows, source } = await footballData('fixtures');
+      const mine = (rows || []).filter((r) => matchIsLeague(r, canon));
+
+      if (!footballHasData(mine)) {
+        await reply(
+          `⚡ **NO FIXTURES FOR ${canon.toUpperCase()}**\n`
+          + '· · · · · · ·\n'
+          + 'The feed did not have any fixtures for that league.\n'
+          + '📖 Nothing was charged for this.',
+          event.messageID,
+        );
+        return;
+      }
+
       const paid = await charge(userDoc, FEES.nextwinner, 'downloader:nextwinner');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
       }
-      const canon = await askGroq(
-        `Normalise this football league name to its canonical form: "${league}". `
-        + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
-        'Style: one short phrase.',
-      );
-      const { data: rows, source } = await footballData('fixtures', canon || league);
-      const read = await askGroq(
-        `Here are the next fixtures for ${canon || league}: ${JSON.stringify(rows || [])}. `
+
+      const facts = footballSummary(mine, 10);
+      const read = await askGroqQuiet(
+        `Here are the next fixtures for ${canon}: ${facts}. `
         + `Name the teams that can win their next match and the ones that cannot, `
         + `and say which of the "can win" ones are actually sure things. `
         + `If there are no fixtures, say so.`,
         'Style: short, punchy, like a runner-up bulletin.',
       );
-      await reply(`⚡ **NEXT WINNERS — ${(canon || league).toUpperCase()}**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.nextwinner)}${source ? `\n📡 ${source}` : ''}`, event.messageID);
+      await reply(
+        `⚡ **NEXT WINNERS — ${canon.toUpperCase()}**\n`
+        + '· · · · · · ·\n'
+        + `${facts}\n\n`
+        + (read ? `${read}\n\n` : '')
+        + `💸 ${kc(FEES.nextwinner)}`
+        + `${source ? `\n📡 ${source}` : ''}`,
+        event.messageID,
+      );
     }),
   });
 
-  commands.push({
+    commands.push({
     name: 'teaminfo',
     aliases: ['team', 'squad'],
     category: 'football',
-    description: '🛡️ One club, one card — Groq reads the squad and the badge',
+    description: '🛡️ One club, one card — the badge, the league and the squad',
     usage: '!teaminfo <team>',
     hint: 'The badge URL is sent as the picture when the feed has one, so the card looks like the club.',
     cooldown: 15,
@@ -2478,39 +2912,68 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         await reply('❌ Usage: `!teaminfo Liverpool`', event.messageID);
         return;
       }
+
+      // No AI for the name. The old command asked Groq to canonicalise a club
+      // name, which is a lookup table wearing a network round trip.
+      const { data: rows, source } = await footballData('team', team);
+      const list = rows || [];
+      const badge = list[0] && (list[0].strTeamBadge || list[0].badge || list[0].logo);
+
+      if (!footballHasData(list)) {
+        await reply(
+          `🛡️ **${team.toUpperCase()}**\n`
+          + '· · · · · · ·\n'
+          + 'The feed does not know that club.\n'
+          + '📖 Try the full name — "Real Madrid CF" rather than "Real".',
+          event.messageID,
+        );
+        return;
+      }
+
       const paid = await charge(userDoc, FEES.teaminfo, 'downloader:teaminfo');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
       }
-      const canon = await askGroq(
-        `Normalise this football team name to its canonical form: "${team}". `
-        + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
-        'Style: one short phrase.',
-      );
-      const { data: rows, source } = await footballData('team', canon || team);
-      const badge = rows[0] && (rows[0].strTeamBadge || rows[0].badge || rows[0].logo);
-      const read = await askGroq(
-        `Here is everything the football feeds know about ${canon || team}: ${JSON.stringify(rows || [])}. `
+
+      const read = await askGroqQuiet(
+        `Here is everything the football feeds know about ${team}: ${JSON.stringify(list)}. `
         + `Give the league, the stadium, the manager, the star player, and one line on their style of play. `
         + `If the feed had nothing, say so and talk about the club from general knowledge, labelled as such.`,
         'Style: club programme voice, warm and specific.',
       );
+      // The fallback is the feed's own record, not a blank line. Everything
+      // below is a fact the feed gave us, so the card is worth sending even
+      // when the AI that usually writes the prose is not answering.
+      const first = list[0] || {};
+      const facts = [
+        first.strTeam ? `🏷️ ${first.strTeam}` : null,
+        first.strLeague ? `🏆 ${first.strLeague}` : null,
+        first.strStadium || first.strVenue ? `🏟️ ${first.strStadium || first.strVenue}` : null,
+        first.strCountry ? `🌍 ${first.strCountry}` : null,
+        first.strDescription || first.strTeamDescription
+          ? `📖 ${String(first.strDescription || first.strTeamDescription).slice(0, 300)}`
+          : null,
+      ].filter(Boolean).join('\n');
       await sendPhoto({
         reply,
         messageID: event.messageID,
         url: badge,
-        body: `🛡️ **${(canon || team).toUpperCase()}**\n· · · · · · ·\n${read}${source ? `\n\n📡 Data from ${source}.` : ''}`,
-        title: canon || team,
+        body: `🛡️ **${team.toUpperCase()}**\n`
+          + '· · · · · · ·\n'
+          + (read ? `${read}\n\n${facts}` : facts || `${list.length} record(s) from the feed.`)
+          + `\n💸 ${kc(FEES.teaminfo)}`
+          + `${source ? `\n📡 Data from ${source}.` : ''}`,
+        title: team,
       });
     }),
   });
 
-  commands.push({
+    commands.push({
     name: 'fixtures',
     aliases: ['fix', 'schedule', 'nextgames'],
     category: 'football',
-    description: '📅 The next batch of fixtures — Groq lists them and the ones that matter',
+    description: '📅 The next batch of fixtures — the list, and the two that matter',
     usage: '!fixtures <league>',
     cooldown: 15,
     permission: 'all',
@@ -2521,24 +2984,43 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         await reply('❌ Usage: `!fixtures Premier League`', event.messageID);
         return;
       }
+      const canon = canonicalLeague(league);
+      const { data: rows, source } = await footballData('fixtures');
+      const mine = (rows || []).filter((r) => matchIsLeague(r, canon));
+
+      if (!footballHasData(mine)) {
+        await reply(
+          `📅 **NO FIXTURES FOR ${canon.toUpperCase()}**\n`
+          + '· · · · · · ·\n'
+          + 'The feed did not have any fixtures for that league.\n'
+          + '📖 Nothing was charged for this.',
+          event.messageID,
+        );
+        return;
+      }
+
       const paid = await charge(userDoc, FEES.fixtures, 'downloader:fixtures');
       if (!paid.ok) {
         await reply(paid.reason, event.messageID);
         return;
       }
-      const canon = await askGroq(
-        `Normalise this football league name to its canonical form: "${league}". `
-        + `Answer with the canonical name only, or the input unchanged if you are not sure.`,
-        'Style: one short phrase.',
-      );
-      const { data: rows, source } = await footballData('fixtures', canon || league);
-      const read = await askGroq(
-        `Here are the next fixtures for ${canon || league}: ${JSON.stringify(rows || [])}. `
+
+      const facts = footballSummary(mine, 12);
+      const read = await askGroqQuiet(
+        `Here are the next fixtures for ${canon}: ${facts}. `
         + `List them in order, and call out the two that could change the title race. `
         + `If there are no fixtures, say so.`,
         'Style: fixture list, then one line of genuine interest.',
       );
-      await reply(`📅 **${(canon || league).toUpperCase()}**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.fixtures)}${source ? `\n📡 ${source}` : ''}`, event.messageID);
+      await reply(
+        `📅 **${canon.toUpperCase()}**\n`
+        + '· · · · · · ·\n'
+        + `${facts}\n\n`
+        + (read ? `${read}\n\n` : '')
+        + `💸 ${kc(FEES.fixtures)}`
+        + `${source ? `\n📡 ${source}` : ''}`,
+        event.messageID,
+      );
     }),
   });
 

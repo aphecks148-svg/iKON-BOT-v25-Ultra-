@@ -1990,7 +1990,7 @@ function query(doc) {
   });
 
   await step('no user-facing string draws a box or a heavy rule', () => {
-    // The house style applies to all 352 commands, not only to help. Progress
+    // The house style applies to every command, not only to help. Progress
     // bars (█ ░ ▰ ▱) are data and stay; rules and frames do not.
     const fs2 = require('fs');
     const path2 = require('path');
@@ -6321,6 +6321,99 @@ const PIKACHU = dex.find('pikachu');
       }
     }
     return 'every command describes its own task';
+  });
+
+  // ── the football commands ──────────────────────────────
+  // Every one of these used to charge first and ask questions later, and two
+  // of them used to spend an AI round trip to spell a league name. The rule
+  // the tests below hold them to: no money moves until there is something to
+  // show, and the facts come from the feed rather than from a language model.
+  await step('the football commands show real scorelines and charge for them once', async () => {
+    const loader = require('./loader');
+    const loaded = loader.loadCommands(path.join(__dirname, '..', 'commands'));
+    const axios = require('axios');
+    const realAdapter = axios.defaults.adapter;
+
+    const events = [
+      {
+        strEvent: 'Arsenal vs Chelsea',
+        strLeague: 'English Premier League',
+        strHomeTeam: 'Arsenal',
+        strAwayTeam: 'Chelsea',
+        intHomeScore: 2,
+        intAwayScore: 1,
+        strStatus: 'Live',
+        strProgress: '78',
+      },
+      {
+        strEvent: 'Dortmund vs Leverkusen',
+        strLeague: 'Bundesliga',
+        strHomeTeam: 'Dortmund',
+        strAwayTeam: 'Leverkusen',
+        intHomeScore: 0,
+        intAwayScore: 0,
+        strStatus: 'Not Started',
+        strProgress: '',
+      },
+    ];
+
+    // The adapter is the seam: every HTTP call the command makes goes
+    // through it, and the football module reads the feed shape out of whatever
+    // comes back.
+    const withFeed = async (cfg) => {
+      const url = String((cfg && cfg.url) || '');
+      if (url.includes('thesportsdb')) {
+        if (url.includes('livescore')) return { data: { events }, status: 200, headers: {}, config: cfg };
+        return { data: { events }, status: 200, headers: {}, config: cfg };
+      }
+      return { data: {}, status: 200, headers: {}, config: cfg };
+    };
+    const noFeed = async (cfg) => ({ data: {}, status: 200, headers: {}, config: cfg });
+
+    const run = async (name, args, adapter) => {
+      axios.defaults.adapter = adapter;
+      const cmd = loaded.registry.get(name);
+      const said = [];
+      const userDoc = { uid: 'u_fb', coins: 1000, bank: 0, level: 1, xp: 0 };
+      await cmd.execute({
+        api: { getUserInfo: async () => ({ name: 'Tester' }) },
+        args,
+        event: { messageID: 'm_fb', senderID: 'u_fb', isGroup: true, threadID: 't_fb' },
+        userDoc,
+        reply: async (t) => { said.push(typeof t === 'string' ? t : t.body); },
+        react: async () => true,
+        config: { PREFIX: '!', BOT_NAME: 'iKON' },
+      });
+      return { said: said.join('\n'), coins: userDoc.coins };
+    };
+
+    try {
+      // A feed that answers: the scoreline is there and the fee is taken.
+      const live = await run('football', [], withFeed);
+      assert.ok(/Arsenal/.test(live.said), `the scoreline must be on the card: ${live.said}`);
+      assert.ok(/2 - 1/.test(live.said), `the score must be on the card: ${live.said}`);
+      assert.strictEqual(live.coins, 950, 'the fee is taken once, for an answer');
+
+      // A feed that does not: nothing is taken, and it says so.
+      const empty = await run('football', [], noFeed);
+      assert.strictEqual(empty.coins, 1000, 'no data means no fee');
+      assert.ok(/NOTHING TO SHOW/.test(empty.said), `it must say so plainly: ${empty.said}`);
+
+      // The league is matched locally — "EPL" finds the Premier League, and
+      // the Bundesliga match is not in the answer.
+      const epl = await run('livefootball', ['EPL'], withFeed);
+      assert.ok(/Arsenal/.test(epl.said), 'the EPL match must be there');
+      assert.ok(!/Dortmund/.test(epl.said), 'and only the EPL match');
+      assert.ok(/ENGLISH PREMIER LEAGUE/.test(epl.said), 'and the league must be named');
+
+      // A league nobody is playing in: no fee, and no pretending.
+      const bundes = await run('livefootball', ['la liga'], withFeed);
+      assert.strictEqual(bundes.coins, 1000, 'no matches means no fee');
+      assert.ok(/NOTHING LIVE/.test(bundes.said), `it must say nothing was live: ${bundes.said}`);
+    } finally {
+      axios.defaults.adapter = realAdapter;
+    }
+    return 'scorelines from the feed, and the fee follows the answer';
   });
 
   // ── the kingdom system ──────────────────────────────
