@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * MODULE 1 — SYSTEM CORE (42 commands)
+ * MODULE 1 — SYSTEM CORE (47 commands)
  *
  * Exports a plain array. No factories, no legacy loader.
  *
@@ -1931,6 +1931,126 @@ module.exports = [
         + `📖 ${arg === 'on' ? 'Go make coffee — you are off the record.' : 'Welcome back.'}`,
         event.messageID,
       );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 38$ — find a command by what it does
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'search',
+    aliases: ['findcmd', 'cmdsearch'],
+    category: 'system',
+    description: '🔎 Search every command by keyword — name, alias or description',
+    usage: '!search <keyword>',
+    hint: 'Four hundred commands is too many to hold in your head. `!search coin` finds the ones that touch money.',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, registry, reply, react, event }) => guard(reply, event.messageID, 'search', async () => {
+      await react('🔎');
+      const q = String(args.join(' ')).trim().toLowerCase();
+      if (!q) {
+        await reply('❌ Usage: `!search <keyword>`\nExample: `!search coin`', event.messageID);
+        return;
+      }
+
+      // The registry is the whole bot: name, alias and description are the three
+      // things a person actually remembers about a command.
+      const hits = [];
+      for (const cmd of registry.values()) {
+        const name = String(cmd.name || '');
+        const aliases = (cmd.aliases || []).map((a) => String(a));
+        const desc = String(cmd.description || '').toLowerCase();
+        if (name.includes(q) || aliases.some((a) => a.includes(q)) || desc.includes(q)) hits.push(cmd);
+      }
+
+      if (!hits.length) {
+        await reply(
+          `🔎 Nothing matches \`${q}\`.\n`
+          + '· · · · · · ·\n'
+          + '📖 `!help` opens the decks, `!listcmds` prints every name.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const shown = hits.slice(0, 12);
+      const lines = shown.map((c) => `• \`${c.usage}\` — ${c.description}`);
+      await reply(
+        `🔎 **${hits.length} command(s) match "${q}"**\n`
+        + '· · · · · · ·\n'
+        + lines.join('\n')
+        + (hits.length > shown.length ? `\n…and ${hits.length - shown.length} more. \`!help\` opens the full deck.` : ''),
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 39$ — the clock, anywhere on earth
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'time',
+    aliases: ['clock', 'worldtime'],
+    category: 'system',
+    description: '🕐 The clock in any city — `!time Africa/Nairobi`',
+    usage: '!time [timezone]',
+    hint: 'No argument gives the bot\'s own clock. Give it an IANA zone and it gives that one.',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, reply, react, event }) => guard(reply, event.messageID, 'time', async () => {
+      await react('🕐');
+      const now = new Date();
+      const serverZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const zone = String(args[0] || '').trim();
+
+      const stamp = (tz) => new Intl.DateTimeFormat('en-GB', {
+        dateStyle: 'full', timeStyle: 'short', timeZone: tz,
+      }).format(now);
+
+      if (!zone) {
+        await reply(
+          `🕐 **SERVER CLOCK**\n`
+          + '· · · · · · ·\n'
+          + `🖥️ ${stamp(serverZone)} (${serverZone})\n`
+          + `🌍 UTC: ${stamp('UTC')}\n`
+          + '📖 `!time <timezone>` — `Africa/Nairobi`, `Europe/London`, `America/New_York`, `Asia/Tokyo`.',
+          event.messageID,
+        );
+        return;
+      }
+
+      let formatted;
+      try {
+        formatted = stamp(zone);
+      } catch {
+        await reply(
+          `❌ \`${zone}\` is not a timezone I know.\n`
+          + '· · · · · · ·\n'
+          + '📖 Use an IANA name: `Africa/Nairobi`, `Europe/London`, `America/New_York`, `Asia/Tokyo`, `UTC`.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // Which day is it over there, compared to the bot's own day. A nicety,
+      // never a reason to fail the command.
+      let dayNote = '';
+      try {
+        const day = (tz) => new Intl.DateTimeFormat('en-CA', {
+          timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(now);
+        const here = day(serverZone);
+        const there = day(zone);
+        if (here !== there) {
+          const diff = Math.round((Date.parse(`${there}T00:00:00Z`) - Date.parse(`${here}T00:00:00Z`)) / 86400000);
+          dayNote = diff > 0
+            ? `\n📅 That is ${diff === 1 ? 'tomorrow' : `${diff} days ahead`} of ${serverZone}.`
+            : `\n📅 That is ${diff === -1 ? 'yesterday' : `${-diff} days behind`} ${serverZone}.`;
+        }
+      } catch { /* the day note is optional */ }
+
+      await reply(`🕐 **${zone}**\n· · · · · · ·\n🕰️ ${formatted}${dayNote}`, event.messageID);
     }),
   },
 ];
