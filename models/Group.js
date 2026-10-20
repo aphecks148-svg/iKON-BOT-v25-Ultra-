@@ -145,6 +145,11 @@ const GroupSchema = new mongoose.Schema(
       },
       // Link scrubbing: on/off plus the flat fine applied to each offender.
       antiLink: { on: { type: Boolean, default: false }, fine: { type: Number, default: 500 } },
+      // The word filter. A message containing one of these words is dropped and
+      // the sender is told the message did not go through — the word itself is
+      // never named back to them, because naming it teaches them to spell it
+      // differently. Empty by default: a chat that wants one asks for it.
+      words: { type: [String], default: [] },
       // Auto-download: the bot answers a video link posted in the chat without
       // being asked. Off by default, on purpose — a bot that answers every link
       // in a chat is posting to people who never requested it, and that is the

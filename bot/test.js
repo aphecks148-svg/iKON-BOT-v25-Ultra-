@@ -6098,6 +6098,41 @@ const PIKACHU = dex.find('pikachu');
     return 'emoji through, words dropped, commands always through';
   });
 
+  await step('the word filter drops a filtered word and never names it back', async () => {
+    const moderation = require('./moderation');
+
+    // The matcher itself. Whole words, case-blind, and a filter must not
+    // swallow a longer word that happens to contain it.
+    assert.strictEqual(moderation.matchesFilter('you are an ass', ['ass']), 'ass');
+    assert.strictEqual(moderation.matchesFilter('you are an ASS', ['ass']), 'ass');
+    assert.strictEqual(moderation.matchesFilter('hello class', ['ass']), null, 'a filter does not swallow a longer word');
+    assert.strictEqual(moderation.matchesFilter('nothing here', ['badword']), null);
+    assert.strictEqual(moderation.matchesFilter('', ['badword']), null);
+    assert.strictEqual(moderation.matchesFilter('anything at all', []), null, 'an empty filter filters nothing');
+
+    const toggles = require('./toggles');
+    const realGetGroup = toggles.getGroup;
+    toggles.getGroup = async () => ({ gc: { words: ['spamword'] } });
+    try {
+      const hit = await moderation.inspect({
+        threadID: 'tw', uid: 'u_w', body: 'this is a SpamWord here', isGroup: true,
+      });
+      assert.strictEqual(hit.action, 'refuse', 'a filtered message does not land');
+      assert.strictEqual(hit.reason, 'wordfilter');
+      // Naming the word back teaches the next person how to spell around it.
+      assert.ok(hit.text && !/spamword/i.test(hit.text), 'the filter never names the word back');
+
+      const clean = await moderation.inspect({
+        threadID: 'tw', uid: 'u_w', body: 'a perfectly ordinary sentence', isGroup: true,
+      });
+      assert.strictEqual(clean.action, 'allow', 'an ordinary sentence still lands');
+    } finally {
+      toggles.getGroup = realGetGroup;
+      moderation.invalidate('tw');
+    }
+    return 'filtered words dropped, clean sentences through, the word never named';
+  });
+
   await step('anti-link fines a link and does not fine a sentence that merely mentions one', async () => {
     const moderation = require('./moderation');
     assert.ok(moderation.matchesLink('go to https://spam.example/x now'), 'a scheme is a link');

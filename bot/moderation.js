@@ -167,6 +167,34 @@ function emojiOnly(text, allowed) {
   return left === '';
 }
 
+/**
+ * Does this text contain one of the chat's filtered words?
+ *
+ * Matching is on whole words, not substrings, so a filter on "ass" does not
+ * swallow "class". The word is escaped before it goes into the pattern, because
+ * a word is whatever the admin typed — including the dot in "i.e.".
+ *
+ * @param {string} text
+ * @param {string[]} words
+ * @returns {string|null} the word that matched, or null
+ */
+function matchesFilter(text, words) {
+  const list = (Array.isArray(words) ? words : []).map((w) => String(w || '').trim().toLowerCase()).filter(Boolean);
+  if (!list.length) return null;
+  const body = String(text || '').toLowerCase();
+  if (!body) return null;
+  for (const word of list) {
+    const safe = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // \b does not work next to a non-word character, so a filter that starts or
+    // ends with punctuation is matched on a plain substring instead.
+    const pattern = /^[\w]/.test(safe) && /[\w]$/.test(safe)
+      ? new RegExp(`\\b${safe}\\b`, 'i')
+      : new RegExp(safe, 'i');
+    if (pattern.test(body)) return word;
+  }
+  return null;
+}
+
 /** Append one line to the audit ledger. Never throws. */
 async function ledger(uid, action, amount, balanceAfter, metadata = {}) {
   if (!mongo.isReady()) return;
@@ -349,7 +377,19 @@ async function inspect({
     return out;
   }
 
-  // ── 5. Anti-link ──
+  // ── 5. Word filter ──
+  // A message with a filtered word in it never lands. The word is not named
+  // back to the sender: a filter that explains itself teaches the next
+  // person how to spell around it.
+  const filtered = matchesFilter(body, gc.words);
+  if (filtered) {
+    out.action = 'refuse';
+    out.reason = 'wordfilter';
+    out.text = '🚫 That message did not go through. Read the room.';
+    return out;
+  }
+
+  // ── 6. Anti-link ──
   // For a command, only the ARGUMENTS are tested: the command word is never a
   // link, and fining somebody for typing a command the bot does not have would
   // be charging them for talking to it.
@@ -368,7 +408,7 @@ async function inspect({
     return out;
   }
 
-  // ── 6. Warzone tax ──
+  // ── 7. Warzone tax ──
   // Runs last and replies to nothing: it is a tax, not a conversation.
   if (gc.warzone && gc.warzone.on) out.taken = await collectTax(uid, gc);
 
@@ -422,5 +462,5 @@ function stats() {
 module.exports = {
   inspect, raidCheck, invalidate, sweep, stats, gcFor,
   // exported for tests and for the commands that write these lists
-  active, find, emojiOnly, matchesLink: (t) => LINK.test(String(t || '')), LINK,
+  active, find, emojiOnly, matchesFilter, matchesLink: (t) => LINK.test(String(t || '')), LINK,
 };

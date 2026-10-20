@@ -45,6 +45,7 @@ const gcs = require('../bot/gcs');
 const moderation = require('../bot/moderation');
 const flood = require('../bot/flood');
 const toggles = require('../bot/toggles');
+const config = require('../config');
 
 const CASH = 'K-Cash';
 const OWNER = 'Aphecks iKon Klerk';
@@ -380,6 +381,7 @@ function gcfg(group) {
   for (const f of ['ghostBans', 'bans', 'mutes', 'confessions']) {
     if (!Array.isArray(c[f])) c[f] = [];
   }
+  if (!Array.isArray(c.words)) c.words = [];
   if (c.antiLink.fine === undefined || !Number.isFinite(c.antiLink.fine)) c.antiLink.fine = 500;
   // Flood limits backfill to bot/flood.js DEFAULTS rather than to numbers typed
   // here, so the two can never drift apart.
@@ -3186,6 +3188,149 @@ await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavaila
       } catch (err) {
         await reply(`🪪 Messenger refused the nickname (${err.message}).`, event.messageID);
       }
+    }),
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // THE WHOLE CONFIGURATION, IN ONE READ
+  // ───────────────────────────────────────────────────────────
+  commands.push({
+    name: 'gcsettings',
+    aliases: ['gclocks', 'gcconfig'],
+    category: 'group',
+    description: '🛠️ Every switch this chat has set, in one read',
+    usage: '!gcsettings',
+    hint: 'Flood, links, raids, tax, lockdown, filters — what the bot is actually doing here, without hunting for it.',
+    cooldown: 20,
+    permission: 'groupAdmin',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'gcsettings', async () => {
+      await react('🛠️');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+      const settings = ensureSettings(group);
+      const onOff = (v) => (v ? 'ON' : 'off');
+
+      const lines = [
+        `🔧 Prefix: \`${group.prefix || config.PREFIX}\` · Admins only: ${onOff(group.adminsOnly)} · Maintenance: ${onOff(group.maintenance)}`,
+        `🚦 Flood: ${onOff(cfg.flood.on)} · ${cfg.flood.maxPerUser}/${cfg.flood.userWindowSec}s · ${cfg.flood.maxPerThread}/${cfg.flood.threadWindowSec}s · dup ${cfg.flood.duplicateSec}s · mute ${cfg.flood.muteSec}s`,
+        `🔗 Anti-link: ${onOff(cfg.antiLink.on)} · fine ${kc(cfg.antiLink.fine)}`,
+        `🧹 Word filter: ${cfg.words.length ? `${cfg.words.length} word(s)` : 'off'} · use \`!gcword\``,
+        `🛡️ Anti-raid: ${onOff(cfg.antiRaid.on)} · ${cfg.antiRaid.burst} joins in ${Math.round(cfg.antiRaid.windowMs / 1000)}s`,
+        `💸 Warzone tax: ${onOff(cfg.warzone.on)} · ${kc(cfg.warzone.tax)} above ${kc(cfg.warzone.floor)}`,
+        `🚨 Lockdown: ${onOff(cfg.lockdown.on)} · only ${cfg.lockdown.emoji} passes`,
+        `⬇️ Auto-download: ${onOff(cfg.autoDownload.on)} · Broadcasts: ${onOff(cfg.broadcasts.on)}`,
+        `👋 Welcome: ${onOff(settings.welcome)} · Goodbye: ${onOff(settings.goodbye)}`,
+        `🏆 Chat level: ${num(cfg.level)} · ${num(cfg.msgs)} messages counted`,
+        `🐾 Wild Pokemon: ${onOff(group.pokemon && group.pokemon.enabled)}`,
+        `🚫 Disabled: ${num((group.disabledCommands || []).length)} command(s), ${num((group.disabledModules || []).length)} module(s)`,
+      ];
+
+      await reply(
+        `🛠️ **THE SETTINGS OF THIS CHAT**\n`
+        + '· · · · · · ·\n'
+        + `${lines.join('\n')}\n`
+        + '📖 Every one of these has a command behind it. `!help group` lists them.',
+        event.messageID,
+      );
+    }),
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // THE WORD FILTER
+  // ───────────────────────────────────────────────────────────
+  commands.push({
+    name: 'gcword',
+    aliases: ['gcfilter', 'gcwords'],
+    category: 'group',
+    description: '🧹 Filter words out of this chat — `!gcword add <word>`',
+    usage: '!gcword [add|remove|clear] [word]',
+    hint: 'A message with a filtered word in it never lands. The word is never named back to the sender, because naming it teaches them to spell around it.',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gcword', async () => {
+      await react('🧹');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const cfg = gcfg(group);
+      const action = String(args[0] || '').toLowerCase();
+      const word = String(args.slice(1).join(' ')).trim().toLowerCase();
+
+      if (!action || action === 'list') {
+        if (!cfg.words.length) {
+          await reply('🧹 The filter is empty. `!gcword add <word>` to start it.', event.messageID);
+          return;
+        }
+        await reply(
+          `🧹 **THE FILTER** — ${num(cfg.words.length)} word(s)\n`
+          + '· · · · · · ·\n'
+          + `${cfg.words.map((w) => `• ${w}`).join('\n')}\n`
+          + '📖 `!gcword remove <word>` takes one out.',
+          event.messageID,
+        );
+        return;
+      }
+
+      if (action === 'clear' || action === 'off' || action === 'reset') {
+        const n = cfg.words.length;
+        cfg.words = [];
+        await save(group);
+        await reply(`🧹 The filter is empty again. ${n} word(s) removed.`, event.messageID);
+        return;
+      }
+
+      if (action === 'remove' || action === 'rm' || action === 'del' || action === 'delete') {
+        if (!word) {
+          await reply('❌ Usage: `!gcword remove <word>`', event.messageID);
+          return;
+        }
+        const before = cfg.words.length;
+        cfg.words = cfg.words.filter((w) => String(w).toLowerCase() !== word);
+        if (cfg.words.length === before) {
+          await reply(`🧹 \`${word}\` was not on the list.`, event.messageID);
+          return;
+        }
+        await save(group);
+        await reply(`🧹 \`${word}\` is off the list.`, event.messageID);
+        return;
+      }
+
+      if (action !== 'add' && action !== 'on') {
+        await reply('❌ Usage: `!gcword [add|remove|clear] [word]`', event.messageID);
+        return;
+      }
+
+      if (!word) {
+        await reply('❌ Usage: `!gcword add <word>`', event.messageID);
+        return;
+      }
+      if (word.length > 40) {
+        await reply('❌ Too long. Keep a filtered word under 40 characters.', event.messageID);
+        return;
+      }
+      if (cfg.words.some((w) => String(w).toLowerCase() === word)) {
+        await reply(`🧹 \`${word}\` is already on the list.`, event.messageID);
+        return;
+      }
+      if (cfg.words.length >= 50) {
+        await reply('❌ The filter holds 50 words. That is enough for one chat.', event.messageID);
+        return;
+      }
+
+      cfg.words.push(word);
+      await save(group);
+      await reply(
+        `🧹 \`${word}\` is on the list.\n`
+        + '· · · · · · ·\n'
+        + `📖 ${num(cfg.words.length)} word(s) filtered now. \`!gcword\` lists them.`,
+        event.messageID,
+      );
     }),
   });
 
