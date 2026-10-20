@@ -24,7 +24,7 @@ const config = require('../config');
  */
 const PAUSED_ALLOWED_COMMANDS = new Set([
   'unpause', 'resume', 'pause', 'unpauseall',
-  'approve', 'approvegc', 'pending', 'gclist',
+  'approve', 'pending', 'gclist',
   'pausedlist', 'help', 'ping',
 ]);
 
