@@ -21,7 +21,7 @@
  * message starting with "." — a URL, a decimal, an ellipsis — would be parsed as
  * a command on every single message the bot sees.
  */
-const DOT_COMMANDS = new Set(['catch', 'pokemon']);
+const DOT_COMMANDS = new Set([]);
 
 /** Split a prefix-free message body into a command name and its args. */
 function shape(text, raw = text) {

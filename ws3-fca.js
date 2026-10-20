@@ -25,8 +25,6 @@ const cache = require('./bot/cache');
 const canvas = require('./bot/canvas');
 const groqClient = require('./bot/groq');
 const fcaDiag = require('./bot/fcaDiag');
-const dex = require('./bot/pokemon');
-const pokemonSpawn = require('./bot/pokemonSpawn');
 const gcs = require('./bot/gcs');
 const helpers = require('./bot/helpers');
 const profile = require('./bot/profile');
@@ -226,14 +224,6 @@ function startServer() {
       // "[object Object]", so this is the only place the real code appears.
       lastFacebookResponse: fcaDiag.lastRawSummary() || null,
       lastCommands: STATE.lastCommands || [],
-      // Pokemon spawns live in global.pokemonSpawns, so this is the count a
-      // group owner asks for when they say "nothing spawned in hours".
-      // The roster size and the tier ladder, read from the modules that own
-      // them. The previous pair called helpers that only existed in the old
-      // 45-species spawner, so /health threw instead of reporting.
-      pokemonRoster: dex.POKEMON.length,
-      pokemonTiers: dex.TIERS.length,
-      pokemonCheckEvery: Math.round(pokemonSpawn.TICK_MS / 1000),
       threadListLimit: gcs.THREAD_LIMIT,
       // Spam posture, so "is the bot being flooded and did we notice" is one
       // request rather than a guess. `held` and `sealed` are the interesting two:
@@ -507,7 +497,7 @@ async function handleMessage(api, event) {
   const prefix = await resolvePrefix(threadID);
 
   // ── SPAM AND MODERATION ───────────────────────────────────
-  // Ahead of everything below, including the pokemon catch: a reply-to is still
+  // Ahead of everything below: a reply-to is still
   // a message somebody sent, and a muted or flooded member must not be able to
   // make the bot answer them by replying to a spawn.
   //
@@ -580,41 +570,6 @@ async function handleMessage(api, event) {
       } catch (err) {
         error(`[DOWNLOAD] auto-download of ${link.slice(0, 60)} failed: ${err.message}`);
       }
-    }
-  }
-
-  // ── WILD POKEMON ──────────────────────────────────────────
-  // A reply to a spawn message, carrying that Pokemon's name, is a catch. This
-  // runs before the parser because a catch is not a command: the reply is just
-  // a name, and `!pikachu` should not be a thing. attemptCatch answers null for
-  // everything that is not a live spawn — no parent message, wrong name, already
-  // caught, expired, feature off — and the message then carries on to the parser
-  // exactly as it would have.
-  if (event.messageReply) {
-    let caught = null;
-    try {
-      caught = await pokemonSpawn.attemptCatch(api, event);
-    } catch (err) {
-      error(`[POKEMON] catch attempt failed: ${err.message}`);
-    }
-    if (caught) {
-      await reply(
-        api,
-        threadID,
-        {
-          // Awaited because the catcher's name is looked up rather than trusted:
-          // a stored "Facebook User" went out to the whole chat as the winner.
-          body: await pokemonSpawn.catchBody(caught.pokemon, caught.userDoc, caught.isNew, caught.reward, api),
-          attachment: await cards.pokemonCard(caught.pokemon)
-            || { type: 'image', data: { url: dex.sprite(caught.pokemon.id) } },
-        },
-        // Reply to the REPLY, so the confirmation hangs off the answer rather
-        // than off the spawn and the thread still reads top to bottom.
-        messageID,
-        event.isGroup,
-      );
-      await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
-      return;
     }
   }
 
@@ -1506,9 +1461,6 @@ async function handleGroupChange(api, event) {
 // ─────────────────────────────────────────────────────────────
 function attachClient(api) {
   client = api;
-  // The spawner and the group sweep both need a live client, and the only moment
-  // we are certain we have one is the moment it is handed over.
-  pokemonSpawn.start(api, { log, error });
   // Before the sweep, not beside it. A restart is exactly when a lock has to
   // still be true, and the sweep runs per-chat writes that take as long as the
   // thread list does.
@@ -1752,11 +1704,6 @@ function login() {
         STATE.userID = await selfUid(api, null);
         log(`[LOGIN] ${config.BOT_NAME} logged in as ${STATE.userID || 'unknown'}`);
 
-        // Wild Pokemon start spawning now that there is a client to post with
-        // and an emitter to receive catches on. Started here rather than at
-        // module load because before login there is no api to send with.
-        pokemonSpawn.start(api, { log, error });
-
         // startListening resolves with the emitter once the MQTT connection is
         // up. Failing to listen is not fatal: the HTTP server and commands stay
         // available, so the deploy is not restarted over a flaky socket.
@@ -1819,11 +1766,6 @@ async function boot() {
     log(`[BOOT] ${config.BOT_NAME} is online with ${registry.size} commands. Try \`${config.PREFIX}ping\``);
   }
 
-  // 6. POKEMON SPAWNER — after login, because it needs a real client to post
-  // with. Started even when login failed: the timer holds the handle and the
-  // first tick after a successful retry is the first one that does anything.
-  pokemonSpawn.start(api || client, { log, error });
-
   // 7. PENDING LOCKS — read the database's locks back into memory, then sweep
   // the chats so every established group is enabled.
   //
@@ -1868,7 +1810,6 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     // Stop spawning before the database goes away. A tick that fires during
     // disconnect would log a connection error on the way out, and the interval
     // holds the event loop open until process.exit anyway.
-    try { pokemonSpawn.stop(); } catch { /* noop */ }
     try { await mongo.disconnect(); } catch { /* noop */ }
     process.exit(0);
   });
@@ -1931,12 +1872,6 @@ module.exports = {
   listCommands: (category) => loader.listCommands(category, registry),
   mongo,
   canvas,
-  // `dex` is the roster (151 Pokemon, rarity tiers); `pokemon` is an alias of
-  // the same module, kept because the engine internals and several tests refer
-  // to it by that name. Two names for one module, not two rosters.
-  dex,
-  pokemon: dex,
-  pokemonSpawn,
   gcs,
   config,
   loader,

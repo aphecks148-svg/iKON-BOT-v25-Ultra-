@@ -31,8 +31,6 @@ const cache = require('../bot/cache');
 const realProfile = require('../bot/profile');
 const userTarget = require('../bot/target');
 const Group = require('../models/Group');
-const dex = require('../bot/pokemon');
-const pokemonSpawn = require('../bot/pokemonSpawn');
 const toggles = require('../bot/toggles');
 const Kingdom = require('../models/Kingdom');
 const Economy = require('../models/Economy');
@@ -459,37 +457,6 @@ async function xpTail(userDoc, gained, levels, newTitles) {
   return lines;
 }
 
-// ───────────────────────────────────────────────────────────
-// WILD POKEMON — helpers
-// ───────────────────────────────────────────────────────────
-
-/**
- * This chat's Group document, or null.
- *
- * Pokemon are a group feature, so there is nothing to do in a DM and the
- * commands say so rather than silently doing nothing.
- */
-async function pokeGroup(event) {
-  if (!mongo.isReady() || !event || !event.isGroup || !event.threadID) return null;
-  const group = await Group.findOne({ tid: String(event.threadID) }).catch(() => null);
-  if (group && !group.pokemon) {
-    // Backfilled with the same defaults the schema states, not with `{}`. A
-    // document written before wild Pokemon existed read as OFF here while the
-    // scheduler read it as ON, so `!pokemon` reported a setting that had never
-    // been turned down and sent the admin off to fix the wrong thing.
-    group.pokemon = {
-      enabled: true,
-      intervalMs: dex.DEFAULT_INTERVAL_MS,
-      lastSpawnAt: null,
-      lastAttemptAt: null,
-      current: {
-        id: 0, messageID: '', spawnedAt: null, expiresAt: null, caughtBy: '',
-      },
-    };
-  }
-  return group;
-}
-
 /** Persist a group document, tolerating an in-memory one (DB offline). */
 async function pokeSave(group) {
   if (!group || group.transient) return;
@@ -508,24 +475,6 @@ function onOff(args) {
 
 const yesNo = (b) => (b ? 'ON' : 'OFF');
 
-/** What is on the table right now, as one line. */
-function currentLine(group) {
-  const cur = group.pokemon && group.pokemon.current;
-  if (!cur || !cur.messageID) return 'Nothing is out there right now.';
-  const p = dex.byId(cur.id);
-  if (!p) return 'Something is out there. Its name will not load.';
-  if (cur.caughtBy) return `${p.name} was caught. Waiting for the next one.`;
-  if (cur.expiresAt && new Date(cur.expiresAt).getTime() < Date.now()) return `${p.name} got away. A new one is due soon.`;
-  const left = Math.max(0, new Date(cur.expiresAt || Date.now()).getTime() - Date.now());
-  return `**${p.name}** is out there — ${Math.ceil(left / 60000)} min left to reply with its name.`;
-}
-
-/**
- * "in 12m" / "3m ago" / "never".
- *
- * A clock time for the next spawn is less useful than how far away it is, and
- * "never" has to be said rather than rendered as 1970.
- */
 function ago(date) {
   if (!date || !(date instanceof Date) || Number.isNaN(date.getTime()) || date.getTime() <= 0) return 'never';
   const delta = Math.round((Date.now() - date.getTime()) / 1000);
@@ -3115,115 +3064,6 @@ module.exports = [
     }),
   },
 // ─────────────────────────────────────────────────────────
-  // 35 · POKEMON — the wild ones
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'pokemon',
-    aliases: ['pokebot', 'pokespawn'],
-    category: 'rpg',
-    description: '🌿 Admin control for wild Pokemon spawns in this chat',
-    usage: '!pokemon on | off | spawn',
-    hint: 'One Pokemon every 15 minutes. Catch it by replying to its message with its name.',
-    cooldown: 5,
-    permission: 'groupAdmin',
-    execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'pokemon', async () => {
-      if (!event.isGroup) {
-        await reply('❌ Pokemon only spawn in group chats.', event.messageID);
-        return;
-      }
-      const group = await pokeGroup(event);
-      if (!group) {
-        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
-        return;
-      }
-
-      // No argument, or on/off: report and toggle.
-      const want = onOff(args);
-      if (want !== null) {
-        if (group.pokemon.enabled === want) {
-          await reply(
-            `ℹ️ Pokemon are already ${yesNo(want)} here.
-${currentLine(group)}`,
-            event.messageID,
-          );
-          return;
-        }
-        group.pokemon.enabled = want;
-        if (!want) {
-          // Switching off clears the live spawn. Leaving it would let somebody
-          // catch one that the admin had just turned off.
-          group.pokemon.current = { id: 0, messageID: '', spawnedAt: null, expiresAt: null, caughtBy: '' };
-        } else {
-          // Turning on: start the clock now rather than waiting a full interval
-          // from whenever this group was last seen, which could be days ago.
-          group.pokemon.lastSpawnAt = new Date();
-        }
-        await pokeSave(group);
-        await react(want ? '🌿' : '🚫');
-        await reply(
-          want
-            ? `🌿 **POKEMON ARE ON.**
-One every 15 minutes. Reply to its message with its name to catch it.
-First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT_INTERVAL_MS) / 60000)} minutes.`
-            : '🚫 Pokemon are off in this chat. Nothing will spawn.',
-          event.messageID,
-        );
-        return;
-      }
-
-      // "spawn" posts one immediately, which is how an admin checks the setting
-      // works without waiting a quarter of an hour.
-      if (String(args[0] || '').toLowerCase() === 'spawn') {
-        if (!group.pokemon.enabled) {
-          await reply('❌ Pokemon are off here. Turn them on with `!pokemon on` first.', event.messageID);
-          return;
-        }
-        if (pokemonSpawn.hasLiveSpawn(group)) {
-          await reply(`ℹ️ ${currentLine(group)}`, event.messageID);
-          return;
-        }
-        const p = await pokemonSpawn.spawnNow(api, group);
-        if (!p) {
-          await reply('❌ Could not post a spawn. Check the logs.', event.messageID);
-          return;
-        }
-        await reply(`🌿 Posted a **${p.name}** on request.`, event.messageID);
-        return;
-      }
-
-      // Bare !pokemon: status.
-      const interval = Number(group.pokemon.intervalMs) || dex.DEFAULT_INTERVAL_MS;
-      const last = group.pokemon.lastSpawnAt ? new Date(group.pokemon.lastSpawnAt) : null;
-      // `dex.nextDue` reads the same two stamps the scheduler reads and clamps a
-      // past date forward. Computing it here as `last + interval` is what made a
-      // chat whose last spawn was a day ago print "next due: 1d 8h ago" — a
-      // countdown to a moment already gone, on the line directly under "last
-      // spawn: 1d 8h ago".
-      const due = dex.nextDue(group.pokemon);
-      // A group that has never spawned is due on the next tick, not in fifteen
-      // minutes — saying otherwise here is how an admin talks themselves into
-      // thinking the scheduler is asleep.
-      const dueIn = !group.pokemon.enabled
-        ? 'while they are off'
-        : !due.dueAt ? 'any minute now' : ago(due.dueAt);
-      // Behind by more than a second is not rounding, and saying so is more
-      // useful than a countdown that implies the schedule was kept.
-      const behind = due.overdueMs > 1000 ? `\n⚠️ Overdue by ${fmt.dur(due.overdueMs / 1000)} — the next tick posts it.` : '';
-      await react('🌿');
-      await reply(
-        `🌿 **POKEMON IN THIS CHAT: ${yesNo(!!group.pokemon.enabled)}**\n`
-        + '· · · · · · ·\n'
-        + `⏱️ One every ${Math.round(interval / 60000)} minutes\n`
-        + `🕐 Last spawn: ${ago(last)}\n`
-        + `⏭️ Next due: ${dueIn}${behind}\n`
-        + `🎯 ${currentLine(group)}\n`
-        + '· · · · · · ·\n'
-        + 'Turn it on or off with `!pokemon on` / `!pokemon off`.'
-        + `${!group.pokemon.enabled || pokemonSpawn.mayPost(group) ? '' : '\n⚠️ The scheduler will not post here anyway: ' + toggles.evaluateGroup(group, pokemonSpawn.SWITCH.cmdName, pokemonSpawn.SWITCH.category).reason}`,
-        event.messageID,
-      );
-    }),
-  },
 
   // ─────────────────────────────────────────────────────────
   // 36 · POKEMON DEX
@@ -3275,7 +3115,6 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
         + '· · · · · · ·\n'
         + `${lines.join('\n')}\n`
         + '· · · · · · ·\n'
-        + `🎯 ${num(userDoc.pokemonCaught || 0)} caught in total${owned.length < total ? ` · ${total - owned.length} still out there` : ' · **COMPLETE**'}`,
         event.messageID,
       );
     }),

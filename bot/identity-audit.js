@@ -151,7 +151,6 @@ function userDoc(uid = '999000111') {
     stamina: 10,
     prestige: 0,
     dex: [1, 4, 7],
-    pokemonCaught: 3,
     spouse: '',
     title: '',
     pets: [],
@@ -582,9 +581,8 @@ async function main() {
   try {
     // Two commands whose usage line cannot be turned into a valid argument list.
     // `!petlist` takes a rarity or a part number, and reading its bracketed
-    // placeholder as an argument asks for a rarity named "rarity"; `!pokemon`
     // needs the subcommand. Everything else is read off its own usage string.
-    const ARGS = { petlist: [], pokemon: ['spawn'] };
+    const ARGS = { petlist: [] };
     for (const cmd of cmds) {
       const canvas = wantCanvas.has(cmd.name);
       const row = await runOnce(cmd, api, canvas, ARGS[cmd.name] || argsFor(cmd));

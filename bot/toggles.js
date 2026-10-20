@@ -94,7 +94,7 @@ function findGroup(tid) {
  * The per-group switch rules, against a document that is already in hand.
  *
  * Split out of isCommandDisabled because the scheduler asks the same question
- * about work it does itself. `!pokemon off` is honoured by the command, but a
+ * about work it does itself. But a
  * wild Pokemon posted by the background tick is not a command: it used to walk
  * straight past a paused chat, a maintenance switch and a disabled module,
  * which is how an admin turned a feature off and kept getting pictures anyway.

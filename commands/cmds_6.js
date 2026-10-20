@@ -3225,7 +3225,6 @@ await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavaila
         `⬇️ Auto-download: ${onOff(cfg.autoDownload.on)} · Broadcasts: ${onOff(cfg.broadcasts.on)}`,
         `👋 Welcome: ${onOff(settings.welcome)} · Goodbye: ${onOff(settings.goodbye)}`,
         `🏆 Chat level: ${num(cfg.level)} · ${num(cfg.msgs)} messages counted`,
-        `🐾 Wild Pokemon: ${onOff(group.pokemon && group.pokemon.enabled)}`,
         `🚫 Disabled: ${num((group.disabledCommands || []).length)} command(s), ${num((group.disabledModules || []).length)} module(s)`,
       ];
 

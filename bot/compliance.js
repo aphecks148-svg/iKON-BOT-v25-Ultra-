@@ -277,14 +277,6 @@ function safetyReport(group) {
       fix: 'Turn it off with the welcome command.',
     });
   }
-  if (g.pokemon && g.pokemon.enabled) {
-    out.push({
-      level: 'info',
-      setting: 'Wild Pokemon spawns on',
-      why: 'The bot posts a spawn into the chat on a timer, unasked.',
-      fix: 'Turn it off with the pokemon command.',
-    });
-  }
   const invites = gc.invites || {};
   if (invites.windowStart) {
     out.push({
