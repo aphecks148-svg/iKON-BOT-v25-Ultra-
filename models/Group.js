@@ -145,6 +145,15 @@ const GroupSchema = new mongoose.Schema(
       },
       // Link scrubbing: on/off plus the flat fine applied to each offender.
       antiLink: { on: { type: Boolean, default: false }, fine: { type: Number, default: 500 } },
+      // Auto-download: the bot answers a video link posted in the chat without
+      // being asked. Off by default, on purpose — a bot that answers every link
+      // in a chat is posting to people who never requested it, and that is the
+      // pattern that gets a helper bot reported and its account disabled.
+      autoDownload: { on: { type: Boolean, default: false } },
+      // Operator broadcasts. Off by default for the same reason: a message the
+      // owner pushed into the chat is, by definition, one nobody in the chat
+      // asked for. A chat that wants them says so.
+      broadcasts: { on: { type: Boolean, default: false } },
       // Raid lock: lock when `burst` joins land inside `windowMs`.
       antiRaid: {
         on: { type: Boolean, default: false },

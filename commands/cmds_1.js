@@ -24,12 +24,14 @@ const canvas = require('../bot/canvas');
 const loader = require('../bot/loader');
 const { fmt, describeSendError, lastSent, error, reply: helpersReply, savage } = require('../bot/helpers');
 const permissions = require('../bot/permissions');
+const moderation = require('../bot/moderation');
 // The same real-name resolution the cards use, so a text list and a card cannot
 // disagree about who somebody is.
 const cards = require('../bot/cards');
 const userTarget = require('../bot/target');
 const decks = require('../bot/categories');
 const menu = require('../bot/helpmenu');
+const compliance = require('../bot/compliance');
 
 const BOT_ICON = '🤖';
 const OWNER_ICON = '👑';
@@ -799,8 +801,9 @@ module.exports = [
         await reply(
           `🔁 Auto re-add: ${group.autoAddLeavers ? 'ON' : 'OFF'}\n`
           + 'Usage: `!autoadd on` or `!autoadd off`\n'
-          + 'When ON, anyone who leaves is invited straight back. That includes '
-          + 'people who were removed on purpose, so use it only where nobody gets kicked.',
+          + 'When ON, anyone who leaves is invited straight back. '
+          + 'People an admin removed are not — the bot never pulls back somebody '
+          + 'who was kicked.',
           event.messageID,
         );
         return;
@@ -817,8 +820,67 @@ module.exports = [
       await react(mode === 'on' ? '🔁' : '✅');
       await reply(
         mode === 'on'
-          ? '🔁 Auto re-add is ON — leavers get invited back.'
+          ? '🔁 Auto re-add is ON — leavers get invited back. People an admin removed do not.'
           : '✅ Auto re-add is OFF — leavers stay out.',
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 19a$ — auto-download of shared links
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'autodownload',
+    aliases: ['autodl', 'autovert'],
+    category: 'system',
+    description: '⬇️ Auto-download video links posted in this chat',
+    usage: '!autodownload <on|off>',
+    cooldown: 5,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'autodownload', async () => {
+      if (!event.isGroup) {
+        await reply('❌ This command only works in a group.', event.messageID);
+        return;
+      }
+      const group = await toggles.getGroup(event.threadID);
+      const mode = (args[0] || '').toLowerCase();
+      const gc = group.gc || {};
+      const on = Boolean(gc.autoDownload && gc.autoDownload.on);
+
+      if (!['on', 'off'].includes(mode)) {
+        await reply(
+          `⬇️ Auto-download: ${on ? 'ON' : 'OFF'}\n`
+          + 'Usage: `!autodownload on` or `!autodownload off`\n'
+          + 'When ON, the bot downloads any video link posted in this chat and '
+          + 'posts the file. When OFF, it stays quiet until somebody asks for it '
+          + 'with a download command.',
+          event.messageID,
+        );
+        return;
+      }
+
+      if (!gc.autoDownload) gc.autoDownload = { on: false };
+      gc.autoDownload.on = mode === 'on';
+      // Mongoose notices the change to the nested object on its own, but saying
+      // so explicitly costs nothing and removes the doubt.
+      if (typeof group.markModified === 'function') group.markModified('gc');
+
+      // Same honesty as !ban: a transient save() is a no-op, so say so rather
+      // than confirming a setting that will be gone after a restart.
+      if (group.transient) {
+        await reply('⚠️ Database is offline — this setting is TEMPORARY and resets on restart.', event.messageID);
+        return;
+      }
+      await group.save();
+      try {
+        moderation.invalidate(event.threadID);
+      } catch { /* the cache is a cache */ }
+      await react(mode === 'on' ? '⬇️' : '✅');
+      await reply(
+        mode === 'on'
+          ? '⬇️ Auto-download is ON — the bot will answer video links in this chat.'
+          : '✅ Auto-download is OFF — the bot waits to be asked.',
         event.messageID,
       );
     }),
@@ -1460,9 +1522,9 @@ module.exports = [
     name: 'broadcast',
     aliases: ['bc', 'announceall', 'sendall'],
     category: 'system',
-    description: '📡 Send one message to every chat the bot is in',
+    description: '📡 Send one message to every chat that asked for broadcasts',
     usage: '!broadcast <message>',
-    hint: 'Owner only. `!broadcast preview <message>` shows it here first without sending.',
+    hint: 'Owner only. `!broadcast preview <message>` shows it here first without sending. `!broadcast all <message>` forces every chat and spends the fan-out budget.',
     cooldown: 300,
     permission: 'owner',
     execute: async ({ api, args, event, config, reply, react }) => guard(reply, event.messageID, 'broadcast', async () => {
@@ -1472,9 +1534,12 @@ module.exports = [
       // way to un-send from two hundred chats, so the way to check the wording
       // is to see it before it goes.
       const preview = String(args[0] || '').toLowerCase() === 'preview';
-      const msg = (preview ? args.slice(1) : args).join(' ').trim();
+      // `all` sends to every chat the bot is in, whether or not that chat asked
+      // for broadcasts. It is the override, and it is the expensive one.
+      const all = !preview && String(args[0] || '').toLowerCase() === 'all';
+      const msg = (preview || all ? args.slice(1) : args).join(' ').trim();
       if (!msg) {
-        await reply('❌ Usage: `!broadcast <message>` or `!broadcast preview <message>`', event.messageID);
+        await reply('❌ Usage: `!broadcast <message>`, `!broadcast all <message>` or `!broadcast preview <message>`', event.messageID);
         return;
       }
 
@@ -1490,27 +1555,71 @@ module.exports = [
         return;
       }
 
-      const groups = await Group.find({}).select('tid').lean().catch(() => []);
+      // The default is the chats that asked for this. A broadcast is, by
+      // definition, a message nobody in the chat requested, so a chat that has
+      // not opted in has no business getting one — and a chat full of people
+      // who report unsolicited messages is how an account gets suspended.
+      const query = all
+        ? { isEnabled: true }
+        : { isEnabled: true, 'gc.broadcasts.on': true };
+      const groups = await Group.find(query).select('tid').lean().catch(() => []);
       if (!groups.length) {
-        await reply('❌ The bot is in no chats yet, so there was nowhere to send this.', event.messageID);
+        await reply(
+          all
+            ? '❌ The bot is in no active chats, so there was nowhere to send this.'
+            : '❌ No chat has asked for broadcasts.\n'
+            + '· · · · · · ·\n'
+            + 'An admin turns them on with `!broadcasts on`. '
+            + 'Use `!broadcast all <message>` to override and send to every chat anyway.',
+          event.messageID,
+        );
         return;
       }
 
-      // Sequential with a pause, for the same reason as !gccleanup: every send
-      // is an HTTP request to Facebook, and a burst of two hundred of them is
-      // how an account gets rate-limited mid-broadcast — leaving some chats
-      // with the message and some without, with no way to tell which is which.
-      const PAUSE_MS = 1200;
+      // The budget is checked for the WHOLE batch before the first send.
+      //
+      // Two reasons it is all-or-nothing. The first is that a half-delivered
+      // broadcast is the worst of both worlds: some chats have the message and
+      // some do not, and there is no way to tell which is which. The second is
+      // that the part which did go out is still the signal — the same text to
+      // a hundred recipients in ten minutes is what the spam classifiers look
+      // for, whether or not the last ten chats got it.
+      const left = compliance.fanoutRemaining();
+      const needed = groups.length;
+      if (!compliance.canFanout(needed)) {
+        await reply(
+          '🛑 **Refusing to send.**\n'
+          + '· · · · · · ·\n'
+          + `This would push ${needed} messages at once, and the budget has room for `
+          + `${Math.min(left.hour, left.day)}.\n`
+          + `Hourly limit: ${left.hour}/${left.hourMax} left · Daily limit: ${left.day}/${left.dayMax} left.\n`
+          + 'Send a smaller broadcast, or wait for the window to clear.',
+          event.messageID,
+        );
+        return;
+      }
+      compliance.takeFanoutSlots(needed);
+
+      // Sequential, with a randomised gap.
+      //
+      // Every send is an HTTP request to Facebook, and a burst of two hundred
+      // of them is how an account gets rate-limited mid-broadcast. The gap is
+      // randomised rather than fixed on purpose: a fixed delay is a rhythm, and
+      // a machine with a rhythm is a machine, while a person pauses
+      // unpredictably.
       let sent = 0;
       const failed = [];
+      let elapsed = 0;
       for (const g of groups) {
         const tid = String(g.tid);
+        const wait = compliance.broadcastDelayMs();
+        elapsed += wait;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => setTimeout(r, wait));
         // eslint-disable-next-line no-await-in-loop
         const res = await helpersReply(api, tid, body, null, true).catch(() => null);
         if (res) sent += 1;
         else failed.push(tid);
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((r) => setTimeout(r, PAUSE_MS));
       }
 
       await reply(
@@ -1518,9 +1627,106 @@ module.exports = [
         + '· · · · · · ·\n'
         + `✅ Delivered to ${sent} of ${groups.length} chats\n`
         + (failed.length ? `⚠️ Failed: ${failed.length}\n` : '')
-        + `⏱️ About ${Math.ceil((groups.length * PAUSE_MS) / 1000)}s of pacing.`,
+        + `⏱️ About ${Math.ceil(elapsed / 1000)}s of pacing.`,
         event.messageID,
       );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 35b$ — per-chat broadcast opt-in
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'broadcasts',
+    aliases: ['broadcastopt', 'allowbroadcast'],
+    category: 'system',
+    description: '📬 Let the bot owner send broadcasts into this chat',
+    usage: '!broadcasts <on|off>',
+    cooldown: 5,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'broadcasts', async () => {
+      if (!event.isGroup) {
+        await reply('❌ This command only works in a group.', event.messageID);
+        return;
+      }
+      const group = await toggles.getGroup(event.threadID);
+      const mode = (args[0] || '').toLowerCase();
+      const gc = group.gc || {};
+      const on = Boolean(gc.broadcasts && gc.broadcasts.on);
+
+      if (!['on', 'off'].includes(mode)) {
+        await reply(
+          `📬 Operator broadcasts: ${on ? 'ON' : 'OFF'}\n`
+          + 'Usage: `!broadcasts on` or `!broadcasts off`\n'
+          + 'When ON, the bot owner can push a message into this chat with '
+          + '`!broadcast`. When OFF, this chat is skipped.',
+          event.messageID,
+        );
+        return;
+      }
+
+      if (!gc.broadcasts) gc.broadcasts = { on: false };
+      gc.broadcasts.on = mode === 'on';
+      if (typeof group.markModified === 'function') group.markModified('gc');
+      if (group.transient) {
+        await reply('⚠️ Database is offline — this setting is TEMPORARY and resets on restart.', event.messageID);
+        return;
+      }
+      await group.save();
+      try {
+        moderation.invalidate(event.threadID);
+      } catch { /* the cache is a cache */ }
+      await react(mode === 'on' ? '📬' : '✅');
+      await reply(
+        mode === 'on'
+          ? '📬 Broadcasts are ON — the owner can push messages into this chat.'
+          : '✅ Broadcasts are OFF — this chat is skipped.',
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 35c$ — account-safety report
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'compliance',
+    aliases: ['safety', 'suspend', 'accountrisk'],
+    category: 'system',
+    description: '🛡️ Account safety report — what this bot is doing that could get it suspended',
+    usage: '!compliance',
+    hint: 'Owner only. Lists the settings in this chat that put the account at risk, and the broadcast budget.',
+    cooldown: 30,
+    permission: 'owner',
+    execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'compliance', async () => {
+      await react('🛡️');
+      const group = await toggles.getGroup(event.threadID);
+      const risks = compliance.safetyReport(group);
+      const budget = compliance.fanoutRemaining();
+
+      const lines = [
+        '🛡️ **ACCOUNT SAFETY**',
+        '· · · · · · ·',
+        `📡 Broadcast budget — ${budget.hour}/${budget.hourMax} hourly, ${budget.day}/${budget.dayMax} daily left.`,
+      ];
+
+      if (!risks.length) {
+        lines.push('✅ Nothing risky is switched on in this chat.');
+      } else {
+        lines.push('');
+        for (const r of risks) {
+          const icon = r.level === 'critical' ? '🛑' : r.level === 'warning' ? '⚠️' : 'ℹ️';
+          lines.push(`${icon} **${r.setting}**`);
+          lines.push(`   ${r.why}`);
+          lines.push(`   → ${r.fix}`);
+        }
+      }
+
+      lines.push('');
+      lines.push('💡 Unsolicited replies to unknown commands are only sent in private chats, '
+        + 'and shared links are only auto-downloaded when the chat asks for it.');
+
+      await reply(lines.join('\n'), event.messageID);
     }),
   },
 
@@ -1568,50 +1774,82 @@ module.exports = [
     name: 'notify',
     aliases: ['notifyall', 'opmsg', 'staffmsg'],
     category: 'system',
-    description: '📢 Send a one-line notice to every chat the bot is in (owner only)',
+    description: '📢 Send a one-line notice to every chat that asked for broadcasts',
     usage: '!notify <message>',
     cooldown: 30,
     permission: 'owner',
-    execute: async ({ api, args, reply, react, event, config, registry }) => guard(reply, event.messageID, 'notify', async () => {
+    execute: async ({ api, args, reply, react, event, config }) => guard(reply, event.messageID, 'notify', async () => {
       await react('📢');
-      const text = args.join(' ').trim();
+      // `all` reaches the chats that did not ask for it. It is the override and
+      // it spends the same budget the safe path does.
+      const all = String(args[0] || '').toLowerCase() === 'all';
+      const text = (all ? args.slice(1) : args).join(' ').trim();
       if (!text) {
-        await reply('📖 Usage: `!notify <message>` — sent to every chat.', event.messageID);
+        await reply('📖 Usage: `!notify <message>` or `!notify all <message>`', event.messageID);
         return;
       }
       // The broadcast path is shared with !broadcast, which is admin-scoped.
       // This is the owner-only variant: it reaches every chat including ones
       // nobody in this chat can manage, which is why it stays owner-only.
-      const Group = require('../models/Group');
-      const mongo = require('../bot/mongo');
       if (!mongo.isReady()) {
         await reply('❌ The chat list is offline — nothing to broadcast to.', event.messageID);
         return;
       }
-      const groups = await Group.find({}).lean().catch(() => []);
+      const query = all
+        ? { isEnabled: true }
+        : { isEnabled: true, 'gc.broadcasts.on': true };
+      const groups = await Group.find(query).select('tid').lean().catch(() => []);
       if (!groups.length) {
-        await reply('❌ No chats recorded yet.', event.messageID);
+        await reply(
+          all
+            ? '❌ No chats recorded yet.'
+            : '❌ No chat has asked for broadcasts.\n'
+            + '· · · · · · ·\n'
+            + 'An admin turns them on with `!broadcasts on`. '
+            + 'Use `!notify all <message>` to override and send to every chat anyway.',
+          event.messageID,
+        );
         return;
       }
+
+      // The same all-or-nothing budget check the broadcast does. A notice that
+      // half went out is still the signal, and the half that did not is not
+      // worth the risk.
+      const left = compliance.fanoutRemaining();
+      if (!compliance.canFanout(groups.length)) {
+        await reply(
+          '🛑 **Refusing to send.**\n'
+          + '· · · · · · ·\n'
+          + `This would push ${groups.length} messages at once, and the budget has room for `
+          + `${Math.min(left.hour, left.day)}.\n`
+          + `Hourly limit: ${left.hour}/${left.hourMax} left · Daily limit: ${left.day}/${left.dayMax} left.`,
+          event.messageID,
+        );
+        return;
+      }
+      compliance.takeFanoutSlots(groups.length);
+
       const body = `📢 **${config.BOT_NAME}** — ${text}`;
-      const PAUSE_MS = 1200;
       let sent = 0;
       const failed = [];
+      let elapsed = 0;
       for (const g of groups) {
         const tid = String(g.tid);
+        const wait = compliance.broadcastDelayMs();
+        elapsed += wait;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => setTimeout(r, wait));
         // eslint-disable-next-line no-await-in-loop
         const res = await helpersReply(api, tid, body, null, true).catch(() => null);
         if (res) sent += 1;
         else failed.push(tid);
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((r) => setTimeout(r, PAUSE_MS));
       }
       await reply(
         `📢 **NOTICE SENT**\n`
         + '· · · · · · ·\n'
         + `✅ Delivered to ${sent} of ${groups.length} chats\n`
         + (failed.length ? `⚠️ Failed: ${failed.length}\n` : '')
-        + `⏱️ About ${Math.ceil((groups.length * PAUSE_MS) / 1000)}s of pacing.`,
+        + `⏱️ About ${Math.ceil(elapsed / 1000)}s of pacing.`,
         event.messageID,
       );
     }),

@@ -34,6 +34,7 @@ const cards = require('./bot/cards');
 const pending = require('./bot/pending');
 const flood = require('./bot/flood');
 const moderation = require('./bot/moderation');
+const compliance = require('./bot/compliance');
 const media = require('./bot/media');
 const footballCmds = require('./commands/cmds_8');
 
@@ -515,7 +516,22 @@ async function handleMessage(api, event) {
   // to let commands through. It is a pure string operation with no side effects,
   // so the result is reused verbatim below and nothing about the message changes;
   // only the moment the word is first recognised moves earlier.
-  const parsed = router.parse(body, prefix);
+  let parsed = router.parse(body, prefix);
+
+  // ── A TAG IS NOT A COMMAND ─────────────────────────────────
+  // With `@` as the prefix, `@name` is how people address each other. When
+  // Facebook turns that into a real mention, the word after the prefix is a
+  // person's name, not a command — and answering it would be the bot posting to
+  // a person who never addressed it.
+  //
+  // The check is exact rather than a guess: `event.mentions` only holds the
+  // mentions somebody actually picked from the autocomplete, so plain text that
+  // merely starts with a name is not affected. A user called "help" is only
+  // swallowed when somebody genuinely tags them.
+  if (parsed && compliance.isMentionToken(parsed.name, event)) {
+    log(`[PARSE] "${parsed.name}" is a mention, not a command — staying quiet`);
+    parsed = null;
+  }
 
   const spam = await spamGate(event, { body, parsed, say });
   if (!spam.allowed) return;
@@ -530,8 +546,20 @@ async function handleMessage(api, event) {
   // replying to its own download with another download is a spiral. The
   // download is best-effort — a link that is not a video is skipped, and a
   // video that will not download is answered with the plain link.
+  //
+  // And only when the chat has opted in. This used to be unconditional, which
+  // meant the bot answered every video link in every chat it was in — the
+  // room talking to people who never asked it to. That is exactly the shape
+  // that gets a helper bot reported and its account disabled, so it is now
+  // off by default and a chat has to ask for it with `!autodownload on`.
   if (event.isGroup && !event.isSelf) {
-    const link = media.pickVideoLink(body);
+    let gc = null;
+    try {
+      gc = await moderation.gcFor(threadID);
+    } catch (err) {
+      error(`[COMPLIANCE] settings read failed in ${threadID}: ${err.message}`);
+    }
+    const link = compliance.autoDownloadAllowed(gc) ? media.pickVideoLink(body) : null;
     if (link) {
       try {
         const dl = await media.downloadVideo(link);
@@ -641,17 +669,21 @@ async function handleMessage(api, event) {
   const cmd = loader.findCommand(parsed.name, registry, aliases);
   commandName = (cmd && cmd.name) || parsed.commandName || parsed.name;
   if (!cmd) {
-    // Unknown command: say so, briefly. This used to stay silent on purpose —
-    // "a quiet bot is a surviving bot" — but silence here is the wrong answer
-    // for the person who typed it: they get nothing back, conclude the bot is
-    // dead, and either stop using it or start flooding it with "are you ok?".
-    // A one-line "unknown" teaches the command list without training a spam
-    // habit, and it is the same line every time so it costs nothing.
+    // Unknown command. In a private chat, say so — there is exactly one reader
+    // there, they typed at the bot on purpose, and "I do not know that one" is a
+    // useful answer.
     //
-    // Bare chat words never reach this point — they are handled above at the
-    // "not a command" branch — so this only ever answers an actual command
-    // prefix, which is the only place a reply is useful.
+    // In a group, stay silent. The likeliest reason a group contains a word the
+    // bot does not know is that somebody is tagging a person, or using a prefix
+    // the bot does not share. Answering it puts a message in a chat that
+    // nobody asked for, in every chat the bot is in, for as long as the chat is
+    // busy — which is the pattern that gets a helper bot reported and the
+    // account behind it disabled. The original note here said "a quiet bot is a
+    // surviving bot", and it was right for the group case; the reply is kept
+    // where it costs nothing.
+    if (compliance.shouldAnswerUnknown(event.isGroup !== false)) {
       await say(`❌ Unknown command \`${parsed.name}\`. ${helpers.savage()} Try \`${config.PREFIX}help\`.`);
+    }
     await recordActivity(senderID, false, isGroupThread(threadID, event.isGroup) ? threadID : null);
     return;
   }
@@ -1416,20 +1448,34 @@ async function handleGroupChange(api, event) {
       // !autoadd: invite the leaver straight back. gcmember is an MQTT publish,
       // so it resolves once the request is queued, not once Facebook confirms
       // the person is back.
+      //
+      // The one case this never does is a person an admin REMOVED. Facebook
+      // reports a removal and a voluntary departure through the same event, so
+      // the difference has to be read out of the payload: actorFbId is who
+      // caused the departure, and it is only there when somebody else did it.
+      // Without that check the auto re-inviter pulled back the people an admin
+      // had just kicked, which is the one thing an admin pressing "remove" is
+      // certain they do not want.
       if (group.autoAddLeavers) {
-        // leftParticipantFbId only. Never event.author: that is actorFbId, the
-        // person who did the removing, so falling back to it would invite the
-        // admin who kicked somebody straight back into the chat — the exact
-        // opposite of what a group admin pressing "remove" expects.
+        // leftParticipantFbId only. Never event.author as the id to invite:
+        // that is actorFbId, the person who did the removing, so inviting it
+        // would invite the admin who kicked somebody straight back into the
+        // chat.
         const leaver = String(data.leftParticipantFbId || '');
+        // Who caused it, when somebody else did. Empty means they left on
+        // their own, which is the case this feature is for.
+        const actor = String(data.actorFbId || event.author || '').trim();
+        const removedBySomebodyElse = Boolean(actor) && actor !== leaver;
         // Never re-add ourselves, and never try a non-numeric id: gcmember
         // does parseInt on it and would invite uid 0.
-        if (leaver && /^\d+$/.test(leaver) && leaver !== String(event.BotID || STATE.userID || '')) {
+        if (removedBySomebodyElse) {
+          log(`[GROUP] ${leaver} was removed by ${actor} in ${threadID} — not re-invited`);
+        } else if (leaver && /^\d+$/.test(leaver) && leaver !== String(event.BotID || STATE.userID || '')) {
           try {
             await api.gcmember('add', leaver, threadID);
             log(`[GROUP] re-invited ${leaver} to ${threadID} (autoAddLeavers)`);
           } catch (err) {
-            error(`[GROUP] re-invite of ${leaver} failed: ${err.message}`);
+            error(`[GROUP] auto-invite of ${leaver} failed: ${err.message}`);
           }
         } else {
           error(`[GROUP] autoAddLeavers could not re-invite "${leaver}" — unusable id`);
