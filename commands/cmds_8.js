@@ -1589,7 +1589,7 @@ const commands = [];
         `🎤 **${String(data.title || q).toUpperCase()}**${data.artist ? `\n🎙️ ${data.artist}` : ''}\n`
         + '· · · · · · ·\n'
         + `${read}\n`
-        + `━━━━━━━━━━━━━━━\n${text.slice(0, 1800)}${text.length > 1800 ? '\n_(truncated)_' : ''}`,
+        + `· · · · · · ·\n${text.slice(0, 1800)}${text.length > 1800 ? '\n_(truncated)_' : ''}`,
         event.messageID,
       );
     }),
@@ -1680,7 +1680,7 @@ const commands = [];
         body: `🎙️ **SINGING: ${q.toUpperCase()}**\n`
           + '· · · · · · ·\n'
           + `${guide}\n`
-          + (sung.length ? `━━━━━━━━━━━━━━━\n🎵 Sung lines:\n${sung.slice(0, 10).join('\n')}` : '')
+          + (sung.length ? `· · · · · · ·\n🎵 Sung lines:\n${sung.slice(0, 10).join('\n')}` : '')
           + `\n🔎 Original recording: https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
       });
     }),
@@ -1725,7 +1725,7 @@ const commands = [];
         await reply({ body: `🗣️ **REWRITTEN**\n\n${savage}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply(`🗣️ **SAVAGE MODE**\n━━━━━━━━━━━━━━━\n${savage}`, event.messageID);
+      await reply(`🗣️ **SAVAGE MODE**\n· · · · · · ·\n${savage}`, event.messageID);
     }),
   });
 
@@ -1752,7 +1752,7 @@ const commands = [];
       }
 
       const answer = await askGroq(q, `Answer as iKON-BOT v2 Ultra. The owner is ${OWNER}. Be brief and useful.`);
-      await reply(`🤖 **${q.slice(0, 80)}**\n━━━━━━━━━━━━━━━\n${answer}\n💸 ${kc(FEES.ask)}`, event.messageID);
+      await reply(`🤖 **${q.slice(0, 80)}**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ask)}`, event.messageID);
     }),
   });
 
@@ -1784,7 +1784,7 @@ const commands = [];
         + `Question: ${q}`,
         `Style: iKON pro mode. Sharper than !ask, same brevity rule. Owner is ${OWNER}.`,
       );
-      await reply(`⚡ **PRO MODE**\n━━━━━━━━━━━━━━━\n${answer}\n💸 ${kc(FEES.ai)}`, event.messageID);
+      await reply(`⚡ **PRO MODE**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ai)}`, event.messageID);
     }),
   });
 
@@ -1881,7 +1881,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         await reply({ body: `🌐 **${lang.toUpperCase()}**\n\n${out}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply(`🌐 **${lang.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${out}`, event.messageID);
+      await reply(`🌐 **${lang.toUpperCase()}**\n· · · · · · ·\n${out}`, event.messageID);
     }),
   });
 
@@ -1901,7 +1901,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + 'End with a one-line note that the bot keeps slang and insults intact.',
         'Style: a clean grouped list, no preamble.',
       );
-      await reply(`🌐 **TRANSLATION LANGUAGES**\n━━━━━━━━━━━━━━━\n${list}\n\n📖 \`!translate <lang> <text>\` — e.g. \`!translate sw hello there\``, event.messageID);
+      await reply(`🌐 **TRANSLATION LANGUAGES**\n· · · · · · ·\n${list}\n\n📖 \`!translate <lang> <text>\` — e.g. \`!translate sw hello there\``, event.messageID);
     }),
   });
 
@@ -1965,7 +1965,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
 
       await reply(
         {
-          body: `🎨 **GENERATED**\n━━━━━━━━━━━━━━━\n📝 ${clean}\n\n🖼️ ${url}`,
+          body: `🎨 **GENERATED**\n· · · · · · ·\n📝 ${clean}\n\n🖼️ ${url}`,
           attachment: { type: 'image', data: { url: `data:image/png;base64,${art.toString('base64')}` } },
         },
         event.messageID,
@@ -2026,7 +2026,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         return;
       }
 
-      await reply(`🖼️ **IMAGINED**\n━━━━━━━━━━━━━━━\n📝 ${clean}\n\n${thought}\n\n🖼️ ${url}`, event.messageID);
+      await reply(`🖼️ **IMAGINED**\n· · · · · · ·\n📝 ${clean}\n\n${thought}\n\n🖼️ ${url}`, event.messageID);
     }),
   });
 
@@ -2071,7 +2071,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
 
       await reply(
         {
-          body: `🔍 **UPSCALED 2x**\n━━━━━━━━━━━━━━━\n${read}\n\n📐 ${shot.width}x${shot.height}`,
+          body: `🔍 **UPSCALED 2x**\n· · · · · · ·\n${read}\n\n📐 ${shot.width}x${shot.height}`,
           attachment: { type: 'image', data: { url: shot.url } },
         },
         event.messageID,
@@ -2120,7 +2120,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
 
       await reply(
         {
-          body: `🔬 **UPSCALED 4x**\n━━━━━━━━━━━━━━━\n${read}\n\n📐 ${shot.width}x${shot.height}`,
+          body: `🔬 **UPSCALED 4x**\n· · · · · · ·\n${read}\n\n📐 ${shot.width}x${shot.height}`,
           attachment: { type: 'image', data: { url: shot.url } },
         },
         event.messageID,
@@ -2174,7 +2174,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
 
       await reply(
         {
-          body: `✨ **ENHANCED**\n━━━━━━━━━━━━━━━\n🎛️ ${fix} x${strength}\n\n${plan}`,
+          body: `✨ **ENHANCED**\n· · · · · · ·\n🎛️ ${fix} x${strength}\n\n${plan}`,
           attachment: { type: 'image', data: { url: shot.url } },
         },
         event.messageID,
@@ -2229,7 +2229,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
       await reply(
         {
           body: `✂️ **${shot.keyed ? 'BACKGROUND REMOVED' : 'BACKGROUND LEFT ALONE'}**\n`
-            + `━━━━━━━━━━━━━━━\n${subject}\n\n${honest}`,
+            + `· · · · · · ·\n${subject}\n\n${honest}`,
           attachment: { type: 'image', data: { url: shot.url } },
         },
         event.messageID,
@@ -2269,7 +2269,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `If the list is empty, say plainly that no fixtures were available.`,
         'Style: a commentator who has seen the numbers.',
       );
-      await reply(`⚽ **FOOTBALL**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.football)}`, event.messageID);
+      await reply(`⚽ **FOOTBALL**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.football)}`, event.messageID);
     }),
   });
 
@@ -2310,7 +2310,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `If there is no data, say so.`,
         'Style: urgent, clipped, like a live blog.',
       );
-      await reply(`🔴 **LIVE ${(canon || league).toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.livefootball)}`, event.messageID);
+      await reply(`🔴 **LIVE ${(canon || league).toUpperCase()}**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.livefootball)}`, event.messageID);
     }),
   });
 
@@ -2343,7 +2343,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `give your honest win probability for their next fixture instead.`,
         'Style: scoreboard voice, then one line of opinion.',
       );
-      await reply(`📊 **${team.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.score)}`, event.messageID);
+      await reply(`📊 **${team.toUpperCase()}**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.score)}`, event.messageID);
     }),
   });
 
@@ -2372,7 +2372,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `"(unverified)" rather than inventing a fee or a quote.`,
         'Style: tabloid energy, honest about uncertainty.',
       );
-      await reply(`📰 **FOOTBALL NEWS**\n━━━━━━━━━━━━━━━\n${news}\n💸 ${kc(FEES.footballnews)}`, event.messageID);
+      await reply(`📰 **FOOTBALL NEWS**\n· · · · · · ·\n${news}\n💸 ${kc(FEES.footballnews)}`, event.messageID);
     }),
   });
 
@@ -2415,7 +2415,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         await reply({ body: `🔮 **${fixture.toUpperCase()}**\n\n${read}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply(`🔮 **${fixture.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}`, event.messageID);
+      await reply(`🔮 **${fixture.toUpperCase()}**\n· · · · · · ·\n${read}`, event.messageID);
     }),
   });
 
@@ -2458,7 +2458,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `If there are no fixtures, say so.`,
         'Style: short, punchy, like a runner-up bulletin.',
       );
-      await reply(`⚡ **NEXT WINNERS — ${(canon || league).toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.nextwinner)}${source ? `\n📡 ${source}` : ''}`, event.messageID);
+      await reply(`⚡ **NEXT WINNERS — ${(canon || league).toUpperCase()}**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.nextwinner)}${source ? `\n📡 ${source}` : ''}`, event.messageID);
     }),
   });
 
@@ -2500,7 +2500,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         reply,
         messageID: event.messageID,
         url: badge,
-        body: `🛡️ **${(canon || team).toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}${source ? `\n\n📡 Data from ${source}.` : ''}`,
+        body: `🛡️ **${(canon || team).toUpperCase()}**\n· · · · · · ·\n${read}${source ? `\n\n📡 Data from ${source}.` : ''}`,
         title: canon || team,
       });
     }),
@@ -2538,7 +2538,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `If there are no fixtures, say so.`,
         'Style: fixture list, then one line of genuine interest.',
       );
-      await reply(`📅 **${(canon || league).toUpperCase()}**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.fixtures)}${source ? `\n📡 ${source}` : ''}`, event.messageID);
+      await reply(`📅 **${(canon || league).toUpperCase()}**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.fixtures)}${source ? `\n📡 ${source}` : ''}`, event.messageID);
     }),
   });
 
@@ -2675,7 +2675,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `say that clearly and talk about the series instead of guessing a number.`,
         'Style: cricket writer who knows the formats cold.',
       );
-      await reply(`🏏 **CRICKET**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.cricketscore)}`, event.messageID);
+      await reply(`🏏 **CRICKET**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.cricketscore)}`, event.messageID);
     }),
   });
 
@@ -2758,7 +2758,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `"(unverified)". Never invent a named quote or a specific number.`,
         'Style: sharp, weary, allergic to filler.',
       );
-      await reply(`🌍 **THE WORLD**\n━━━━━━━━━━━━━━━\n${read}\n💸 ${kc(FEES.newsai)}`, event.messageID);
+      await reply(`🌍 **THE WORLD**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.newsai)}`, event.messageID);
     }),
   });
 
@@ -2898,7 +2898,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `Text: ${text.slice(0, 3000)}`,
         'Style: the friend who tells you what actually happened.',
       );
-      await reply(`📋 **THE SHORT VERSION**\n━━━━━━━━━━━━━━━\n${brief}\n💸 ${kc(FEES.summarize)}`, event.messageID);
+      await reply(`📋 **THE SHORT VERSION**\n· · · · · · ·\n${brief}\n💸 ${kc(FEES.summarize)}`, event.messageID);
     }),
   });
 
@@ -2938,7 +2938,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         `${styles[mode]} Output only the rewrite, nothing else. Original: "${text}"`,
         'Style: one rewrite. Do not add a preamble or offer alternatives.',
       );
-      await reply(`✍️ **${mode.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${out}`, event.messageID);
+      await reply(`✍️ **${mode.toUpperCase()}**\n· · · · · · ·\n${out}`, event.messageID);
     }),
   });
 
@@ -2980,7 +2980,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
       if (card) {
         await reply({ attachment: { type: 'image', data: { url: card } } }, event.messageID);
       }
-      await reply(`📖 **${topic.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${story}`, event.messageID);
+      await reply(`📖 **${topic.toUpperCase()}**\n· · · · · · ·\n${story}`, event.messageID);
     }),
   });
 
@@ -3016,7 +3016,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
       );
 
       await reply(
-        `🧑‍💻️ **CODE REVIEW**\n━━━━━━━━━━━━━━━\n${review}\n💸 ${kc(FEES.codeai)}`,
+        `🧑‍💻️ **CODE REVIEW**\n· · · · · · ·\n${review}\n💸 ${kc(FEES.codeai)}`,
         event.messageID,
       );
     }),
@@ -3081,7 +3081,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         reply,
         messageID: event.messageID,
         text: `${topic}. ${singable}`,
-        body: `🎵 **${topic.toUpperCase()}**\n━━━━━━━━━━━━━━━\n${song}\n💸 ${kc(FEES.songai)}`,
+        body: `🎵 **${topic.toUpperCase()}**\n· · · · · · ·\n${song}\n💸 ${kc(FEES.songai)}`,
       });
     }),
   });

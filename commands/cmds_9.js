@@ -1781,7 +1781,7 @@ const commands = [];
           rows.push(`🫂 **${an} + ${bn}** — ${num(r.score)}`);
         }
         await reply(
-          `🫂 **BEST FRIENDS**\n━━━━━━━━━━━━━━━\n`
+          `🫂 **BEST FRIENDS**\n· · · · · · ·\n`
           + `${rows.length ? rows.join('\n') : 'Nobody is on the board. Tag somebody.'}\n\n`
           + `Add with \`!besties @user\``,
           event.messageID,
@@ -1855,7 +1855,7 @@ const commands = [];
           rows.push(`⚔️ **${an} vs ${bn}** — ${num(r.score)}`);
         }
         await reply(
-          `⚔️ **ENEMIES**\n━━━━━━━━━━━━━━━\n`
+          `⚔️ **ENEMIES**\n· · · · · · ·\n`
           + `${rows.length ? rows.join('\n') : 'No enemies yet. Everyone is getting along, which is suspicious.'}\n\n`
           + `Add with \`!enemies @user\``,
           event.messageID,

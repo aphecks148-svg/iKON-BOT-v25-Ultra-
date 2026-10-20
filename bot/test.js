@@ -2002,7 +2002,18 @@ function query(doc) {
       // Only string literals matter; the comment banners are allowed to box.
       for (const line of src.split('\n')) {
         if (/^\s*\/\//.test(line)) continue;
-        for (const [, lit] of line.matchAll(/'((?:[^'\\]|\\.)*)'/g)) {
+        // BOTH kinds of literal.
+        //
+        // This used to look at single-quoted strings only, so every reply
+        // written as a template literal got past it — and thirty-eight of them
+        // did, including every football command. A template literal is still a
+        // string literal, and the house style does not care which quotes the
+        // reply was written in.
+        const literals = [
+          ...line.matchAll(/'((?:[^'\\]|\\.)*)'/g),
+          ...line.matchAll(/`((?:[^`\\$]|\\.|\$\{[^}]*\})*)`/g),
+        ];
+        for (const [, lit] of literals) {
           if (/[━─]/.test(lit)) {
             offenders.push(`${f}: ${lit.slice(0, 40)}`);
           }

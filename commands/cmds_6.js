@@ -768,7 +768,7 @@ const commands = [];
       // the next arrival actually sees.
       const name = await groupName(api, event);
       await reply(
-        `✍️ **WELCOME SET**\n━━━━━━━━━━━━━━━\nPreview: ${fill(msg, { name: 'Newcomer', uid: '0000' }, event, { groupName: name })}`
+        `✍️ **WELCOME SET**\n· · · · · · ·\nPreview: ${fill(msg, { name: 'Newcomer', uid: '0000' }, event, { groupName: name })}`
         + '\nPlaceholders: `{user}` `{mention}` `{group}` `{thread}` `{uid}`',
         event.messageID,
       );
@@ -810,7 +810,7 @@ const commands = [];
       await save(group);
       const name = await groupName(api, event);
       await reply(
-        `✍️ **GOODBYE SET**\n━━━━━━━━━━━━━━━\nPreview: ${fill(msg, { name: 'Leaver', uid: '0000' }, event, { groupName: name })}`
+        `✍️ **GOODBYE SET**\n· · · · · · ·\nPreview: ${fill(msg, { name: 'Leaver', uid: '0000' }, event, { groupName: name })}`
         + '\nPlaceholders: `{user}` `{mention}` `{group}` `{thread}` `{uid}`',
         event.messageID,
       );
@@ -838,7 +838,7 @@ const commands = [];
       if (!msg) {
         await reply(
           cfg.policy
-            ? `📜 **RULES OF THIS CHAT**\n━━━━━━━━━━━━━━━\n${cfg.policy}`
+            ? `📜 **RULES OF THIS CHAT**\n· · · · · · ·\n${cfg.policy}`
             : '📜 No rules are posted. Use `!gcpolicy <rules>` to write some.',
           event.messageID,
         );
@@ -851,7 +851,7 @@ const commands = [];
 
       cfg.policy = msg;
       await save(group);
-      await reply(`📜 **POLICY POSTED**\n━━━━━━━━━━━━━━━\n${cfg.policy}\n📖 ${story()}`, event.messageID);
+      await reply(`📜 **POLICY POSTED**\n· · · · · · ·\n${cfg.policy}\n📖 ${story()}`, event.messageID);
     }),
   });
 
@@ -1145,7 +1145,7 @@ const commands = [];
       await save(group);
       await reply(
         on
-          ? `⚔️ **WARZONE DECLARED.**\n━━━━━━━━━━━━━━━\n💸 Anyone holding ${kc(cfg.warzone.floor)} or more pays ${kc(cfg.warzone.tax)} a message.\n📖 ${story()}`
+          ? `⚔️ **WARZONE DECLARED.**\n· · · · · · ·\n💸 Anyone holding ${kc(cfg.warzone.floor)} or more pays ${kc(cfg.warzone.tax)} a message.\n📖 ${story()}`
           : '⚔️ Warzone lifted. The tax is gone and the chat is quiet again.',
         event.messageID,
       );
@@ -1198,7 +1198,7 @@ const commands = [];
       cfg.lockdown.emoji = emoji;
       await save(group);
       await reply(
-        `🔒 **LOCKDOWN.**\n━━━━━━━━━━━━━━━\nOnly \`${emoji}\` is allowed through this door.\n📖 ${story()}`,
+        `🔒 **LOCKDOWN.**\n· · · · · · ·\nOnly \`${emoji}\` is allowed through this door.\n📖 ${story()}`,
         event.messageID,
       );
     }),
@@ -1603,7 +1603,7 @@ const commands = [];
         for (const e of cfg.mutes) lines.push(`• ${e.name || e.uid} [${left(e)}]`);
       }
 
-      await reply(`📋 **THE LOCKOUT LIST**\n━━━━━━━━━━━━━━━\n${lines.join('\n')}\n📖 ${story()}`, event.messageID);
+      await reply(`📋 **THE LOCKOUT LIST**\n· · · · · · ·\n${lines.join('\n')}\n📖 ${story()}`, event.messageID);
     }),
   });
 
@@ -1673,7 +1673,7 @@ const commands = [];
         inv.entries = [];
         await save(group);
         await reply(
-          `🚪 **INVITE WAR OVER**\n━━━━━━━━━━━━━━━\n`
+          `🚪 **INVITE WAR OVER**\n· · · · · · ·\n`
           + (inv.winner ? `🏆 ${inv.winnerName} pulled in the most people and took ${kc(PRIZE)}.\n` : 'Nobody invited anybody. Shameful.\n')
           + '📖 `!invitewar start` to run another one.',
           event.messageID,
@@ -1725,7 +1725,7 @@ const commands = [];
 
         const board = [...inv.entries].sort((a, b) => b.count - a.count).slice(0, 5)
           .map((e, i) => `${i + 1}. ${e.name || e.uid} — ${e.count}`).join('\n');
-        await reply(`🚪 **+1** You have ${num(mine ? mine.count : 1)} invite(s).\n━━━━━━━━━━━━━━━\n${board || 'Nobody yet.'}`, event.messageID);
+        await reply(`🚪 **+1** You have ${num(mine ? mine.count : 1)} invite(s).\n· · · · · · ·\n${board || 'Nobody yet.'}`, event.messageID);
         return;
       }
 
@@ -1733,7 +1733,7 @@ const commands = [];
       const board = [...(inv.entries || [])].sort((a, b) => b.count - a.count).slice(0, 5)
         .map((e, i) => `${i + 1}. ${e.name || e.uid} — ${e.count}`).join('\n');
       await reply(
-        `🚪 **INVITE WAR**\n━━━━━━━━━━━━━━━\n⏱️ ${left} left\n🏆 Prize: ${kc(PRIZE)}\n\n${board || 'No war running. `!invitewar start` to open one.'}`,
+        `🚪 **INVITE WAR**\n· · · · · · ·\n⏱️ ${left} left\n🏆 Prize: ${kc(PRIZE)}\n\n${board || 'No war running. `!invitewar start` to open one.'}`,
         event.messageID,
       );
     }),
@@ -1862,7 +1862,7 @@ const commands = [];
       if (level < 50) {
         const need = 50 * 100 - clamp(cfg.msgs);
         await reply(
-          `👑 **NOT YET.**\n━━━━━━━━━━━━━━━\n`
+          `👑 **NOT YET.**\n· · · · · · ·\n`
           + `This chat is level ${level}. Domination needs level 50.\n`
           + `💬 ${num(need)} more messages required.\n`
           + `📖 ${OWNER} is patient.`,
@@ -2007,7 +2007,7 @@ const commands = [];
 
       if (!group) {
         await reply(
-          `📋 **CHAT RECORD**\n━━━━━━━━━━━━━━━\n`
+          `📋 **CHAT RECORD**\n· · · · · · ·\n`
           + `🆔 ${tid}\n`
           + `${memberLine}\n`
           + '❌ No database record, and the city grid is offline.',
@@ -2127,7 +2127,7 @@ const commands = [];
       // of this list is finding out who can help.
       const ownerNames = await Promise.all(owners.map((uid) => cards.realName({ uid }, api)));
       await reply(
-        `🛡️ **THE ADMIN BENCH**\n━━━━━━━━━━━━━━━\n${rows}\n`
+        `🛡️ **THE ADMIN BENCH**\n· · · · · · ·\n${rows}\n`
         + (owners.length ? `\n👑 Bot admins (ADMIN_IDS): ${ownerNames.join(', ')}\n` : '')
         + `📖 ${OWNER} outranks all of them.`,
         event.messageID,

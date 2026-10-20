@@ -2017,7 +2017,7 @@ const commands = [];
         await reply(
           `🎴 You: ${show(hand)} = ${mine}\n`
           + `🃏 Dealer: ${show(dealer)} = ${theirs}\n`
-          + `━━━━━━━━━━━━━━━\n`
+          + `· · · · · · ·\n`
           + `🏆 **YOU WIN** +${kc(bet * 2)}\n`
           + `👛 Wallet: ${kc(userDoc.coins)}`,
           event.messageID,
@@ -2178,7 +2178,7 @@ const commands = [];
         return;
       }
 
-      await reply(`🎱 **THE 8-BALL ANSWERS**\n━━━━━━━━━━━━━━━\n💭 "${q}"\n⏳ ...`, event.messageID);
+      await reply(`🎱 **THE 8-BALL ANSWERS**\n· · · · · · ·\n💭 "${q}"\n⏳ ...`, event.messageID);
       await sleep(1100);
       await reply(`🔮 **${pick(EIGHT_BALL)}**\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`, event.messageID);
     }),
@@ -2211,7 +2211,7 @@ const commands = [];
       // never skipped over a slow model.
       const text = (await aifun.genJoke()) || aifun.pickFresh(JOKES, 'joke');
 
-      await reply(`😂 **${text}**\n━━━━━━━━━━━━━━━\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`, event.messageID);
+      await reply(`😂 **${text}**\n· · · · · · ·\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`, event.messageID);
     }),
   });
 
