@@ -1347,7 +1347,7 @@ const commands = [];
     hint: 'Pinterest stopped serving pin images to bots, so this also takes a copied image address.',
     cooldown: 15,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pinterestdown', async () => {
+    execute: async ({ args, userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'pinterestdown', async () => {
       await react('📌');
       const link = args[0];
       if (!link || !isUrl(link)) {

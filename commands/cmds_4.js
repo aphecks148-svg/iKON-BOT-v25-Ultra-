@@ -1928,7 +1928,7 @@ module.exports = [
       return 'petlist:unknown';
     },
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petlist', async () => {
+    execute: async ({ args, userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'petlist', async () => {
       await react('🐉');
       const parts = bestiaryParts();
       const ask = bestiaryAsk(args[0], parts.length);

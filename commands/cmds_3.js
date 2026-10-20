@@ -3448,7 +3448,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
     usage: '!bossseed',
     cooldown: 60,
     permission: 'owner',
-    execute: async ({ args, reply, react, event }) => guard(reply, event.messageID, 'bossseed', async () => {
+    execute: async ({ args, reply, react, event, config }) => guard(reply, event.messageID, 'bossseed', async () => {
       await react('🐉');
       const Boss = require('../models/Boss');
       const Bosses = [
