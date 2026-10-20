@@ -212,6 +212,162 @@ async function fetchBuffer(url, options = {}) {
   }
 }
 
+// ───────────────────────────────────────────────────────────
+// MONEY — prices and rates
+// ───────────────────────────────────────────────────────────
+
+/**
+ * A dollar figure, short enough for a group chat.
+ *
+ * A market cap of 1,334,002,119,442.00 is a number nobody reads, so the
+ * billions and millions keep two decimals and everything else keeps the cents.
+ */
+function usd(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (Math.abs(n) >= 1) return `$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  if (n === 0) return '$0.00';
+  return `$${n.toFixed(6)}`;
+}
+
+/**
+ * The coins the price command knows by their ticker.
+ *
+ * A symbol is a guess — BTC is Bitcoin and so is BTC, but FTM and S are the
+ * same coin with two tickers, and a lookup by ticker alone sends a third of
+ * the pairs to the wrong coin. The id is the one thing the feed cannot
+ * misread, so every ticker here is mapped to it.
+ */
+const CRYPTO_IDS = {
+  btc: 'bitcoin', eth: 'ethereum', usdt: 'tether', bnb: 'binancecoin', sol: 'solana',
+  xrp: 'ripple', doge: 'dogecoin', ada: 'cardano', trx: 'tron', ton: 'the-open-network',
+  dot: 'polkadot', matic: 'matic-network', link: 'chainlink', avax: 'avalanche-2',
+  ltc: 'litecoin', shib: 'shiba-inu', usdc: 'usd-coin', bch: 'bitcoin-cash', atom: 'cosmos',
+  xlm: 'stellar', near: 'near', apt: 'aptos', arb: 'arbitrum', op: 'optimism',
+  fil: 'filecoin', icp: 'internet-computer', hbar: 'hedera-hashgraph', vet: 'vechain',
+  aave: 'aave', uni: 'uniswap', mkr: 'maker', ldo: 'ethereum-lido-staked',
+  stx: 'blockstack', grt: 'the-graph', sand: 'the-sandbox', mana: 'decentraland',
+  axs: 'axie-infinity', ftm: 'fantom', sonic: 'fantom', rndr: 'render-token',
+  imx: 'immutable-x', pepe: 'pepe', wif: 'dogwifcoin', bonk: 'bonk',
+  sei: 'sei-network', tia: 'celestia', inj: 'injective-protocol', sui: 'sui',
+  wbtc: 'wrapped-bitcoin', cbbtc: 'coinbase-wrapped-btc', crv: 'curve-dao-token',
+  eos: 'eos', neo: 'neo', egld: 'elrond-erd-2', xtz: 'tezos',
+};
+
+/**
+ * The exchange rates, against the dollar, kept for an hour.
+ *
+ * The rates desk is a free endpoint and it is asked for a rate table, not a
+ * price, so the table changes slowly. An hour of cache is the difference
+ * between one request a minute and one request a second when a whole chat
+ * decides to check the dollar at once.
+ */
+let fxCache = null;
+
+async function fxRates() {
+  if (fxCache && Date.now() - fxCache.at < 3600000) return fxCache;
+  const data = await fetchJson('https://open.er-api.com/v6/latest/USD');
+  if (!data || !data.rates || typeof data.rates !== 'object') return null;
+  fxCache = {
+    at: Date.now(),
+    rates: data.rates,
+    updated: data.time_last_update_utc || data.time_last_update_utc_unix || '',
+  };
+  return fxCache;
+}
+
+/**
+ * A coin id, turned back into a name a person would recognise.
+ *
+ * The exchanges answer with a ticker, and "BTC (BTC)" is not a title. The id
+ * is the one place the full name survives: bitcoin -> Bitcoin,
+ * the-open-network -> The Open Network.
+ */
+function prettyId(id) {
+  return String(id || '')
+    .split('-')
+    .filter(Boolean)
+    .map((word, i) => (i === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(' ');
+}
+
+/**
+ * One coin, quoted.
+ *
+ * Three sources, in order, and the receipt says which one answered. CoinGecko
+ * is the only one of the three that knows a market cap and a rank, so it goes
+ * first; it is also the one that rate-limits hardest, so Kraken and Coinbase
+ * are behind it. A coin price that came from a different exchange than the
+ * last one is a small lie, and the source line is what keeps it from being
+ * one.
+ *
+ * @param {string} symbol the exchange ticker, e.g. BTC
+ * @param {string} id the CoinGecko id, e.g. bitcoin
+ * @returns {Promise<object|null>} null when nobody answered
+ */
+async function cryptoQuote(symbol, id) {
+  // 1. CoinGecko — price, 24h change, market cap, rank.
+  const g = await fetchJson(
+    `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${encodeURIComponent(id)}&price_change_percentage=24h`,
+  );
+  if (Array.isArray(g) && g.length) {
+    const c = g[0];
+    return {
+      source: 'CoinGecko',
+      name: c.name,
+      symbol: c.symbol,
+      price: Number(c.current_price),
+      change: Number(c.price_change_percentage_24h),
+      cap: Number(c.market_cap),
+      rank: c.market_cap_rank || null,
+    };
+  }
+
+  // 2. Kraken — last price and yesterday's open, which is a 24-hour change.
+  // Kraken answers with an `error` array that is empty when nothing is wrong,
+  // and an empty array is truthy: `!k.error` would throw the answer away.
+  const k = await fetchJson(`https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(symbol)}USD`);
+  const krakenError = k && Array.isArray(k.error) && k.error.length;
+  if (k && !krakenError && k.result && typeof k.result === 'object') {
+    const key = Object.keys(k.result)[0];
+    const t = k.result[key];
+    const last = Number(t && t.c && t.c[0]);
+    const open = Number(t && t.o);
+    if (Number.isFinite(last) && last > 0) {
+      return {
+        source: 'Kraken',
+        name: prettyId(id),
+        symbol,
+        price: last,
+        change: Number.isFinite(open) && open > 0 ? ((last - open) / open) * 100 : NaN,
+        cap: NaN,
+        rank: null,
+      };
+    }
+  }
+
+  // 3. Coinbase — the spot price, with yesterday's open for the change.
+  const spot = await fetchJson(`https://api.exchange.coinbase.com/products/${encodeURIComponent(symbol)}-USD/ticker`);
+  if (spot && spot.price) {
+    const stats = await fetchJson(`https://api.exchange.coinbase.com/products/${encodeURIComponent(symbol)}-USD/stats`);
+    const last = Number(spot.price);
+    const open = Number(stats && stats.open);
+    return {
+      source: 'Coinbase',
+      name: prettyId(id),
+      symbol,
+      price: last,
+      change: Number.isFinite(open) && open > 0 ? ((last - open) / open) * 100 : NaN,
+      cap: NaN,
+      rank: null,
+    };
+  }
+
+  return null;
+}
+
 /**
  * Pull football data from every free platform, in order, and merge it.
  *
@@ -1240,6 +1396,8 @@ const FEES = {
   storyai: 100,
   codeai: 100,
   songai: 150,
+  crypto: 25,
+  currency: 25,
 };
 
 /** Every command in this module, in registration order. */
@@ -3516,6 +3674,172 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
       userDoc.lang = code[0];
       await save(userDoc);
       await reply(`🌐 Done — the bot will answer you in ${code[0]} from now on.`, event.messageID);
+    }),
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // PRICES — money that moves while you are not looking
+  // ───────────────────────────────────────────────────────────
+  commands.push({
+    name: 'crypto',
+    aliases: ['coinprice', 'cryptoprice'],
+    category: 'downloader',
+    description: '🪙 Crypto prices — `!crypto btc` for one coin, `!crypto` for the top ten',
+    usage: '!crypto [symbol]',
+    hint: 'Straight from the market feed, with the 24-hour change and the market cap. No advice, just the number.',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'crypto', async () => {
+      await react('🪙');
+      const want = String(args[0] || '').trim().toLowerCase();
+
+      // The fee is the point: this command is a query against somebody else's
+      // API, and a bot that lets anybody use it as a free price feed is a
+      // bot that gets its host's key rate-limited.
+      const paid = await charge(userDoc, FEES.crypto, 'downloader:crypto');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const id = CRYPTO_IDS[want];
+      if (want && !id) {
+        await reply(
+          `❌ I do not know \`${want}\`.\n`
+          + '· · · · · · ·\n'
+          + `📖 I know ${Object.keys(CRYPTO_IDS).slice(0, 18).join(', ')} and a few more. \`!crypto\` alone lists the top ten.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (id) {
+        // One coin: three sources in order, and the receipt names the one that
+        // answered. A price with no market cap is still a price.
+        const quote = await cryptoQuote(want.toUpperCase(), id);
+        if (!quote) {
+          await reply('📡 The market feed did not answer. Try again in a moment.', event.messageID);
+          return;
+        }
+        const change = Number(quote.change);
+        await reply(
+          `🪙 **${String(quote.name || '').toUpperCase()} (${String(quote.symbol || '').toUpperCase()})**\n`
+          + '· · · · · · ·\n'
+          + `💵 ${usd(quote.price)}\n`
+          + `📈 24h: ${Number.isFinite(change) ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}%` : '—'}\n`
+          + (Number.isFinite(quote.cap) ? `🏦 Market cap: ${usd(quote.cap)}\n` : '')
+          + (quote.rank ? `📊 Rank: #${quote.rank}\n` : '')
+          + `📡 Price from ${quote.source}\n`
+          + `💸 Fee: ${kc(FEES.crypto)}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // The top ten is a ranking, and only CoinGecko can rank. If it will not
+      // answer, the honest reply is that the board is down — not a list of ten
+      // coins invented from whatever else happened to answer.
+      const data = await fetchJson(
+        'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=10&page=1&price_change_percentage=24h',
+      );
+      if (!Array.isArray(data) || !data.length) {
+        await reply(
+          '📡 The ranking feed did not answer, and only one feed knows the order.\n'
+          + '· · · · · · ·\n'
+          + '📖 `!crypto btc` still works — that one has two more feeds behind it.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const lines = data.map((c, i) => {
+        const change = Number(c.price_change_percentage_24h);
+        const arrow = !Number.isFinite(change) ? '·' : (change >= 0 ? '▲' : '▼');
+        const pct = Number.isFinite(change) ? `${change.toFixed(2)}%` : '—';
+        return `${i + 1}. ${String(c.symbol || '').toUpperCase()} ${usd(c.current_price)} ${arrow} ${pct}`;
+      });
+      await reply(
+        `🪙 **THE TOP TEN**\n`
+        + '· · · · · · ·\n'
+        + `${lines.join('\n')}\n`
+        + '📡 Ranked by CoinGecko\n'
+        + `💸 Fee: ${kc(FEES.crypto)}\n`
+        + '📖 `!crypto btc` for one coin.',
+        event.messageID,
+      );
+    }),
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // CURRENCY
+  // ───────────────────────────────────────────────────────────
+  commands.push({
+    name: 'currency',
+    aliases: ['convert', 'fx', 'forex'],
+    category: 'downloader',
+    description: '💱 Convert money — `!currency 100 usd kes`',
+    usage: '!currency [amount] <from> <to>',
+    hint: 'Live rates, refreshed hourly. No argument shows the majors against the dollar.',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'currency', async () => {
+      await react('💱');
+      const paid = await charge(userDoc, FEES.currency, 'downloader:currency');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
+
+      const table = await fxRates();
+      if (!table) {
+        await reply('📡 The rates desk did not answer. Try again in a moment.', event.messageID);
+        return;
+      }
+
+      // "!currency 100 usd kes" — the amount is optional, the codes are not.
+      const list = args.map((a) => String(a).trim()).filter(Boolean);
+      let amount = 1;
+      if (list.length && Number.isFinite(Number(list[0]))) amount = Number(list.shift());
+      const from = String(list[0] || 'USD').toUpperCase();
+      const to = String(list[1] || '').toUpperCase();
+
+      if (!to) {
+        const majors = ['EUR', 'GBP', 'KES', 'NGN', 'ZAR', 'INR', 'JPY', 'AUD', 'CAD', 'GHS'];
+        const lines = majors
+          .filter((c) => table.rates[c])
+          .map((c) => `• 1 USD = ${Number(table.rates[c]).toFixed(4)} ${c}`);
+        await reply(
+          `💱 **THE MAJORS**\n`
+          + '· · · · · · ·\n'
+          + `${lines.join('\n')}\n`
+          + `🕐 Rates from ${table.updated || 'the last refresh'}\n`
+          + '📖 `!currency 100 usd kes` to convert.\n'
+          + `💸 Fee: ${kc(FEES.currency)}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      if (!table.rates[from] || !table.rates[to]) {
+        await reply(
+          `❌ I do not have a rate for that pair.\n`
+          + '· · · · · · ·\n'
+          + `📖 Use three-letter codes: \`USD\`, \`KES\`, \`EUR\`, \`GBP\`, \`NGN\`, \`ZAR\`.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // The table is against the dollar, so the pair goes through it.
+      const value = (amount * (table.rates[to] / table.rates[from]));
+      await reply(
+        `💱 **${amount} ${from} = ${value.toFixed(2)} ${to}**\n`
+        + '· · · · · · ·\n'
+        + `💵 1 ${from} = ${(table.rates[to] / table.rates[from]).toFixed(4)} ${to}\n`
+        + `🕐 Rates from ${table.updated || 'the last refresh'}\n`
+        + `💸 Fee: ${kc(FEES.currency)}`,
+        event.messageID,
+      );
     }),
   });
 
