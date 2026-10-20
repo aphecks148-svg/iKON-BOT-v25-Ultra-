@@ -2754,4 +2754,228 @@ commands.push({
       await reply('⛏️ **THE MINE**\n· · · · · · ·\n' + userDoc.name + '\n📖 Canvas unavailable — text fallback', event.messageID);
     }),
   });
+
+  // ───────────────────────────────────────────────────────────
+  // THE KITCHEN
+  // ───────────────────────────────────────────────────────────
+
+  /**
+   * What a part is worth and where it sits.
+   *
+   * The four stores all keep their stock in a different shape, so the recipe
+   * book has to name the bucket as well as the item. Without this a recipe
+   * would have to know about the farm, the mine, the cooler and the larder,
+   * and every new store would mean every recipe rewritten.
+   *
+   * @param {string} kind crop|fish|ore|meat|skin
+   * @param {string} id the item id
+   * @returns {{label:string,price:number,icon:string,bucket:string}|null}
+   */
+  function partInfo(kind, id) {
+    if (kind === 'crop') {
+      const r = row(CROPS, id);
+      return r ? { label: r[1], price: r[3], icon: r[4], bucket: 'crop' } : null;
+    }
+    if (kind === 'fish') {
+      const r = row(FISH, id);
+      return r ? { label: r[1], price: r[2], icon: r[4], bucket: 'fish' } : null;
+    }
+    if (kind === 'ore') {
+      const r = row(ORES, id);
+      return r ? { label: r[1], price: r[2], icon: r[4], bucket: 'ore' } : null;
+    }
+    if (kind === 'meat') {
+      const r = row(ANIMALS, id);
+      return r ? { label: r[1], price: r[2], icon: r[5], bucket: 'meat' } : null;
+    }
+    if (kind === 'skin') {
+      const r = row(ANIMALS, id);
+      return r ? { label: `${r[1]} Hide`, price: r[3], icon: r[5], bucket: 'skin' } : null;
+    }
+    return null;
+  }
+
+  /** The store a part is sitting in. */
+  function bucketOf(userDoc, kind) {
+    const st = s(userDoc);
+    if (kind === 'crop') return st.farm.crops;
+    if (kind === 'fish') return st.fish.catch;
+    if (kind === 'ore') return st.mine.ores;
+    if (kind === 'meat') return st.hunt.meat;
+    if (kind === 'skin') return st.hunt.skins;
+    return null;
+  }
+
+  /**
+   * The recipe book.
+   *
+   * Every recipe turns raw goods into something worth more than the sum of
+   * its parts, and the premium is the same 35% on all of them: cooking is a
+   * skill, not a loophole. The parts are consumed and the dish is sold on the
+   * spot, so nothing has to be stored and nothing can be sold twice.
+   */
+  const RECIPES = [
+    { id: 'bread', name: 'Bread Loaf', icon: '🍞', parts: [['crop', 'wheat', 3]] },
+    { id: 'stew', name: 'Farm Stew', icon: '🍲', parts: [['crop', 'wheat', 2], ['crop', 'potato', 1]] },
+    { id: 'cider', name: 'Sweet Cider', icon: '🍺', parts: [['crop', 'sugarcane', 3]] },
+    { id: 'pie', name: 'Fish Pie', icon: '🥧', parts: [['fish', 'sardine', 2], ['crop', 'wheat', 1]] },
+    { id: 'skewer', name: 'Fish Skewer', icon: '🍢', parts: [['fish', 'bass', 1], ['crop', 'pepper', 1]] },
+    { id: 'roast', name: 'Roast Dinner', icon: '🍗', parts: [['meat', 'rabbit', 1], ['crop', 'potato', 1], ['crop', 'carrot', 1]] },
+    { id: 'hunterstew', name: "Hunter's Stew", icon: '🥘', parts: [['meat', 'boar', 1], ['crop', 'onion', 1], ['crop', 'corn', 1]] },
+    { id: 'ingot', name: 'Iron Ingot', icon: '🧱', parts: [['ore', 'iron', 2], ['ore', 'coal', 1]] },
+    { id: 'goldbar', name: 'Gold Bar', icon: '🥇', parts: [['ore', 'gold', 3], ['ore', 'coal', 1]] },
+    { id: 'gemcut', name: 'Cut Gem', icon: '💎', parts: [['ore', 'diamond', 1], ['ore', 'silver', 2]] },
+  ];
+
+  /** What a dish sells for. Always 35% more than its parts. */
+  function dishPrice(recipe) {
+    let sum = 0;
+    for (const [kind, id, qty] of recipe.parts) {
+      const info = partInfo(kind, id);
+      if (!info) return 0;
+      sum += info.price * qty;
+    }
+    return Math.floor(sum * 1.35);
+  }
+
+  commands.push({
+    name: 'recipe',
+    aliases: ['cook', 'kitchen', 'recipes'],
+    category: 'farming',
+    description: '🍳 Cook what you grow into something worth more — `!recipe stew`',
+    usage: '!recipe [dish]',
+    hint: 'No argument opens the book. Cooking consumes the parts and sells the dish on the spot, at 35% over the raw value.',
+    cooldown: 10,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'recipe', async () => {
+      await react('🍳');
+      const want = String(args[0] || '').trim().toLowerCase();
+      const st = s(userDoc);
+
+      if (!want) {
+        const lines = RECIPES.map((r) => {
+          const parts = r.parts
+            .map(([kind, id, qty]) => {
+              const info = partInfo(kind, id);
+              return info ? `${qty}× ${info.label}` : `${qty}× ${id}`;
+            })
+            .join(' + ');
+          return `${r.icon} **${r.name}** — ${parts} → ${kc(dishPrice(r))}`;
+        });
+        await reply(
+          `🍳 **THE RECIPE BOOK**\n`
+          + '· · · · · · ·\n'
+          + `${lines.join('\n')}\n`
+          + '📖 `!recipe <dish>` to cook one. You need the parts in the barn, the cooler, the pack or the larder.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const recipe = RECIPES.find((r) => r.id === want || r.name.toLowerCase() === want);
+      if (!recipe) {
+        await reply(
+          `❌ No recipe called \`${want}\`.\n`
+          + '· · · · · · ·\n'
+          + `📖 \`!recipe\` opens the book: ${RECIPES.map((r) => r.id).join(', ')}.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // Everything is checked before anything is consumed, so a recipe you
+      // cannot finish costs you nothing.
+      const missing = [];
+      for (const [kind, id, qty] of recipe.parts) {
+        const info = partInfo(kind, id);
+        const bucket = bucketOf(userDoc, kind);
+        if (!info || !bucket) continue;
+        const have = clamp(bucket[id]);
+        if (have < qty) missing.push(`${qty - have} more ${info.label}`);
+      }
+      if (missing.length) {
+        await reply(
+          `🍳 You are short: ${missing.join(', ')}.\n`
+          + '· · · · · · ·\n'
+          + '📖 `!barn` shows what you are holding.',
+          event.messageID,
+        );
+        return;
+      }
+
+      for (const [kind, id, qty] of recipe.parts) {
+        const bucket = bucketOf(userDoc, kind);
+        if (!bucket) continue;
+        bucket[id] = clamp(bucket[id]) - qty;
+      }
+      await save(userDoc);
+
+      const paid = await give(userDoc, dishPrice(recipe), 'farm:cook', { recipe: recipe.id });
+      const ups = gain(st.farm, 20);
+
+      await reply(
+        `🍳 **${recipe.icon} ${recipe.name.toUpperCase()}**\n`
+        + '· · · · · · ·\n'
+        + `📦 ${recipe.parts.map(([kind, id, qty]) => {
+          const info = partInfo(kind, id);
+          return `${qty}× ${info ? info.label : id}`;
+        }).join(' + ')}\n`
+        + `💰 Sold for ${kc(paid)}\n`
+        + `⭐ Farm XP +20${ups ? ` — **level ${st.farm.level}**` : ''}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + '📖 The kitchen smells better than the barn does.',
+        event.messageID,
+      );
+    }),
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // THE ALMANAC
+  // ───────────────────────────────────────────────────────────
+
+  commands.push({
+    name: 'almanac',
+    aliases: ['sowguide', 'whattoplant', 'farmguide'],
+    category: 'farming',
+    description: '📖 What to plant right now — profit per hour for every crop',
+    usage: '!almanac',
+    hint: 'The yield is two to five, so the figure is the middle of the range. The top of the list is the fastest money on the farm.',
+    cooldown: 20,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'almanac', async () => {
+      await react('📖');
+      const fm = s(userDoc).farm;
+      const now = new Date();
+      const month = now.getUTCMonth() + 1;
+      const seasons = [
+        { name: 'Winter', months: [12, 1, 2], emoji: '❄️' },
+        { name: 'Spring', months: [3, 4, 5], emoji: '🌱' },
+        { name: 'Summer', months: [6, 7, 8], emoji: '☀️' },
+        { name: 'Autumn', months: [9, 10, 11], emoji: '🍂' },
+      ];
+      const season = seasons.find((s) => s.months.includes(month)) || seasons[0];
+
+      // Yield is 2 to 5, so the middle of the range is the honest figure.
+      const rows = CROPS.map((c) => {
+        const seed = seedPrice(c);
+        const hours = c[2] / 3600000;
+        const profit = (3.5 * c[3]) - seed;
+        return { c, seed, hours, profit, perHour: hours > 0 ? profit / hours : 0 };
+      }).sort((a, b) => b.perHour - a.perHour);
+
+      const lines = rows.slice(0, 10).map((r) => (
+        `${r.c[4]} **${r.c[1]}** — seed ${kc(r.seed)} · ${secs(r.c[2])} · profit ${kc(Math.round(r.profit))} · **${kc(Math.round(r.perHour))}/hr**`
+      ));
+
+      await reply(
+        `📖 **THE ALMANAC** — ${season.emoji} ${season.name}\n`
+        + '· · · · · · ·\n'
+        + `${lines.join('\n')}\n`
+        + `🌱 Farm level ${num(fm.level)} · ${num(clamp(fm.plots))} plots · +${num(clamp(fm.prestige) * 10)}% yield\n`
+        + '📖 Profit per hour assumes a yield of 3.5 and no watering. Watering makes it 20% faster.\n'
+        + '📖 `!farmshop` lists the seeds, `!plant` puts one in the ground.',
+        event.messageID,
+      );
+    }),
+  });
 module.exports = commands;
