@@ -2561,4 +2561,129 @@ commands.push({
       );
     }),
   });
+
+  // ───────────────────────────────────────────────────────────
+  // THE DICE CUP — a roller, not a gamble
+  // ───────────────────────────────────────────────────────────
+  commands.push({
+    name: 'dicecup',
+    aliases: ['roll', 'roller'],
+    category: 'games',
+    description: '🎲 Roll dice — `!dicecup 3d6+2` shows every face and the total',
+    usage: '!dicecup <dice>d<sides>[+/-modifier]',
+    hint: 'Free, and it costs nothing and wins nothing. It is the roller for a tabletop game, not another bet.',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, reply, react, event }) => guard(reply, event.messageID, 'dicecup', async () => {
+      await react('🎲');
+      const raw = String(args[0] || '').trim().toLowerCase();
+      if (!raw) {
+        await reply('❌ Usage: `!dicecup <dice>d<sides>[+/-modifier]`\nExamples: `!dicecup 3d6`, `!dicecup 2d20+5`, `!dicecup d100`', event.messageID);
+        return;
+      }
+
+      const m = /^(\d*)d(\d+)([+-]\d+)?$/.exec(raw);
+      if (!m) {
+        await reply(`❌ \`${raw}\` is not a dice expression.\nExamples: \`3d6\`, \`2d20+5\`, \`d100\``, event.messageID);
+        return;
+      }
+      const count = m[1] === '' ? 1 : Number.parseInt(m[1], 10);
+      const sides = Number.parseInt(m[2], 10);
+      const mod = m[3] ? Number.parseInt(m[3], 10) : 0;
+
+      // Bounded on purpose: `1000d1000` is not a dice roll, it is a way to make
+      // the bot print a wall of numbers in a group chat.
+      if (!Number.isFinite(count) || count < 1 || count > 10) {
+        await reply('❌ Between 1 and 10 dice. The cup is not that big.', event.messageID);
+        return;
+      }
+      if (!Number.isFinite(sides) || sides < 2 || sides > 1000) {
+        await reply('❌ Between 2 and 1000 sides.', event.messageID);
+        return;
+      }
+
+      const faces = [];
+      let sum = 0;
+      for (let i = 0; i < count; i += 1) {
+        const roll = rand(1, sides);
+        sum += roll;
+        faces.push(roll);
+      }
+      const total = sum + mod;
+
+      // A die with six faces gets a face; anything else gets the number.
+      const face = (n) => (sides === 6 ? ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'][n - 1] : String(n));
+      const natural = ` ${faces.map(face).join(' · ')}`;
+
+      await reply(
+        `🎲 **${count}d${sides}${mod ? (mod > 0 ? `+${mod}` : mod) : ''}**\n`
+        + '· · · · · · ·\n'
+        + `⚀ Rolled:${natural}\n`
+        + `➕ Sum ${num(sum)}${mod ? ` · Modifier ${mod > 0 ? '+' : ''}${mod}` : ''}\n`
+        + `🎯 Total: ${num(total)}\n`
+        + '📖 Free. It took nothing and it won nothing.',
+        event.messageID,
+      );
+    }),
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // THE DAILY STREAK
+  // ───────────────────────────────────────────────────────────
+  commands.push({
+    name: 'streakgame',
+    aliases: ['streak', 'dailygame'],
+    category: 'games',
+    description: '🔥 The daily streak — come back tomorrow, and the payout grows',
+    usage: '!streakgame',
+    hint: 'Every third day of the streak also buys a permanent +1% lucky charm on every gamble.',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'streakgame', async () => {
+      await react('🔥');
+      const rec = g(userDoc);
+
+      // Whole calendar days, in UTC, so the streak does not flip because
+      // somebody's clock is a minute over midnight.
+      const dayKey = (d) => new Date(d).toISOString().slice(0, 10);
+      const today = dayKey(new Date());
+      const last = userDoc.streakDay ? dayKey(new Date(userDoc.streakDay)) : null;
+      const gap = last ? Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${last}T00:00:00Z`)) / 86400000) : null;
+
+      if (gap === 0) {
+        await reply(
+          `🔥 **STREAK ALREADY CLAIMED**\n`
+          + '· · · · · · ·\n'
+          + `🔥 Day ${num(clamp(userDoc.streakCount))} of the streak — come back tomorrow.\n`
+          + '📖 One claim a day. The arcade closes at midnight.',
+          event.messageID,
+        );
+        return;
+      }
+
+      // A missed day does not take the charm away — it only resets the counter.
+      const streak = gap === 1 ? clamp(userDoc.streakCount) + 1 : 1;
+      const pay = Math.min(1000 + (streak - 1) * 500, 50000);
+      const charmDay = streak % 3 === 0;
+      if (charmDay) rec.luckyCharm = clamp(rec.luckyCharm) + 1;
+
+      userDoc.streakCount = streak;
+      userDoc.streakDay = new Date();
+      userDoc.coins = clamp((userDoc.coins || 0) + pay);
+      await save(userDoc);
+      await ledger(userDoc.uid, 'streakgame', pay, userDoc.coins, { streak, charm: charmDay });
+
+      const broke = gap !== null && gap > 1;
+      await reply(
+        `🔥 **STREAK DAY ${num(streak)}**\n`
+        + '· · · · · · ·\n'
+        + `💰 +${kc(pay)}\n`
+        + (charmDay ? '🍀 +1 lucky charm — every gamble is 1% luckier, forever\n' : '')
+        + `🎰 Lucky charm: ${num(clamp(rec.luckyCharm))} (+${Math.min(15, clamp(rec.luckyCharm))}%)\n`
+        + (broke ? `💔 The streak broke — you missed ${num(gap - 1)} day(s). The charm stayed.\n` : '')
+        + '📖 Come back tomorrow. The payout grows with the streak.',
+        event.messageID,
+      );
+    }),
+  });
 module.exports = commands;

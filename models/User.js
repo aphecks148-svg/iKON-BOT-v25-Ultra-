@@ -75,6 +75,9 @@ const UserSchema = new mongoose.Schema(
 
     // module 5 — daily streak claim marker for !streakgame.
     streakDay: { type: Date, default: null },
+    // How many days in a row the streak has survived. Kept beside the day
+    // marker so the streak survives a restart instead of resetting every night.
+    streakCount: { type: Number, default: 0, min: 0 },
 
     // module 6 — group standing. Feeds !gcstatsultra and drives the warzone tax.
     gc: {
