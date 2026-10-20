@@ -43,6 +43,9 @@ const UserSchema = new mongoose.Schema(
       monthly: { type: Date, default: null },
       healme: { type: Date, default: null },
       quest: { type: Date, default: null },
+      // The daily vault interest claim. Separate from `daily`, because the two
+      // are different promises and a hunter who claims both must be able to.
+      interest: { type: Date, default: null },
     },
 
     reputation: { type: Number, default: 0 },

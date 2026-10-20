@@ -2143,7 +2143,156 @@ module.exports = [
         + `Cash: ${kc(cash)}\n`
         + `Vault: ${kc(bank)}\n`
         + `Net worth: ${kc(net)}\n`
-        + `📖 Canvas unavailable — text fallback`,
+        + '📖 Canvas unavailable — text fallback',
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // SPLIT A BILL
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'split',
+    aliases: ['splitbill', 'splitmoney'],
+    category: 'economy',
+    description: '🍕 Split a bill — `!split 500 @Alice @Bob` pays everyone their share',
+    usage: '!split <amount> <user> [user...]',
+    hint: 'You pay the whole amount and the bot divides it. Tag the people you owe — the remainder stays with you, so nothing is ever created.',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'split', async () => {
+      await react('🍕');
+      const amount = amountArg(args, 0);
+      if (amount <= 0) {
+        await reply('❌ Usage: `!split <amount> <user> [user...]`\nExample: `!split 500 @Alice @Bob`', event.messageID);
+        return;
+      }
+      if (amount > (userDoc.coins || 0)) {
+        await reply(`❌ You only have ${kc(userDoc.coins)} in your wallet.`, event.messageID);
+        return;
+      }
+
+      // Who is being split with. Names typed after the amount come first
+      // (a name can hold a space, so the resolver reports how many tokens it
+      // ate), then anybody tagged on the message who was not named in words.
+      const seen = new Set([String(userDoc.uid || event.senderID)]);
+      const people = [];
+      const take = (doc) => {
+        const uid = String(doc.uid);
+        if (seen.has(uid)) return;
+        seen.add(uid);
+        people.push(doc);
+      };
+
+      let pool = args.slice(1);
+      while (pool.length && people.length < 10) {
+        // eslint-disable-next-line no-await-in-loop
+        const { target, consumed } = await userTarget.resolveArgs(pool, event, api, { doc: true, max: 3 });
+        if (!target || !consumed) break;
+        take(target);
+        pool = pool.slice(consumed);
+      }
+      for (const uid of Object.keys((event && event.mentions) || {})) {
+        if (people.length >= 10) break;
+        // eslint-disable-next-line no-await-in-loop
+        const doc = await userTarget.userDoc(uid, event, api);
+        if (doc) take(doc);
+      }
+
+      if (!people.length) {
+        await reply('❌ Nobody to split with. Tag somebody: `!split 500 @Alice`', event.messageID);
+        return;
+      }
+
+      // You are one of the sharers, so the amount divides between you and them.
+      const sharers = people.length + 1;
+      const share = Math.floor(amount / sharers);
+
+      await debit(userDoc, amount, 'split', { with: people.map((p) => p.uid) });
+
+      const lines = [];
+      for (const p of people) {
+        p.coins = clamp((p.coins || 0) + share);
+        if (!p.transient) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await p.save();
+            // eslint-disable-next-line no-await-in-loop
+            await ledger(p.uid, 'split', share, p.coins, { from: userDoc.uid });
+          } catch { /* the payer's ledger entry still stands */ }
+        }
+        lines.push(`• ${p.name}: ${kc(share)}`);
+      }
+
+      const rounding = amount - share * sharers;
+      await reply(
+        `🍕 **Split ${kc(amount)} between ${sharers}**\n`
+        + '· · · · · · ·\n'
+        + `${lines.join('\n')}\n`
+        + `• You: ${kc(share)}${rounding ? ` — and you covered the ${kc(rounding)} rounding` : ''}\n`
+        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+        + `💸 ${story()}`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // THE VAULT PAYS ITS 2%
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'interest',
+    aliases: ['vaultinterest', 'accrue'],
+    category: 'economy',
+    description: '🏦 Let the vault pay 2% — once a day, straight back into the vault',
+    usage: '!interest',
+    hint: 'Money in the vault is safe AND earns. Loose cash in your wallet earns nothing at all.',
+    cooldown: 60,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'interest', async () => {
+      await react('🏦');
+      const vault = clamp(userDoc.bank);
+      if (vault <= 0) {
+        await reply('❌ Your vault is empty. Move cash into it with `!deposit` first.', event.messageID);
+        return;
+      }
+
+      const last = userDoc.timers && userDoc.timers.interest
+        ? new Date(userDoc.timers.interest).getTime() : 0;
+      const left = last ? Math.max(0, last + 86400000 - Date.now()) : 0;
+      if (left > 0) {
+        const hours = Math.floor(left / 3600000);
+        const mins = Math.floor((left % 3600000) / 60000);
+        await reply(
+          `⏳ The vault pays once a day.\n`
+          + '· · · · · · ·\n'
+          + `🕐 Come back in ${hours ? `${hours}h ` : ''}${mins}m.\n`
+          + `🔐 Vault: ${kc(vault)}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // 2% a day, capped so a whale vault cannot print money forever.
+      const earned = Math.min(Math.floor(vault * 0.02), 25000);
+      if (earned <= 0) {
+        await reply(`❌ ${kc(vault)} is too small to pay interest. Put more in first.`, event.messageID);
+        return;
+      }
+
+      userDoc.bank = vault + earned;
+      if (!userDoc.timers) userDoc.timers = {};
+      userDoc.timers.interest = new Date();
+      await save(userDoc);
+      await ledger(userDoc.uid, 'interest', earned, userDoc.bank, { rate: 0.02 });
+
+      await reply(
+        `🏦 **The vault paid out**\n`
+        + '· · · · · · ·\n'
+        + `📈 Earned: ${kc(earned)} (2%)\n`
+        + `🔐 Vault: ${kc(vault)} → ${kc(userDoc.bank)}\n`
+        + '📖 Back tomorrow for another 2%.',
         event.messageID,
       );
     }),
