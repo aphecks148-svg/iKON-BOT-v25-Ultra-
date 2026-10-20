@@ -3511,5 +3511,119 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
       );
     }),
   },
+
+  // ─────────────────────────────────────────────────────────
+  // A BATTLE, WITHOUT THE BATTLE
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'simulate',
+    aliases: ['preview', 'odds'],
+    category: 'rpg',
+    description: '🔮 Run a battle on paper — your odds, the payoff, and what would improve it',
+    usage: '!simulate',
+    hint: 'Nothing is rolled, nothing is spent, nothing is saved. It is the same maths `!battle` uses.',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'simulate', async () => {
+      await react('🔮');
+      const data = rpg(userDoc);
+      const chance = winChance(userDoc);
+      const pool = MONSTERS.filter((m) => m.level <= (userDoc.level || 1) + 3);
+      const faces = pool.length ? pool : MONSTERS.slice(0, 1);
+
+      // The same band `!battle` rolls inside, with the same multipliers on it.
+      const low = coinReward(userDoc, 500);
+      const high = coinReward(userDoc, 2000);
+      const loss = lossPenalty(userDoc, 100);
+
+      // What is still on the table, and what each of those things is worth.
+      // Written as the same numbers winChance() adds, so the advice cannot
+      // drift away from the maths.
+      const gains = [];
+      if (data.className !== 'warrior') gains.push('⚔️ Be a Warrior — +10% win chance (`!selectclass warrior`)');
+      if (!hasSkill(userDoc, 'powerstrike')) gains.push('💥 Power Strike — +10% win chance (`!learn powerstrike`)');
+      if (!hasEquipped(userDoc, 'sword')) gains.push('🗡️ A sword — +8% win chance (`!equip sword`)');
+      if (!hasEquipped(userDoc, 'shield')) gains.push('🛡️ A shield — +4% win chance (`!equip shield`)');
+
+      const facesLine = faces
+        .map((m) => `${m.emoji} ${m.name} (Lv ${m.level})`)
+        .join(' · ');
+
+      await reply(
+        `🔮 **BATTLE SIMULATION**\n`
+        + '· · · · · · ·\n'
+        + `🎯 Win chance: ${Math.round(chance * 100)}%\n`
+        + `👾 You can face: ${facesLine}\n`
+        + `💰 Win: ${kc(low)} – ${kc(high)} and ${xpReward(userDoc, 100)} XP\n`
+        + `💸 Lose: -${kc(loss)} and ${xpReward(userDoc, 20)} XP\n`
+        + (gains.length
+          ? `🛠️ Still on the table:\n${gains.map((g) => `• ${g}`).join('\n')}\n`
+          : '✅ You have everything that moves this number.\n')
+        + '📖 Nothing was rolled, nothing was spent, nothing was saved.',
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // THE MENTOR
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'mentor',
+    aliases: ['nextstep', 'whatnext', 'advisor'],
+    category: 'rpg',
+    description: '🧙 Your academy mentor — the free progress you are leaving on the table',
+    usage: '!mentor',
+    hint: 'Reads your profile and names the one thing worth doing next. It never spends anything for you.',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'mentor', async () => {
+      await react('🧙');
+      const data = rpg(userDoc);
+      const tips = [];
+
+      // The claim timers first: free money beats everything else. The weekly and
+      // the monthly come last — they are real, but they are rarely ready, and a
+      // list that always starts with them is a list nobody reads.
+      if (!claimLeft(userDoc, 'daily', 86400000)) tips.push('💰 `!claim daily` is ready — the largest free payout in the city.');
+      if (!claimLeft(userDoc, 'hourly', 3600000)) tips.push('⏰ `!claim hourly` is ready — smaller, but still free.');
+
+      // Then the things that are worth nothing but cost everything.
+      if (!data.className) tips.push('🎭 You have no class. `!class` — the Warrior carries +10% on every battle.');
+      if (!data.skills.length) tips.push('🔮 You know no skills. `!learn powerstrike` — 5,000 K-Cash for +10% win chance.');
+      if (!hasEquipped(userDoc, 'sword')) tips.push('🗡️ Your hands are empty. `!equip sword` — +8% win chance.');
+      if (data.stamina >= 3) tips.push(`⚡ ${data.stamina} stamina is sitting there. !dailyquest and !adventure spend it.`);
+      if (!data.stats.battles) tips.push('⚔️ You have never fought. `!battle` — 60% before any gear at all.');
+
+      // The next title, because it is the only thing that tells a hunter how
+      // close the next level actually is.
+      const nextTitle = TITLES.find((t) => (userDoc.level || 1) < t.level);
+      if (nextTitle) {
+        const away = nextTitle.level - (userDoc.level || 1);
+        tips.push(`🏷️ "${nextTitle.title}" unlocks at level ${nextTitle.level} — ${away} level${away === 1 ? '' : 's'} away.`);
+      }
+
+      // A vault nobody uses is money waiting to be robbed.
+      if (clamp(userDoc.bank) <= 0 && clamp(userDoc.coins) > 0) {
+        tips.push('🏦 Your vault is empty. `!deposit` — robbers cannot touch what is inside it.');
+      }
+
+      if (!claimLeft(userDoc, 'weekly', 604800000)) tips.push('📅 `!claim weekly` is ready.');
+      if (!claimLeft(userDoc, 'monthly', 2592000000)) tips.push('🗓️ `!claim monthly` is ready.');
+
+      const lines = tips.length
+        ? tips.slice(0, 6).map((t) => `• ${t}`)
+        : ['• Nothing pressing. You have claimed everything and equipped everything. Go and win a fight.'];
+
+      await reply(
+        `🧙 **THE MENTOR SAYS**\n`
+        + '· · · · · · ·\n'
+        + `${lines.join('\n')}\n`
+        + (tips.length > 6 ? `· · · · · · ·\n…and ${tips.length - 6} more. Come back tomorrow.\n` : '')
+        + '📖 The mentor never spends your money for you.',
+        event.messageID,
+      );
+    }),
+  },
   ...kingdomCommands,
 ];
