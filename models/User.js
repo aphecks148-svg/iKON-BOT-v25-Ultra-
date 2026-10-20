@@ -244,6 +244,9 @@ const UserSchema = new mongoose.Schema(
       // Daily claim marker for !gtadaily.
       gtadaily: { type: Date, default: null },
       lastTaxi: { type: Date, default: null },
+      // Street sweep marker for !gtapickup. Separate from the cab: a player
+      // who just finished a shift can still walk the street.
+      lastPickup: { type: Date, default: null },
       lastHeist: { type: Date, default: null },
       copsHuntUntil: { type: Date, default: null },
       racesWon: { type: Number, default: 0, min: 0 },

@@ -2758,4 +2758,171 @@ await reply('🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no ca
     }),
   });
 
+  // ───────────────────────────────────────────────────────────
+  // THE NIGHT SHIFT
+  // ───────────────────────────────────────────────────────────
+  commands.push({
+    name: 'gtataxi',
+    aliases: ['gtacab', 'gtadriver'],
+    category: 'gta',
+    description: '🚕 Drive the cab at night — fares, tips, and the one fare you regret',
+    usage: '!gtataxi',
+    hint: 'A shift behind the wheel. Small money, no heat — and one fare in ten does not pay what it should.',
+    cooldown: 1800,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtataxi', async () => {
+      await react('🚕');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🚕 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (jailed(userDoc)) {
+        await reply(`🔒 You are in the can for ${num(jailLeft(userDoc))} more minute(s).`, event.messageID);
+        return;
+      }
+
+      // The shift marker lives on the GTA record, not on the command cooldown,
+      // so a restart cannot hand somebody a second shift.
+      const last = t.lastTaxi ? new Date(t.lastTaxi).getTime() : 0;
+      const left = Math.max(0, last + 1800000 - Date.now());
+      if (left > 0) {
+        await reply(
+          `🚕 You are still on shift.\n`
+          + '· · · · · · ·\n'
+          + `⏳ Another fare in ${fmt.dur(Math.ceil(left / 1000))}.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // Where the fare is going, and what the drive pays.
+      const fares = [
+        { to: 'the mall on Fifth', pay: 900, tip: 200 },
+        { to: 'the hospital', pay: 1200, tip: 400 },
+        { to: 'the airport', pay: 2600, tip: 600 },
+        { to: 'the docks', pay: 1800, tip: 100 },
+        { to: 'the old warehouse', pay: 2100, tip: 0 },
+        { to: 'the stadium', pay: 1500, tip: 800 },
+        { to: 'the Klerk building', pay: 3000, tip: 0 },
+      ];
+      const fare = pick(fares);
+      const trouble = Math.random() < 0.1;
+
+      t.lastTaxi = new Date();
+      await save(userDoc);
+
+      if (trouble) {
+        // The fare that does not pay. A fine, no payout, and a reputation cost
+        // that nobody can see except the person who owns the meter.
+        await earn(userDoc, 0, 'gta:taxi', { fare: fare.to, trouble: true });
+        await grantXp(userDoc, 20);
+        await reply(
+          `🚕 **THE FARE THAT DID NOT PAY**\n`
+          + '· · · · · · ·\n'
+          + `📍 Destination: ${fare.to}\n`
+          + '💸 You were turned over to the meter office. Nothing collected.\n'
+          + '⭐ +20 XP for the experience\n'
+          + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5) — unchanged\n`
+          + '📖 He looked at your face and remembered it.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const total = fare.pay + fare.tip;
+      await earn(userDoc, total, 'gta:taxi', { fare: fare.to, pay: total });
+      await bank(userDoc, total);
+      await grantXp(userDoc, 60);
+
+      await reply(
+        `🚕 **SHIFT DONE**\n`
+        + '· · · · · · ·\n'
+        + `📍 Destination: ${fare.to}\n`
+        + `💼 Fare: ${kc(fare.pay)}\n`
+        + (fare.tip ? `🎁 Tip: ${kc(fare.tip)}\n` : '')
+        + '⭐ +60 XP\n'
+        + `⭐ Wanted ${stars(t.wanted)} (${t.wanted}/5) — unchanged\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + '📖 The meter clicked over. That is the whole job.',
+        event.messageID,
+      );
+    }),
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // PICKING THE STREET CLEAN
+  // ───────────────────────────────────────────────────────────
+  commands.push({
+    name: 'gtapickup',
+    aliases: ['gtasweep', 'gtachange'],
+    category: 'gta',
+    description: '🧹 Sweep the street for whatever somebody dropped — small, free, and worth the walk',
+    usage: '!gtapickup',
+    hint: 'No heat, no risk, no skill. Sometimes there is nothing. Sometimes there is a folding 500.',
+    cooldown: 900,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtapickup', async () => {
+      await react('🧹');
+      const t = g(userDoc);
+      if (!t.started) {
+        await reply('🧹 You have not started yet. `!gtastart` first.', event.messageID);
+        return;
+      }
+      if (jailed(userDoc)) {
+        await reply(`🔒 You are in the can for ${num(jailLeft(userDoc))} more minute(s).`, event.messageID);
+        return;
+      }
+
+      const last = t.lastPickup ? new Date(t.lastPickup).getTime() : 0;
+      // The sweep has its own marker, separate from the cab: a player who just
+      // finished a shift can still walk the street.
+      const left = Math.max(0, last + 900000 - Date.now());
+      if (left > 0) {
+        await reply(
+          `🧹 You have just swept this street.\n`
+          + '· · · · · · ·\n'
+          + `⏳ Come back in ${fmt.dur(Math.ceil(left / 1000))}.`,
+          event.messageID,
+        );
+        return;
+      }
+
+      // Most sweeps find nothing. That is the point of a sweep.
+      const roll = Math.random();
+      let found = 0;
+      let what = 'Nothing but receipts and a broken umbrella.';
+      if (roll > 0.62) {
+        found = rand(40, 260);
+        what = 'A handful of coins in a gutter.';
+      } else if (roll > 0.2) {
+        found = rand(260, 900);
+        what = 'A wallet with the photo still in it.';
+      } else if (roll > 0.06) {
+        found = rand(900, 2400);
+        what = 'A folding 500, folded twice.';
+      } else {
+        found = rand(2400, 6000);
+        what = 'An envelope with a name on it, and no name on the envelope.';
+      }
+
+      t.lastPickup = new Date();
+      await save(userDoc);
+      await earn(userDoc, found, 'gta:pickup', { found });
+      await bank(userDoc, found);
+      await grantXp(userDoc, 15);
+
+      await reply(
+        `🧹 **YOU SWEEP THE STREET**\n`
+        + '· · · · · · ·\n'
+        + `🔎 ${what}\n`
+        + `💰 +${kc(found)}\n`
+        + '⭐ +15 XP\n'
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + '📖 You do not look back at it. That is how this works.',
+        event.messageID,
+      );
+    }),
+  });
+
   module.exports = commands;
