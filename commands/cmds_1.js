@@ -32,6 +32,7 @@ const userTarget = require('../bot/target');
 const decks = require('../bot/categories');
 const menu = require('../bot/helpmenu');
 const compliance = require('../bot/compliance');
+const realProfile = require('../bot/profile');
 
 const BOT_ICON = '🤖';
 const OWNER_ICON = '👑';
@@ -318,12 +319,16 @@ module.exports = [
     execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'userinfo', async () => {
       await react('👤');
 
+      // Through the profile module, so the name comes from the same ten-minute
+      // cache every other command reads it from.
+      //
+      // This used to call api.getUserInfo directly and read `first_name` — a
+      // key ws3-fca has never returned. It sends `firstName`, so the fallback
+      // was dead code and the live name came back blank whenever the API did
+      // not send a full `name` either.
       let liveName = null;
       try {
-        if (api && typeof api.getUserInfo === 'function') {
-          const info = await api.getUserInfo(event.senderID);
-          liveName = info && (info.name || info.first_name);
-        }
+        liveName = await realProfile.fetchRealName(event.senderID, api);
       } catch { /* offline — fall back to the stored name */ }
 
       const u = userDoc || {};

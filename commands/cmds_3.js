@@ -433,10 +433,17 @@ async function realNameOf(userDoc, uid, api) {
     ? userDoc.name
     : `Hunter ${String((userDoc && userDoc.uid) || uid || '').slice(-4)}`;
 
+  // Through the profile module, not straight to Facebook.
+  //
+  // This used to call api.getUserInfo directly, which is the one thing
+  // bot/cache.js was written to stop: every command that looked a name up on
+  // its own made Facebook answer the same question again, and Facebook flags
+  // rapid per-user lookups as scraping. The profile module caches the answer
+  // for ten minutes, so `!profile` now asks Facebook once per person per ten
+  // minutes instead of three times per call — twice for the name and once
+  // more for the picture.
   try {
-    if (!api || typeof api.getUserInfo !== 'function') return fallback;
-    const info = await api.getUserInfo(uid || (userDoc && userDoc.uid));
-    const live = info && (info.name || info.firstName);
+    const live = await realProfile.fetchRealName(uid || (userDoc && userDoc.uid), api);
     if (!live || realProfile.isPlaceholderName(live)) return fallback;
     return String(live).trim();
   } catch {
@@ -1478,10 +1485,15 @@ module.exports = [
       // so there is no longer a "could not load" path to guard. All that is left
       // is to make the name as real as Facebook can make it.
       const name = await realNameOf(userDoc, event.senderID, api);
-      userDoc.name = name;
 
       const data = rpg(userDoc);
+      // Stamina refills on a timer, so the card has to show the refilled
+      // figure — and the refill has to be written down. Reading a card used to
+      // show 11/11 stamina and leave 9/10 in the database, so a hunter who
+      // only ever checked their card never actually refilled.
+      const staminaBefore = data.stamina;
       refreshStamina(userDoc);
+      const staminaMoved = data.stamina !== staminaBefore;
       const cls = CLASSES[data.className];
       const titles = data.titles.length ? data.titles.join(', ') : 'None yet';
 
@@ -1500,27 +1512,43 @@ module.exports = [
       // Real name and real Facebook photo, drawn on canvas. Falls back to the
       // text card when the native binary is missing, so the command always
       // answers something.
-      const card = await cards.userCard({
-        emoji: '🧬',
-        title: 'iKON ACADEMY ID CARD',
-        subtitle: `${rank.title} · Level ${level}`,
-        user: userDoc,
-        api,
-        rows: [
-          ['Name', name],
-          ['Rank', `${rank.title} (${num(rank.level)})`],
-          ['Level', `${level} · ${pct}%`],
-          ['XP', `${num(xp)}/${num(needed)}`],
-          ['Lifetime XP', `${num(lifetime)} XP`],
-          ['To level up', `${num(remaining)} XP`],
-          ['Money', kc(userDoc.coins)],
-          ['Starting allowance', kc(userDoc.money ?? cache.STARTING_MONEY)],
-          ['Class', cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'],
-          ['Titles', titles],
-          ['Stamina', `${data.stamina}/${hasSkill(userDoc, 'swiftfoot') ? 11 : 10}`],
-          ['Prestige', `${clamp(userDoc.prestige)} (+${Math.round((prestigeBonus(userDoc) - 1) * 100)}% income)`],
-        ],
-      });
+      //
+      // The card is wrapped because it is the one part of this command that
+      // can fail for reasons that have nothing to do with the hunter: a canvas
+      // binary that will not start, a Facebook picture that never arrives, a
+      // data URL that comes back too big. None of those are worth taking the
+      // whole command down for — the numbers are all computed already, and the
+      // text card below has every one of them.
+      let card = null;
+      try {
+        card = await cards.userCard({
+          emoji: '🧬',
+          title: 'iKON ACADEMY ID CARD',
+          subtitle: `${rank.title} · Level ${level}`,
+          user: userDoc,
+          api,
+          rows: [
+            ['Name', name],
+            ['Rank', `${rank.title} (${num(rank.level)})`],
+            ['Level', `${level} · ${pct}%`],
+            ['XP', `${num(xp)}/${num(needed)}`],
+            ['Lifetime XP', `${num(lifetime)} XP`],
+            ['To level up', `${num(remaining)} XP`],
+            ['Money', kc(userDoc.coins)],
+            ['Starting allowance', kc(userDoc.money ?? cache.STARTING_MONEY)],
+            ['Class', cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'],
+            ['Titles', titles],
+            ['Stamina', `${data.stamina}/${hasSkill(userDoc, 'swiftfoot') ? 11 : 10}`],
+            ['Prestige', `${clamp(userDoc.prestige)} (+${Math.round((prestigeBonus(userDoc) - 1) * 100)}% income)`],
+          ],
+        });
+      } catch {
+        card = null;
+      }
+
+      // Write the refill down, but only when there was one to write. A read
+      // should not become a write every single time.
+      if (staminaMoved) await save(userDoc);
 
       if (card) {
         await reply({
