@@ -1277,7 +1277,11 @@ function query(doc) {
   });
 
   // ── 18. autoadd guards ────────────────────────────────────
-  await step('autoadd never re-invites the bot or a non-numeric id', async () => {
+  // The auto re-inviter is an admin switch, so it stays. What it must never do
+  // is pull back somebody an admin removed — Facebook reports a removal and a
+  // voluntary departure through the same event, so the difference has to be
+  // read out of the payload.
+  await step('autoadd re-invites a leaver but never one an admin removed', async () => {
     const ik = require('../ws3-fca');
     const calls = [];
     const api = { ...mockApi(), gcmember: async (a, uid, tid) => { calls.push({ a, uid, tid }); } };
@@ -1304,6 +1308,12 @@ function query(doc) {
         threadID: 't_auto', logMessageType: 'log:unsubscribe',
         logMessageData: { leftParticipantFbId: 'not-an-id' },
       });
+      // Somebody an admin removed must NOT be pulled back. The actor is who
+      // caused the departure, and it is only present when somebody else did it.
+      await ik.handleGroupChange(api, {
+        threadID: 't_auto', logMessageType: 'log:unsubscribe',
+        logMessageData: { leftParticipantFbId: '555000999', actorFbId: '777000888' },
+      });
     } finally {
       toggles.getGroup = realGetGroup;
     }
@@ -1312,7 +1322,80 @@ function query(doc) {
     assert.strictEqual(calls[0].a, 'add');
     assert.strictEqual(calls[0].uid, '1234567890');
     assert.strictEqual(calls[0].tid, 't_auto');
-    return 're-invites leavers, skips self and bad ids';
+    assert.ok(
+      !calls.some((c) => c.uid === '555000999'),
+      'somebody an admin removed must not be pulled back into the chat',
+    );
+    return 're-invites leavers, skips self, bad ids and admin removals';
+  });
+
+  // ── 18a. the compliance policy ─────────────────────────────
+  // These are the rules that keep the account out of a suspension queue: the
+  // bot does not answer what it was not asked, it does not answer a tag, and
+  // it does not push content into a chat that did not ask for it.
+  await step('the compliance policy stays quiet on tags and unrequested pushes', async () => {
+    const compliance = require('./compliance');
+
+    // A real mention is not a command, whoever it is addressed to.
+    assert.ok(
+      compliance.isMentionToken('someone', { mentions: { '555111222': 'someone' } }),
+      'a tagged name must not be read as a command',
+    );
+    assert.ok(
+      compliance.isMentionToken('555111222', { mentions: { '555111222': 'someone' } }),
+      'a tagged uid must not be read as a command',
+    );
+    assert.ok(
+      compliance.isMentionToken('SOMEONE', { mentions: { '555111222': 'someone' } }),
+      'casing must not matter',
+    );
+    // The broadcast words are never a command, mention or not.
+    for (const word of ['everyone', 'all', 'here', 'admins', 'anyone']) {
+      assert.ok(compliance.isMentionToken(word, {}), `${word} must not be read as a command`);
+    }
+    // A real command is still a command.
+    assert.ok(
+      !compliance.isMentionToken('help', { mentions: { '555111222': 'someone' } }),
+      'a real command must still work',
+    );
+
+    // Unknown words: answered in a private chat, silent in a group.
+    assert.strictEqual(compliance.shouldAnswerUnknown(false), true, 'a DM deserves an answer');
+    assert.strictEqual(compliance.shouldAnswerUnknown(true), false, 'a group does not');
+
+    // Auto-download is opt-in.
+    assert.strictEqual(compliance.autoDownloadAllowed(null), false, 'off when there is no setting');
+    assert.strictEqual(compliance.autoDownloadAllowed({}), false, 'off by default');
+    assert.strictEqual(compliance.autoDownloadAllowed({ autoDownload: { on: false } }), false, 'off when said so');
+    assert.strictEqual(compliance.autoDownloadAllowed({ autoDownload: { on: true } }), true, 'on when said so');
+
+    return 'tags are not commands, groups are quiet, pushes are opt-in';
+  });
+
+  // ── 18b. the engine honours the quiet rule ────────────────
+  await step('the engine does not answer an unknown command in a group', async () => {
+    const ik = require('../ws3-fca');
+    ik.reloadCommands();
+    const api = mockApi();
+    const before = api.sent.length;
+
+    await ik.handleMessage(api, {
+      type: 'message',
+      isSelf: false,
+      isGroup: true,
+      threadID: '1451777763453670',
+      messageID: 'quiet_mid',
+      senderID: '100086783504073',
+      body: `${config.PREFIX}notarealcommand`,
+      attachments: [],
+    });
+
+    assert.strictEqual(
+      api.sent.length,
+      before,
+      'the bot answered an unknown command in a group — that is an unsolicited message',
+    );
+    return 'silent on an unknown command in a group';
   });
 
   // ── 19. adminsOnly must not be able to lock a group ───────
@@ -2078,7 +2161,14 @@ function query(doc) {
     // Aliases get the same treatment: "! p" is how most people type ping.
     // Ping's reply embeds the uptime, which advances between the two
     // runs, so the number is normalised before the replies are compared.
-    const stripUptime = (s) => String(s).replace(/Uptime: \d+s/, 'Uptime: Ns');
+    //
+    // The savage line is random on every call, so it is normalised too —
+    // without that, two runs of the same command can never match and the
+    // test fails about a third of the time on a coin toss.
+    const stripUptime = (s) => String(s)
+      .replace(/Uptime: \d+s/, 'Uptime: Ns')
+      .replace(/I am breathing\. [^\n]*/, 'I am breathing. X')
+      .replace(/Started: .*/, 'Started: X');
     assert.strictEqual(
       stripUptime(await run('! p')),
       stripUptime(await run('!p')),
@@ -3181,8 +3271,12 @@ const PIKACHU = dex.find('pikachu');
 
     const Group = require('../models/Group');
     const mongo = require('./mongo');
+    const compliance = require('./compliance');
     const realFind = Group.find;
     const realReady = mongo.isReady;
+    const realDelay = compliance.broadcastDelayMs;
+    // The real gap is seconds per chat on purpose. The test does not wait for it.
+    compliance.broadcastDelayMs = () => 0;
     Group.find = () => ({ select: () => ({ lean: () => Promise.resolve([{ tid: 'a1' }, { tid: 'a2' }]) }) });
     mongo.isReady = () => true;
 
@@ -3215,8 +3309,60 @@ const PIKACHU = dex.find('pikachu');
     } finally {
       Group.find = realFind;
       mongo.isReady = realReady;
+      compliance.broadcastDelayMs = realDelay;
     }
     return 'preview sends nothing, a real send reaches everyone';
+  });
+
+  // ── 35a. the broadcast budget is all-or-nothing ────────────
+  // A fan-out that stops halfway leaves some chats with the message and some
+  // without, and the half that did go out is still the spam signal. So the
+  // budget is checked for the whole batch before the first send, and a
+  // broadcast either reaches every chat it was aimed at or goes nowhere.
+  await step('a broadcast refuses to start unless the whole batch fits the budget', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const bc = loaded.registry.get('broadcast');
+    const Group = require('../models/Group');
+    const mongo = require('./mongo');
+    const compliance = require('./compliance');
+    const realFind = Group.find;
+    const realReady = mongo.isReady;
+    const realDelay = compliance.broadcastDelayMs;
+    const realRemaining = compliance.fanoutRemaining;
+    compliance.broadcastDelayMs = () => 0;
+    mongo.isReady = () => true;
+    Group.find = () => ({ select: () => ({ lean: () => Promise.resolve([{ tid: 'a1' }, { tid: 'a2' }]) }) });
+
+    const went = [];
+    const api = { async sendMessage(p, tid) { went.push(String(tid)); return { messageID: 'x' }; } };
+
+    try {
+      // A budget with room for one message cannot carry a two-chat broadcast.
+      compliance.fanoutRemaining = () => ({ hour: 1, day: 1, hourMax: 40, dayMax: 200 });
+      const realCan = compliance.canFanout;
+      compliance.canFanout = () => false;
+
+      const said = [];
+      await bc.execute({
+        api,
+        args: ['maintenance', 'at', '9pm'],
+        event: { threadID: 't1', messageID: 'm', senderID: '9', isGroup: true },
+        config,
+        reply: async (t) => { said.push(typeof t === 'string' ? t : t.body); },
+        react: async () => true,
+        userDoc: { uid: '9', name: 'Owner' },
+      });
+
+      assert.deepStrictEqual(went, [], 'nothing is sent when the budget will not cover the batch');
+      assert.ok(/Refusing/.test(said.join('\n')), 'and it says why');
+      compliance.canFanout = realCan;
+    } finally {
+      Group.find = realFind;
+      mongo.isReady = realReady;
+      compliance.broadcastDelayMs = realDelay;
+      compliance.fanoutRemaining = realRemaining;
+    }
+    return 'refuses rather than sending half of it';
   });
 
   // ── 36. the gate says which blocks an admin may override ──
@@ -4369,6 +4515,16 @@ const PIKACHU = dex.find('pikachu');
       ...over,
     });
 
+    // The real scheduler is taken out of the picture for the duration.
+    //
+    // It wakes up every minute on the real clock, and it would post a spawn of
+    // its own into these same fake groups — on real time, not the simulated
+    // clock — which is a different schedule from the one under test. It also
+    // collides with the simulated sweeps, and one colliding sweep silently
+    // takes the whole hour with it.
+    const schedulerClient = pokemonSpawn.currentClient();
+    pokemonSpawn.stop();
+
     /** Run an hour of ticks, minute by minute, against a set of groups. */
     const runHour = async (groups) => {
       const at = [];
@@ -4442,6 +4598,8 @@ const PIKACHU = dex.find('pikachu');
       Group.find = realFind;
       media.attachment = realAttachment;
       cards.pokemonCard = realPokemonCard;
+      // The scheduler goes back where it was.
+      if (schedulerClient) pokemonSpawn.start(schedulerClient);
     }
   });
 

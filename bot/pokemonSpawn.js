@@ -60,6 +60,14 @@ const SWITCH = { cmdName: 'pokemon', category: 'rpg' };
 /** Guards against two ticks overlapping, which a slow send can cause. */
 let ticking = false;
 
+/**
+ * How long a tick waits for the one in front of it before giving up.
+ *
+ * The wait is bounded on purpose. A sweep that is stuck — a render that never
+ * returns — must not turn every later caller into a permanent queue.
+ */
+const SWEEP_WAIT_MS = 30 * 1000;
+
 /** Set by start(); the live client, used for scheduled spawns. */
 let client = null;
 
@@ -261,7 +269,23 @@ async function spawnOne(api, group, now = Date.now()) {
  */
 async function tick(api = client, now = Date.now()) {
   if (!api || !mongo.isReady()) return 0;
-  if (ticking) return 0;
+  // Wait for a sweep that is already running rather than dropping this one.
+  //
+  // Dropping it was wrong twice over. It lost the tick outright, so a group
+  // that came due while a long sweep was running waited another whole minute
+  // for its Pokemon. And it made the answer to an explicit call a lie: a
+  // caller that asks for a specific moment gets "nothing happened" because
+  // something else happened first, which is not the same answer at all.
+  //
+  // So the sweeps queue instead of colliding, and the wait is bounded so a
+  // stuck sweep cannot hold the queue forever.
+  let waited = 0;
+  while (ticking && waited < SWEEP_WAIT_MS) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, 50));
+    waited += 50;
+  }
+  if (ticking) return 0; // the sweep in front is stuck; do not pile onto it
   ticking = true;
   let posted = 0;
   try {
@@ -432,6 +456,21 @@ function stop() {
 }
 
 /**
+ * The client the scheduler is using, or null when it is stopped.
+ *
+ * Exposed so that a test which proves the spawn schedule can take the scheduler
+ * out of the picture and put it back afterwards. Without that, the real
+ * scheduler wakes up in the middle of a simulated hour and posts a spawn of
+ * its own — into the same fake groups, on the real clock, which is a different
+ * schedule entirely.
+ *
+ * @returns {object|null}
+ */
+function currentClient() {
+  return client;
+}
+
+/**
  * Post a spawn right now, ignoring the schedule. Used by the admin command.
  *
  * Still subject to the switches: an admin who has turned the feature off, or
@@ -450,5 +489,5 @@ async function spawnNow(api, group) {
 module.exports = {
   TICK_MS, MAX_PER_TICK, SWITCH,
   hasLiveSpawn, isDue, mayPost, spawnBody, spawnOne, tick,
-  attemptCatch, catchBody, start, stop, spawnNow,
+  attemptCatch, catchBody, start, stop, spawnNow, currentClient,
 };
