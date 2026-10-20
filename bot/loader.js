@@ -185,7 +185,11 @@ function loadCommands(dir = COMMANDS_DIR) {
       // without 352 edits to descriptions that already read well. A command that
       // leads its own description with an emoji keeps it; one that does not
       // inherits its deck's.
-      if (!deckMeta.get(cmd.category)) unknownCategories.add(cmd.category);
+      //
+      // `get()` hands back a placeholder for a key it does not know rather
+      // than null, so asking it whether a category exists never worked. The
+      // table of keys that are genuinely unknown is what this wants.
+      if (deckMeta.unknownKeys([cmd.category]).length) unknownCategories.add(cmd.category);
       cmd.icon = String(cmd.icon || '').trim()
         || (helpIcon(cmd.description) || deckMeta.get(cmd.category).emoji);
 
@@ -204,7 +208,12 @@ function loadCommands(dir = COMMANDS_DIR) {
 
       registry.set(cmd.name, cmd);
       loaded += 1;
-      categories.set(cmd.category, (categories.get(cmd.category) || 0) + 1);
+      // Counted by DECK, not by raw category key. Two categories have been
+      // folded into others, so a command still tagged `kingdom` lives in the
+      // empire deck now, and the number the loader prints is the number of
+      // decks a user can open.
+      const deck = deckMeta.resolve(cmd.category);
+      categories.set(deck, (categories.get(deck) || 0) + 1);
 
       for (const alias of cmd.aliases) {
         if (aliases.has(alias)) {

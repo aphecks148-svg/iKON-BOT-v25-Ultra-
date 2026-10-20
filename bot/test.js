@@ -1759,8 +1759,31 @@ function query(doc) {
       labels.add(cat.label.toLowerCase());
       emojis.add(cat.emoji);
     }
-    assert.strictEqual(decks.CATEGORIES.length, 12, 'twelve decks — football is its own deck inside the media module');
+    assert.strictEqual(decks.CATEGORIES.length, 10, 'ten decks — kingdom sits with the empire games and football with the games');
     return `${labels.size} unique labels, ${emojis.size} unique emojis`;
+  });
+
+  await step('a folded-away category still finds the deck that took it', () => {
+    // `kingdom` and `football` no longer have a deck of their own, but the
+    // commands still carry those keys — the keys are what a group's
+    // disabledModules list holds, so they cannot change. The deck they land in
+    // has to be findable by the old name as well, or `!help kingdom` would
+    // answer "unknown topic" about twelve commands that are sitting right
+    // there.
+    assert.strictEqual(decks.find('kingdom').key, 'gta', 'kingdom finds the empire deck');
+    assert.strictEqual(decks.find('football').key, 'games', 'football finds the games deck');
+    assert.strictEqual(decks.findExact('kingdom').key, 'gta', 'and by exact name too');
+    assert.strictEqual(decks.resolve('kingdom'), 'gta', 'the key resolves to its deck');
+    assert.strictEqual(decks.resolve('football'), 'games', 'and so does football');
+    // A folded-away key is not a typo, so it must not be reported as one.
+    assert.strictEqual(decks.unknownKeys(['kingdom', 'football']).length, 0, 'a folded key is not unknown');
+    // And the commands really are filed under the deck that took them.
+    const byCat = decks.group([...loaded.registry.values()]);
+    const empire = byCat.get('gta') || [];
+    const games = byCat.get('games') || [];
+    assert.ok(empire.some((c) => c.category === 'kingdom'), 'kingdom commands are in the empire deck');
+    assert.ok(games.some((c) => c.category === 'football'), 'football commands are in the games deck');
+    return 'the old names still find their new deck';
   });
 
   await step('every category in use has display metadata', () => {
@@ -1774,7 +1797,7 @@ function query(doc) {
     for (const key of decks.ORDER) {
       assert.ok((byCat.get(key) || []).length > 0, `deck "${key}" is advertised but holds nothing`);
     }
-    return 'all twelve decks resolve to a name and hold commands';
+    return 'all ten decks resolve to a name and hold commands';
   });
 
   await step('a deck is findable by its key, its name and a loose word', () => {
@@ -6306,7 +6329,7 @@ const PIKACHU = dex.find('pikachu');
       ['kings', 'kingdoms'], ['kleaderboard', 'kingdoms']]) {
       assert.strictEqual(loaded.aliases.get(alias), owner, `!${alias} resolves to !${owner}`);
     }
-    return 'ten kingdom commands, ten aliases, one deck';
+    return 'ten kingdom commands, ten aliases, one crew system';
   });
 
   // A shared in-memory Kingdom store for the behaviour tests.

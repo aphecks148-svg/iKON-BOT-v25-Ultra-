@@ -18,6 +18,28 @@
  */
 
 /**
+ * Categories that have been folded into another one.
+ *
+ * Two decks did not earn their own place. `kingdom` was twelve commands about
+ * a treasury and a war, which is the same game `gta` already plays with a
+ * wallet; `football` was ten commands about scores, which is the same thing
+ * `games` already does with dice and chess. Eleven decks is a worse index than
+ * ten, and a deck with one page of nothing in it is worse than no deck.
+ *
+ * The command's own `category` string is NOT changed. That string is stored in
+ * group settings and compared against `disabledModules`, so a group that
+ * switched the kingdom commands off must keep doing so after the deck is
+ * folded away. The commands still live under `kingdom`; the deck just sits in
+ * the same drawer as the rest of the empire games.
+ *
+ * @type {Record<string,string>}
+ */
+const MERGED_INTO = {
+  kingdom: 'gta',
+  football: 'games',
+};
+
+/**
  * @typedef {Object} Category
  * @property {string} key    machine key, matches Command.category (never change)
  * @property {string} label  the name shown to users
@@ -68,12 +90,12 @@ const CATEGORIES = [
   },
   {
     key: 'games',
-    label: 'Games & Arena',
+    label: 'Games & Sports',
     emoji: '🎲',
     symbol: '◈',
-    blurb: 'RPS, chess, dice, trivia — and the arena that keeps score.',
-    hint: 'Games wager coins by default; `!pass` skips a round without losing anything.',
-    lookfor: ['games', 'game', 'arena', 'gambling', 'games & arena'],
+    blurb: 'RPS, chess, dice, trivia — and live football for the matches on today.',
+    hint: 'Games wager coins by default; `!pass` skips a round without losing anything. `!football` is free to read.',
+    lookfor: ['games', 'game', 'arena', 'gambling', 'games & arena', 'games & sports', 'football', 'soccer', 'premier', 'fixture', 'match', 'goal', 'league'],
   },
   {
     key: 'group',
@@ -86,12 +108,12 @@ const CATEGORIES = [
   },
   {
     key: 'gta',
-    label: 'Street Life',
+    label: 'Empire & Street',
     emoji: '🚗',
     symbol: '❖',
-    blurb: 'Cars, crime, turf and the crew system — GTA with a wallet.',
-    hint: 'Steal a car before anything else; most of Street Life needs one.',
-    lookfor: ['gta', 'street', 'street life', 'cars', 'crime', 'crew'],
+    blurb: 'Cars, crime, turf and crews — and the kingdoms that outgrow them.',
+    hint: 'Steal a car before anything else; most of Street Life needs one. `!kingdom create <name>` starts an empire.',
+    lookfor: ['gta', 'street', 'street life', 'cars', 'crime', 'crew', 'empire', 'empire & street', 'kingdom', 'kingdoms', 'guild', 'war', 'monarch'],
   },
   {
     key: 'downloader',
@@ -120,24 +142,6 @@ const CATEGORIES = [
     hint: 'Farm first, hunt second — hunting costs energy that farming earns back.',
     lookfor: ['farming', 'farm', 'hunt', 'mine', 'fish', 'farm & hunt'],
   },
-  {
-    key: 'kingdom',
-    label: 'Kingdoms',
-    emoji: '🏰',
-    symbol: '✦',
-    blurb: 'Found a kingdom, raise a treasury and wage war for it.',
-    hint: 'Found with `!kingdom create <name>` — the treasury is the whole game.',
-    lookfor: ['kingdom', 'kingdoms', 'guild', 'crew', 'war', 'monarch'],
-  },
-  {
-    key: 'football',
-    label: 'Football',
-    emoji: '⚽',
-    symbol: '✦',
-    blurb: 'Live scores, fixtures and the alerts that fire when your team scores.',
-    hint: 'Subscribe with `!follow <team>` and the bot posts the goal to this chat the moment it lands.',
-    lookfor: ['football', 'soccer', 'premier', 'league', 'fixture', 'score', 'match', 'goal'],
-  },
 ];
 
 const BY_KEY = new Map(CATEGORIES.map((c) => [c.key, c]));
@@ -149,8 +153,30 @@ for (const cat of CATEGORIES) {
   for (const word of cat.lookfor) BY_LOOKFOR.set(word.toLowerCase(), cat);
 }
 
+// The folded-away keys point at the deck that swallowed them, so `!help
+// kingdom` opens the empire deck and `!help football` opens the games deck
+// instead of answering "unknown topic".
+for (const [old, parent] of Object.entries(MERGED_INTO)) {
+  const cat = BY_KEY.get(parent);
+  if (cat) BY_LOOKFOR.set(old.toLowerCase(), cat);
+}
+
 /** Presentation order. Deliberate: what a new user needs comes first. */
 const ORDER = CATEGORIES.map((c) => c.key);
+
+/**
+ * The deck a category key belongs to.
+ *
+ * A folded-away key resolves to the deck that took it; everything else
+ * resolves to itself.
+ *
+ * @param {string} key
+ * @returns {string}
+ */
+function resolve(key) {
+  const k = String(key || '').toLowerCase();
+  return MERGED_INTO[k] || k;
+}
 
 /**
  * The display metadata for a category key.
@@ -162,7 +188,7 @@ const ORDER = CATEGORIES.map((c) => c.key);
  * @returns {Category}
  */
 function get(key) {
-  const k = String(key || '').toLowerCase();
+  const k = resolve(key);
   return BY_KEY.get(k) || {
     key: k || 'unknown',
     label: String(key || 'Unknown'),
@@ -212,6 +238,9 @@ function findExact(query) {
   const q = String(query || '').trim().toLowerCase();
   if (!q) return null;
   if (BY_KEY.has(q)) return BY_KEY.get(q);
+  // A folded-away key is an exact name too — `!help kingdom` opens the empire
+  // deck, which is where the kingdom commands now live.
+  if (MERGED_INTO[q] && BY_KEY.has(MERGED_INTO[q])) return BY_KEY.get(MERGED_INTO[q]);
   const tight = q.replace(/[^a-z0-9]/g, '');
   return CATEGORIES.find((c) => c.label.toLowerCase().replace(/[^a-z0-9]/g, '') === tight) || null;
 }
@@ -220,23 +249,40 @@ function findExact(query) {
  * Every key that is not in the table. `!check` uses this so a new category
  * cannot be added without deciding what to call it.
  *
+ * A folded-away key is not unknown — it is a key that used to have a deck of
+ * its own and now shares one, so it must not be reported as a typo.
+ *
  * @param {Iterable<string>} keys
  * @returns {string[]}
  */
 function unknownKeys(keys) {
-  return [...new Set(keys)].filter((k) => !BY_KEY.has(String(k).toLowerCase()));
+  return [...new Set(keys)].filter((k) => {
+    const key = String(k).toLowerCase();
+    return !BY_KEY.has(key) && !MERGED_INTO[key];
+  });
 }
 
-/** Group commands by category, in presentation order. */
+/**
+ * Group commands by category, in presentation order.
+ *
+ * A command whose category has been folded away is filed under the deck that
+ * took it, so the index counts it in the right place and `!help games` opens a
+ * page that includes the football commands.
+ *
+ * @param {object[]} commands
+ * @returns {Map<string,object[]>}
+ */
 function group(commands) {
   const out = new Map();
   for (const key of ORDER) out.set(key, []);
   for (const cmd of commands) {
-    const key = String(cmd.category || '').toLowerCase();
+    const key = resolve(cmd.category);
     if (!out.has(key)) out.set(key, []);
     out.get(key).push(cmd);
   }
   return out;
 }
 
-module.exports = { CATEGORIES, ORDER, get, find, findExact, group, unknownKeys };
+module.exports = {
+  CATEGORIES, ORDER, MERGED_INTO, get, find, findExact, group, unknownKeys, resolve,
+};

@@ -337,7 +337,13 @@ function commandPage({ cmd, prefix, cat = categories.get(cmd.category) }) {
 
   const hint = hintFor(cmd);
   if (hint) lines.push('', `💡 ${hint}`);
-  lines.push(`↩️ \`${prefix}help ${cat.key}\` — the rest of ${cat.label}`);
+  // The way back names the category the COMMAND is in, not the deck that
+  // holds it. Those are the same thing for most commands, but a folded
+  // category is filed in a bigger deck: a kingdom command lives in the empire
+  // deck, and `!help kingdom` is the name the person already knows. It still
+  // opens the right deck, because a folded key resolves to the deck that took
+  // it.
+  lines.push(`↩️ \`${prefix}help ${cmd.category}\` — the rest of ${cat.label}`);
   return lines.join('\n');
 }
 

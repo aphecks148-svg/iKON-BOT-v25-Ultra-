@@ -14,6 +14,7 @@ const path = require('path');
 process.env.BOT_PREFIX = process.env.BOT_PREFIX || '!';
 
 const loader = require('./loader');
+const categoriesModule = require('./categories');
 const config = require('../config');
 
 const SHAPE = ['name', 'aliases', 'category', 'description', 'usage', 'cooldown', 'permission', 'execute'];
@@ -51,7 +52,13 @@ function validate(registry, loaderResult) {
     problems.push(...loaderResult.conflicts.map((c) => `alias conflict — ${c}`));
   }
 
-  return { problems, categories: new Set([...registry.values()].map((c) => c.category)).size };
+  return {
+    problems,
+    // Counted by DECK, not by raw category key: two categories have been
+    // folded into others, so the number here is the number of decks a user can
+    // actually open.
+    categories: new Set([...registry.values()].map((c) => categoriesModule.resolve(c.category))).size,
+  };
 }
 
 /** Command count per module key (cmds_1 … cmds_10). */
