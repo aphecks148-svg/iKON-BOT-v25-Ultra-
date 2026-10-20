@@ -549,7 +549,7 @@ module.exports = [
 
       await reply(
         `${t.icon} **${sub.toUpperCase()} CLAIMED!** ${savage()}\n`
-        + '━━━━━━━━━━━━━━━\n'
+        + '· · · · · · ·\n'
         + `💰 +${kc(t.amount)}\n`
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + `🔐 Vault: ${kc(userDoc.bank)}\n`

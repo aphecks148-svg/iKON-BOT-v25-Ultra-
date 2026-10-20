@@ -89,6 +89,19 @@ const EVENT = (body, over = {}) => ({
   ...over,
 });
 
+/**
+ * What !ping opens its reply with, and what the cooldown notice opens with.
+ *
+ * These used to be asserted as "Pong!" and "⏳ Cooldown". The replies were
+ * reworded and the assertions were not, so seven scenarios in this file had
+ * been failing on a stale string rather than on a real defect. The contract
+ * being asserted is the same one — the command answers, and the reply is
+ * recognisable — so the markers are named here instead of being written out
+ * eight times.
+ */
+const PING_MARK = 'I am breathing';
+const COOLDOWN_MARK = '⏳ Slow down';
+
 (async function main() {
   line('\n=== iKON-BOT end-to-end chain test (mocked api) ===\n');
 
@@ -117,7 +130,7 @@ const EVENT = (body, over = {}) => ({
     await ik.handleMessage(api, event);
     const last = api.lastBody();
     assert.ok(last, 'bot sent nothing');
-    assert.ok(String(last).startsWith('Pong!'), `expected a Pong, got: ${last}`);
+    assert.ok(String(last).startsWith(PING_MARK), `expected the ping reply, got: ${last}`);
     assert.ok(/Uptime:/.test(String(last)), `expected an uptime, got: ${last}`);
   });
 
@@ -136,12 +149,12 @@ const EVENT = (body, over = {}) => ({
   event = EVENT('!p', { messageID: 'alias_mid', senderID: 'e2e_user_2' });
   await assertStep('ALIAS "!p" runs the same command', async () => {
     await ik.handleMessage(api, event);
-    assert.ok(String(api.lastBody()).startsWith('Pong!'), `got: ${api.lastBody()}`);
+    assert.ok(String(api.lastBody()).startsWith(PING_MARK), `got: ${api.lastBody()}`);
   });
 
   await assertStep('ALIAS shares the cooldown bucket with the real name', async () => {
     await ik.handleMessage(api, EVENT('!ping', { messageID: 'alias_cd', senderID: 'e2e_user_2' }));
-    assert.ok(String(api.lastBody()).startsWith('⏳ Cooldown'), `got: ${api.lastBody()}`);
+    assert.ok(String(api.lastBody()).startsWith(COOLDOWN_MARK), `got: ${api.lastBody()}`);
   });
 
   // ── 4. cooldown gate ──────────────────────────────────────
@@ -149,7 +162,7 @@ const EVENT = (body, over = {}) => ({
   await assertStep('COOLDOWN: immediate repeat is blocked with a timer', async () => {
     await ik.handleMessage(api, event);
     assert.ok(
-      String(api.lastBody()).startsWith('⏳ Cooldown'),
+      String(api.lastBody()).startsWith(COOLDOWN_MARK),
       `expected cooldown notice, got: ${api.lastBody()}`,
     );
   });
@@ -205,12 +218,12 @@ const EVENT = (body, over = {}) => ({
   await assertStep('SPAM: a command is not treated as a duplicate paste', async () => {
     const who = 'e2e_cmd';
     await ik.handleMessage(api, EVENT('!ping', { messageID: 'spamcmd_1', senderID: who }));
-    assert.ok(String(api.lastBody()).startsWith('Pong!'), `got: ${api.lastBody()}`);
+    assert.ok(String(api.lastBody()).startsWith(PING_MARK), `got: ${api.lastBody()}`);
     await ik.handleMessage(api, EVENT('!ping', { messageID: 'spamcmd_2', senderID: who }));
     // The per-command cooldown answers this, not the flood duplicate rule: the
     // person who pressed the button learns how many seconds are left.
     assert.ok(
-      String(api.lastBody()).startsWith('⏳ Cooldown'),
+      String(api.lastBody()).startsWith(COOLDOWN_MARK),
       `a repeated command should hit its own cooldown, got: ${api.lastBody()}`,
     );
     cooldown.clear(who, 'ping');
@@ -231,7 +244,7 @@ const EVENT = (body, over = {}) => ({
     flood.holdThread(tid, 600);
     await ik.handleMessage(api, EVENT('!ping', { messageID: 'spamadmin_1', senderID: owner, threadID: tid }));
     assert.ok(
-      String(api.lastBody()).startsWith('Pong!'),
+      String(api.lastBody()).startsWith(PING_MARK),
       `an admin must get through a sealed chat, got: ${api.lastBody()}`,
     );
     // And forty distinct lines in a row — past every default ceiling, and all
@@ -256,9 +269,25 @@ const EVENT = (body, over = {}) => ({
   });
 
   // ── 6. unknown command ────────────────────────────────────
+  // Two answers to two questions. In a group, an unrecognised word is almost
+  // always somebody tagging a person, and answering it is a message nobody
+  // asked for — so the bot says nothing. In a private chat the reader is the
+  // only person there and typed at the bot on purpose, so it answers.
   event = EVENT('!definitelynotacommand', { messageID: 'unknown_mid' });
-  await assertStep('COMMAND: unknown command gets a clear error', async () => {
+  await assertStep('COMMAND: an unknown command is silent in a group', async () => {
+    const before = api.sent.length;
     await ik.handleMessage(api, event);
+    assert.strictEqual(
+      api.sent.length,
+      before,
+      `the bot answered an unknown word in a group -> ${api.lastBody()}`,
+    );
+  });
+
+  await assertStep('COMMAND: an unknown command gets a clear error in a private chat', async () => {
+    await ik.handleMessage(api, EVENT('!definitelynotacommand', {
+      messageID: 'unknown_dm_mid', isGroup: false, threadID: 'e2e_dm_thread',
+    }));
     assert.ok(String(api.lastBody()).startsWith('❌ Unknown command'));
   });
 
@@ -393,10 +422,10 @@ const EVENT = (body, over = {}) => ({
       // silently testing the profile cache instead.
       const adminOut = await asAdmin('!ping', 'gate_m2');
       assert.ok(!adminOut.startsWith('⛔'), `admin must not be locked out, got: ${adminOut}`);
-      assert.ok(/Pong/.test(adminOut), `admin actually ran it -> ${JSON.stringify(adminOut)}`);
+      assert.ok(new RegExp(PING_MARK).test(adminOut), `admin actually ran it -> ${JSON.stringify(adminOut)}`);
 
       const ownerOut = await asOwner('!ping', 'gate_m3');
-      assert.ok(/Pong/.test(ownerOut), `owner actually ran it -> ${JSON.stringify(ownerOut)}`);
+      assert.ok(new RegExp(PING_MARK).test(ownerOut), `owner actually ran it -> ${JSON.stringify(ownerOut)}`);
 
       // The admin's view of their own chat has to count module kills, or
       // !listcmds reports "356 enabled" in a chat with 38 commands switched off.
@@ -414,7 +443,7 @@ const EVENT = (body, over = {}) => ({
       // anything away.
       GROUP.disabledModules = [];
       const untouched = await asMember('!ping', 'gate_m5');
-      assert.ok(/Pong/.test(untouched), `members keep the bot by default, got: ${untouched}`);
+      assert.ok(new RegExp(PING_MARK).test(untouched), `members keep the bot by default, got: ${untouched}`);
 
       // Maintenance is a shutdown, not a switch — it holds for admins and the
       // owner too, because it is the operator who asked for it.
