@@ -383,6 +383,36 @@ function powerOf(pet, owner) {
 }
 
 /**
+ * The mood of a pet, worked out from what is actually on the record.
+ *
+ * There is no `mood` field on a pet, and there never was — so every card that
+ * printed one printed the literal word "content" for every pet in the city,
+ * which is a card that says nothing. The mood is therefore derived, in the
+ * order that actually decides it: hunger first, because a hungry animal is a
+ * hungry animal whatever its bond says, then the bond, then how hard the pet
+ * has been working.
+ *
+ * @param {object} pet
+ * @returns {{emoji:string, label:string, note:string}}
+ */
+function moodOf(pet) {
+  const hunger = clamp(pet && pet.hunger);
+  const bond = clamp(pet && pet.bond);
+  const battles = clamp(pet && pet.stats && pet.stats.battles);
+  const fedAgo = pet && pet.lastFeed ? Date.now() - new Date(pet.lastFeed).getTime() : null;
+
+  if (hunger <= 15) return { emoji: '😿', label: 'STARVING', note: 'It has not eaten properly in days. Feed it before it decides to eat your boot.' };
+  if (hunger <= 35) return { emoji: '😾', label: 'PECKISH', note: 'Hungry, and not hiding it.' };
+  if (bond >= 8) return { emoji: '😻', label: 'DEVOTED', note: 'It would follow you into a raid.' };
+  if (bond >= 3) return { emoji: '😸', label: 'BONDED', note: 'It knows your footsteps by now.' };
+  if (hunger >= 85 && (fedAgo === null || fedAgo < 6 * 3600 * 1000)) {
+    return { emoji: '😺', label: 'CONTENT', note: 'Fed, rested, and still standing.' };
+  }
+  if (battles > 20) return { emoji: '😤', label: 'BATTLED', note: 'It has been in more fights than you have.' };
+  return { emoji: '🐱', label: 'CALM', note: 'Nothing much to report.' };
+}
+
+/**
  * The strongest living pet a hunter owns.
  * Prefers the equipped pet, falls back to the strongest by basePower/level.
  */
@@ -3546,34 +3576,132 @@ module.exports = [
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'petcard', async () => {
       await react('🐾');
-      const pet = await Pet.findOne({ owner: userDoc.uid, active: true }).sort({ _id: -1 }).lean().catch(() => null);
+      // The pet model keys the owner on `ownerUid` and the active pet on
+      // `equipped`. This used to ask for `owner` and `active`, which are not
+      // fields on the model, so the query matched nothing and the card always
+      // answered "you have no active pet".
+      const pet = await Pet.findOne({ ownerUid: String(userDoc.uid), equipped: true, isDead: false }).catch(() => null);
       if (!pet) {
-        await reply('❌ You have no active pet. Adopt one with `!petshop`.', event.messageID);
+        await reply('❌ You have no active pet. Adopt one with `!petshop`, or equip one with `!petequip`.', event.messageID);
         return;
       }
-      const species = PETS.find((p) => p.id === pet.species) || { name: 'Unknown', emoji: '🐾', rarity: 'common' };
+      // The species id lives on `type`; there is no `species` field and no
+      // `PETS` table — `PET_BY_ID` is the table, and reading `PETS` here
+      // threw a ReferenceError on every single call.
+      const spec = PET_BY_ID.get(pet.type) || { name: pet.name || 'Unknown', emoji: pet.emoji || '🐾', rarity: 'common' };
+      const mood = moodOf(pet);
+      const power = powerOf(pet, userDoc);
       const card = await cards.userCard({
-        emoji: species.emoji, title: 'PET', subtitle: `${species.name} — ${rarity.label(species.rarity)}`, api,
+        emoji: spec.emoji, title: 'PET', subtitle: `${spec.name} — ${rarity.label(spec.rarity)}`, api,
         user: { uid: userDoc.uid, name: userDoc.name, level: pet.level || 1, xp: pet.xp || 0 },
         rows: [
-          ['Species', species.name],
+          ['Species', spec.name],
           ['Level', pet.level || 1],
-          ['Power', pet.power || 0],
-          ['Mood', pet.mood || 'content'],
-          ['Gear', pet.equip?.item || 'none'],
+          ['Power', num(power)],
+          ['Mood', mood.label],
+          ['Bond', num(clamp(pet.bond))],
         ],
       });
       if (card) {
-        await reply({ body: `🐾 **${userDoc.name} — ${species.name}**\n· · · · · · ·\nLv ${pet.level || 1} · power ${pet.power || 0}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        await reply({ body: `🐾 **${userDoc.name} — ${spec.name}**\n· · · · · · ·\nLv ${pet.level || 1} · power ${num(power)} · ${mood.emoji} ${mood.label}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
       await reply(
-        `🐾 **${userDoc.name} — ${species.name}**\n`
+        `🐾 **${userDoc.name} — ${spec.name}**\n`
         + '· · · · · · ·\n'
         + `Level: ${pet.level || 1}\n`
-        + `Power: ${pet.power || 0}\n`
-        + `Mood: ${pet.mood || 'content'}\n`
-        + `📖 Canvas unavailable — text fallback`,
+        + `Power: ${num(power)}\n`
+        + `Mood: ${mood.emoji} ${mood.label}\n`
+        + '📖 Canvas unavailable — text fallback',
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // THE MOOD
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'petmood',
+    aliases: ['mood', 'petfeeling'],
+    category: 'pets',
+    description: '🐱 How your pet actually feels — hunger, bond and workload, read off the record',
+    usage: '!petmood [name]',
+    hint: 'Nothing is invented here: a pet with an empty bowl is peckish whatever its bond says.',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petmood', async () => {
+      await react('🐱');
+      const pet = await getPet(userDoc.uid, args[0]);
+      if (!pet) {
+        await reply('🐾 No pet to read. Adopt one with `!adopt`, or name the pet you mean.', event.messageID);
+        return;
+      }
+
+      const mood = moodOf(pet);
+      const hunger = clamp(pet.hunger);
+      const bond = clamp(pet.bond);
+
+      // What would change it. The two levers the pet actually has.
+      const fixes = [];
+      if (hunger <= 35) fixes.push('🍖 `!petfeed` — 100 K-Cash for 25 hunger');
+      if (hunger >= 85) fixes.push('😴 `!petsleep` — free, and it recovers hunger over 8h');
+      if (bond < 3) fixes.push('💘 `!petlove` or `!petplay` — bond is permanent power');
+      if (clamp(pet.stamina) < 5) fixes.push('⚡ Stamina is spent — it refills one point an hour');
+
+      await reply(
+        `🐱 **${pet.name} IS ${mood.label}**\n`
+        + '· · · · · · ·\n'
+        + `${mood.emoji} ${mood.label}\n`
+        + `🍖 Hunger: ${hunger}/100\n`
+        + `💘 Bond: ${bond}\n`
+        + `⚡ Stamina: ${clamp(pet.stamina)}/5\n`
+        + `⚔️ Battles won: ${num(clamp(pet.stats && pet.stats.battles))}\n`
+        + (fixes.length ? `🛠️ ${fixes.join('\n🛠️ ')}\n` : '')
+        + `📖 ${mood.note}`,
+        event.messageID,
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // THE BOND LEDGER
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'petbond',
+    aliases: ['bond', 'petbondledger'],
+    category: 'pets',
+    description: '💘 The bond ledger — what the bond is worth in permanent power',
+    usage: '!petbond [name]',
+    hint: 'Every `!petlove` buys one bond point and 25 permanent power. It survives rebirths and evolution.',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petbond', async () => {
+      await react('💘');
+      const pet = await getPet(userDoc.uid, args[0]);
+      if (!pet) {
+        await reply('🐾 No pet to read. Adopt one with `!adopt`, or name the pet you mean.', event.messageID);
+        return;
+      }
+
+      const bond = clamp(pet.bond);
+      // One `!petlove` is one bond point and 25 base power, so the bond is
+      // worth exactly 25 a point. The species' own base power is in the same
+      // number, which is why the ledger shows both rather than pretending it
+      // can separate them.
+      const bought = bond * 25;
+      const power = powerOf(pet, userDoc);
+      const next = 25 * (bond + 1);
+
+      await reply(
+        `💘 **THE BOND LEDGER — ${pet.name}**\n`
+        + '· · · · · · ·\n'
+        + `🤝 Bond points: ${bond}\n`
+        + `⚡ Power bought with bond: +${num(bought)}\n`
+        + `🧬 Base power: ${num(clamp(pet.basePower))}\n`
+        + `💪 Total power: ${num(power)}\n`
+        + (bond > 0 ? `🎯 The next bond point is worth +25 more power (${num(next)} total from bond).` : '🎯 The first bond point is worth +25 power — `!petlove`.')
+        + '\n📖 Bond survives `!petprestige` and `!petevolve`. Power does not forget.',
         event.messageID,
       );
     }),

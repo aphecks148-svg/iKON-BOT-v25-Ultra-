@@ -5084,6 +5084,27 @@ const PIKACHU = dex.find('pikachu');
     return `50 pets in 2 parts (${one.length}/${two.length}), every rarity reachable`;
   });
 
+  await step('the pet card asks the model for fields the model actually has', () => {
+    // The pet card used to ask for `owner` and `active`, which are not fields
+    // on the Pet model — the real ones are `ownerUid` and `equipped` — and it
+    // read a `PETS` table that does not exist, so every call threw a
+    // ReferenceError and the card never rendered a single pet.
+    const src = require('fs').readFileSync(path.join(__dirname, '..', 'commands', 'cmds_4.js'), 'utf8');
+    const block = src.slice(src.indexOf("name: 'petcard'"));
+    const body = block.slice(0, block.indexOf("\n  },"));
+    assert.ok(!/PETS\.find/.test(body), 'the pet card must not read a table that does not exist');
+    assert.ok(/ownerUid/.test(body), 'the pet card must look the owner up by ownerUid');
+    assert.ok(/equipped/.test(body), 'the pet card must look the active pet up by equipped');
+    assert.ok(!/\bowner:\s*userDoc\.uid/.test(body), 'owner is not a field on the pet model');
+    assert.ok(!/active:\s*true/.test(body), 'active is not a field on the pet model');
+    // The mood on the card has to be the real one. There is no `mood` field on
+    // a pet, so a card that printed `pet.mood` printed the word "content" for
+    // every pet in the city.
+    assert.ok(/function moodOf/.test(src), 'the pet module must work a mood out of the record');
+    assert.ok(!/pet\.mood \|\|/.test(body), 'the pet card must not print a field that does not exist');
+    return 'the card reads ownerUid, equipped and a real mood';
+  });
+
 // ── a list of people is a list of names ──────────────────
   // Nine commands used to interpolate a uid whenever the database had no name
   // for somebody, or no name they were willing to print. `!adminlist`,
