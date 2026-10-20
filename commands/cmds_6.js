@@ -2589,6 +2589,7 @@ const commands = [];
         + `🧟 Dead accounts: ${report.dead.length}\n`
         + `${dryRun ? '🔎 Nothing was removed — that was a dry run.' : `✅ Removed: ${report.removed.length}`}\n`
         + (stuck.length ? `⚠️ Could not remove: ${stuck.length} (Facebook refused; they are listed below)\n` : '')
+        + (report.skipped ? `⏭️ Left for the next run: ${report.skipped} — one run removes a capped number, so the account is never doing a bulk edit across every group at once.\n` : '')
         + `\n${listed.join('\n')}${report.dead.length > listed.length ? `\n…and ${report.dead.length - listed.length} more.` : ''}\n`
         + '📖 The bot and bot admins are never on this list.',
         event.messageID,

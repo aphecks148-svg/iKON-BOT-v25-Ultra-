@@ -98,6 +98,26 @@ function clearKicks() {
 const THREAD_LIMIT = 100;
 
 /**
+ * How many accounts one cleanup run may remove, and how long it waits between
+ * removals.
+ *
+ * This is an account-safety limit, not a performance one. A cleanup run scans
+ * up to a hundred chats, and each of those can hold a handful of dead accounts,
+ * so an unbounded run can produce several hundred `gcmember remove` calls in
+ * one tight loop. A bot that bulk-edits membership across dozens of groups in
+ * seconds is doing exactly what the platform's abuse systems look for, and the
+ * account pays for it — not the dead accounts.
+ *
+ * So the run is capped, and the removals are paced. The cap is what makes the
+ * feature usable day to day: a chat with three dead accounts is cleared in one
+ * run, and a chat with thirty is cleared over a few days. That is the right
+ * trade for something nobody notices.
+ */
+const REMOVE_LIMIT_PER_RUN = 25;
+const REMOVE_DELAY_MS = 1500;
+const REMOVE_JITTER_MS = 1500;
+
+/**
  * Is this account dead?
  *
  * Two independent signals, because each alone lies:
@@ -333,15 +353,33 @@ async function cleanup(api, opts = {}) {
 
   const removed = [];
   const stuck = [];
+  // The run is capped, and the removals are paced. Both are about the account
+  // rather than the feature: a bot that bulk-removes members across dozens of
+  // groups in a tight loop is doing what the platform's abuse systems look
+  // for. The leftovers are reported, so nothing is silently skipped — the next
+  // run picks them up.
+  //
+  // `maxRemovals` is its own option because `limit` already means "how many
+  // chats to scan" in this function.
+  const budget = Number.isInteger(opts.maxRemovals) && opts.maxRemovals > 0
+    ? Math.min(opts.maxRemovals, REMOVE_LIMIT_PER_RUN)
+    : REMOVE_LIMIT_PER_RUN;
+  let skipped = 0;
   for (const entry of dead) {
     if (dryRun) continue;
+    if (removed.length + stuck.length >= budget) {
+      skipped += 1;
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, REMOVE_DELAY_MS + Math.floor(Math.random() * REMOVE_JITTER_MS)));
     // eslint-disable-next-line no-await-in-loop
     if (await kick(api, entry.uid, entry.threadID)) removed.push(entry);
     else stuck.push(entry);
   }
 
-  const report = { scanned: threads.length, dead, removed, stuck };
-  log(`[GCS] cleanup: ${threads.length} chat(s), ${dead.length} dead account(s), ${removed.length} removed, ${stuck.length} could not be removed.`);
+  const report = { scanned: threads.length, dead, removed, stuck, skipped };
+  log(`[GCS] cleanup: ${threads.length} chat(s), ${dead.length} dead account(s), ${removed.length} removed, ${stuck.length} could not be removed${skipped ? `, ${skipped} left for the next run` : ''}.`);
   return report;
 }
 
