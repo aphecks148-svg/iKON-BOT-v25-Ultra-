@@ -3075,6 +3075,12 @@ const PIKACHU = dex.find('pikachu');
     // native binary — the fallback has to carry every number, not just the card.
     const realCard = cards.userCard;
     cards.userCard = async () => null;
+    // The name cache holds for ten minutes, and an earlier step asked Facebook
+    // about this same uid through a mock that answers "Admin 11". The card
+    // reads the name through that cache now, so the cache is cleared first —
+    // otherwise this step asserts against whatever the last step happened to
+    // look up.
+    profile.clear();
     const userDoc = {
       uid: '999000111', name: 'Ada Lovelace', level: 5, xp: 240, coins: 12345, money: 500, prestige: 2,
       rpg: {
