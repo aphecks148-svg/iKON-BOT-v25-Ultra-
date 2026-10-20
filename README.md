@@ -25,7 +25,7 @@ iKON-BOT/
 ├── ws3-fca.js          central engine (Express, login, routing, permissions, cooldowns)
 ├── config.js           env-only configuration
 ├── commands/
-│   ├── cmds_1.js … cmds_10.js    10 modules, 418 commands
+│   ├── cmds_1.js … cmds_10.js    10 modules, 407 commands
 ├── bot/
 │   ├── loader.js       scans cmds_1..10, builds registry + alias map
 │   ├── router.js       PARSER: "!bank deposit 500" -> { name, args }
@@ -136,7 +136,7 @@ first if an admin command never answers.
 ### AI — Groq only
 
 Module 8 (cmds_8.js) is the AI, download and football module.
-41 of its 46 commands route through `askGroq()`; the rest resolve
+35 of its 42 commands route through `askGroq()`; the rest resolve
 a link through `bot/media.js` or a fixture through `footballData()`.
 They share one client, `bot/groq.js`, which
 POSTs to `https://api.groq.com/openai/v1/chat/completions`. There is no second
@@ -155,7 +155,7 @@ provider and no transport that silently switches.
 - The token cap is sent as `max_completion_tokens`; Groq has deprecated
   `max_tokens`. Reasoning models count their reasoning against that cap, which
   is why the default is generous for a chat reply.
-- With no key set, `!groq` and the other 40 AI commands answer with an honest
+- With no key set, `!ask` and the other 34 AI commands answer with an honest
   placeholder naming the missing variable, rather than throwing.
 
 The engine exposes the client to handlers as `ai` in the execute context
@@ -201,20 +201,43 @@ rounds of this bug look identical from the chat.
 
 | Module | Commands |
 |---|---|
-| cmds_1 (system) | 42 |
-| cmds_2 (economy) | 39 |
+| cmds_1 (system) | 45 |
+| cmds_2 (economy) | 36 |
 | cmds_3 (hunter academy + kingdoms) | 50 |
 | cmds_4 (pets) | 41 |
 | cmds_5 (games) | 38 |
-| cmds_6 (group admin) | 50 |
+| cmds_6 (group admin) | 48 |
 | cmds_7 (street life) | 36 |
-| cmds_8 (downloads + AI + football) | 46 |
-| cmds_9 (fun & social) | 38 |
+| cmds_8 (downloads + AI + football) | 42 |
+| cmds_9 (fun & social) | 33 |
 | cmds_10 (farming) | 38 |
 
-**418 commands** across 10 modules, 562 aliases, 0 conflicts. Every command is
+**407 commands** across 10 modules, 557 aliases, 0 conflicts. Every command is
 shaped, aliased and permission-tagged; `node bot/check.js` reports the per-module
 progress and refuses to pass on a malformed entry.
+
+### The cleanup
+
+Nine commands were retired as duplicates — a command that answers a question
+another command already answers better is two things to read and one thing to
+break. The retired names, and what took each one over:
+
+| Retired | Replaced by |
+|---|---|
+| `!groq` | `!ask` (also answers to `!chat`) |
+| `!generate` | `!imagine` (also answers to `!gen`, `!genimg`) |
+| `!aicard` | `!config` — the owner's Groq key and live model |
+| `!define` | `!wiki` |
+| `!auramax` | `!aura` (also answers to `!auraa`) |
+| `!flexcard` | `!flex` (also answers to `!showoff`, `!brag`) |
+| `!roastcard` | `!roast` (also answers to `!burncard`) |
+| `!simpmeter` | — |
+| `!susmeter` | `!toxicmeter` (also answers to `!sus`) |
+
+The spellings people already type were carried onto the command that took over,
+so a group does not lose a word it used last week. `bot/test.js` asserts both
+halves of this: the retired names are gone, and the carried spellings still
+reach the right command.
 
 ### Football (a deck in cmds_8.js)
 

@@ -1214,9 +1214,7 @@ const FEES = {
   say: 50,
   ask: 50,
   ai: 50,
-  groq: 50,
   translate: 50,
-  generate: 200,
   imagine: 200,
   '4k': 200,
   upscale: 200,
@@ -1237,7 +1235,6 @@ const FEES = {
   weatherai: 50,
   newsai: 50,
   wiki: 50,
-  define: 50,
   summarize: 50,
   rewrite: 50,
   storyai: 100,
@@ -2004,7 +2001,9 @@ const commands = [];
 
   commands.push({
     name: 'ask',
-    aliases: ['askai', 'ikonask2'],
+    // `chat` is the spelling the retired raw-provider command answered to, and
+    // it is the word people actually type.
+    aliases: ['askai', 'ikonask2', 'chat'],
     category: 'downloader',
     description: '🤖 Ask the iKON mind anything. It knows who the owner is',
     usage: '!ask <question>',
@@ -2061,42 +2060,7 @@ const commands = [];
     }),
   });
 
-  commands.push({
-    name: 'groq',
-    // `ai` and `ask` are already taken by other commands. The previous
-    // provider's name is deliberately NOT kept as an alias: this bot talks to
-    // one provider, and a command still answering to the old name implies two.
-    aliases: ['groqa', 'chat'],
-    category: 'downloader',
-    description: '💎 Raw Groq with the full iKON lore injected, nothing softened',
-    usage: '!groq <prompt>',
-    hint: 'Raw Groq with the full iKON lore injected and nothing softened. This one costs AI credit.',
-    cooldown: 15,
-    permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'groq', async () => {
-      await react('💎');
-      const q = args.join(' ').trim();
-      if (!q) {
-        await reply('❌ Usage: `!groq <prompt>`', event.messageID);
-        return;
-      }
-
-      const paid = await charge(userDoc, FEES.groq, 'downloader:groq');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      // Same helper as everything else, but with the persona turned up rather
-      // than asking for a different model: the lore is in the prefix either way.
-      const answer = await askGroq(
-        q,
-        `Full iKON persona, no hedging. You are ${OWNER}'s bot. Answer like you have opinions and they are correct.`,
-      );
-      await reply(`💎 **GROQ**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.groq)}`, event.messageID);
-    }),
-  });
-
+  
   commands.push({
     name: 'translate',
     aliases: ['tr', 'trultra'],
@@ -2187,70 +2151,14 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
 // pixel work. They differ only in scale factor and filter.
 // ───────────────────────────────────────────────────────────
 
-  commands.push({
-    name: 'generate',
-    aliases: ['gen', 'genimg'],
-    category: 'downloader',
-    description: '🎨 Groq upgrades your prompt, pollinations renders it. 4K ready',
-    usage: '!generate <prompt>',
-    cooldown: 20,
-    permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'generate', async () => {
-      await react('🎨');
-      const want = args.join(' ').trim();
-      if (!want) {
-        await reply('❌ Usage: `!generate <what you want to see>`', event.messageID);
-        return;
-      }
-
-      const paid = await charge(userDoc, FEES.generate, 'downloader:generate');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      // Groq's job here is to turn "cool car" into something a renderer can
-      // actually draw. That upgrade is the whole reason to charge 200.
-      await reply('🎨 Upgrading the prompt...', event.messageID);
-      const enhanced = await askGroq(
-        `Rewrite this into a single detailed image-generation prompt. Add lighting, camera angle, `
-        + `colour palette and mood. Output ONLY the prompt, no preamble, under 60 words. `
-        + `Original: ${want}`,
-        'Style: cinematic, specific, no text in the image.',
-      );
-
-      // Strip anything that would break the URL, and fall back to the raw ask
-      // if Groq handed back an essay with a "here is your prompt" intro.
-      const clean = (enhanced.replace(/[*_#`]/g, '').match(/^[\s\S]{0,400}?(?:\n|$)/) || [want])[0]
-        .replace(/\s+/g, ' ').trim() || want;
-      const url = `${POLLINATIONS}${encodeURIComponent(clean)}&width=1024&height=1024&nologo=true`;
-
-      const art = await fetchBuffer(url);
-      if (!art || !art.length) {
-        await reply(
-          `⚠️ **The image renderer did not answer.**\n\n`
-          + `📝 Prompt I sent:\n${clean}\n\n`
-          + `_(Your ${kc(FEES.generate)} fee was already charged.)_`,
-          event.messageID,
-        );
-        return;
-      }
-
-      await reply(
-        {
-          body: `🎨 **GENERATED**\n· · · · · · ·\n📝 ${clean}\n\n🖼️ ${url}`,
-          attachment: { type: 'image', data: { url: `data:image/png;base64,${art.toString('base64')}` } },
-        },
-        event.messageID,
-      );
-    }),
-  });
-
+  
   commands.push({
     name: 'imagine',
-    aliases: ['imagineultra', 'dream'],
+    // `gen` and `genimg` are the spellings the retired plain-generator command
+    // answered to; this one renders the same picture with the card on top.
+    aliases: ['imagineultra', 'dream', 'gen', 'genimg'],
     category: 'downloader',
-    description: '🖼️ Same generator, framed on an iKON card with the Groq commentary',
+    description: '🖼️ The image generator — Groq writes the prompt, the render lands on a card',
     usage: '!imagine <prompt>',
     cooldown: 20,
     permission: 'all',
@@ -3293,54 +3201,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     }),
   });
 
-  commands.push({
-    name: 'define',
-    aliases: ['def', 'definitionai'],
-    category: 'downloader',
-    description: '📖 Word meaning, phonetics, and an example in the iKON register',
-    usage: '!define <word>',
-    cooldown: 15,
-    permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'define', async () => {
-      await react('📖');
-      const word = args.join(' ').trim();
-      if (!word) {
-        await reply('❌ Usage: `!define laconic`', event.messageID);
-        return;
-      }
-
-      const paid = await charge(userDoc, FEES.define, 'downloader:define');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const data = await fetchJson(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
-      const entry = Array.isArray(data) ? data[0] : null;
-      const meanings = (entry && entry.meanings) || [];
-      const defs = meanings.flatMap((m) => (m.definitions || []).map((d) => `${m.partOfSpeech}: ${d.definition}`));
-      const phonetic = (entry && entry.phonetic)
-        || (meanings.find((m) => m.phonetic) || {}).phonetic || '';
-
-      await reply('📖 Checking the dictionary...', event.messageID);
-      const usage = await askGroq(
-        `Give me: an example sentence using "${word}" the way a real person would say it, `
-        + `the closest single word that means almost the same thing, and one line on the vibe `
-        + `of using it.`
-        + (defs.length ? `\nDictionary says: ${defs.slice(0, 3).join(' | ')}` : '\nNo dictionary entry was found, so use your own knowledge.'),
-        'Style: concise, slightly rude about how people misuse words.',
-      );
-
-      await reply(
-        `📖 **${String(word).toUpperCase()}**${phonetic ? ` ${phonetic}` : ''}\n`
-        + '· · · · · · ·\n'
-        + (defs.length ? `${defs.slice(0, 4).join('\n')}\n\n` : '⚠️ Not in the dictionary.\n\n')
-        + `${usage}\n💸 ${kc(FEES.define)}`,
-        event.messageID,
-      );
-    }),
-  });
-
+  
   commands.push({
     name: 'summarize',
     aliases: ['sum', 'tldr'],
@@ -3568,35 +3429,6 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     }),
   });
 
-commands.push({
-    name: 'aicard',
-    aliases: ['aiprofile', 'aistatus'],
-    category: 'downloader',
-    description: '🤖 Render the AI status as a picture — key, model, usage',
-    usage: '!aicard',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'aicard', async () => {
-      await react('🤖');
-      const key = process.env.GROQ_API_KEY ? '✅ set' : '❌ missing';
-      const rows = [
-        ['Provider', 'Groq'],
-        ['API key', key],
-        ['Model', process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'],
-        ['Your balance', kc(userDoc.coins)],
-      ];
-      const card = await cards.userCard({
-        emoji: '🤖', title: 'AI STATUS', subtitle: 'the brain', api,
-        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
-        rows,
-      });
-      if (card) {
-        await reply({ body: '🤖 **AI STATUS**\n· · · · · · ·\n' + key, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply('🤖 **AI STATUS**\n· · · · · · ·\nKey: ' + key + '\n📖 Canvas unavailable — text fallback', event.messageID);
-    }),
-  });
 
   commands.push({
     name: 'downloadcard',

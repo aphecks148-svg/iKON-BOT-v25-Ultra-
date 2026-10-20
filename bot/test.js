@@ -1061,10 +1061,36 @@ function query(doc) {
     assert.ok(!/GEMINI/i.test(render), 'render.yaml must not reference the old key');
 
     // The AI command must answer to its new name, and the engine must expose
-    // the client under the name the handlers use.
-    assert.ok(loaded.registry.has('groq'), '!groq must exist');
+    // the client under the name the handlers use. The command is `!ask` now —
+    // the raw provider command was retired in the cleanup, because a command
+    // named after the provider implies there is more than one.
+    assert.ok(loaded.registry.has('ask'), '!ask must exist');
     assert.ok(!loaded.registry.has('gemini'), '!gemini must not exist');
-    return 'zero Gemini code, one provider, !groq live';
+    assert.ok(!loaded.registry.has('groq'), '!groq must not exist');
+    return 'zero Gemini code, one provider, !ask live';
+  });
+
+  await step('the cleanup retired the duplicate commands and kept their spellings alive', () => {
+    const loaded = loader.loadCommands(path.resolve(__dirname, '../commands'));
+    // The retired command names. Each one answered a question another command
+    // already answers better, so they were cut rather than kept as aliases.
+    for (const gone of ['groq', 'aicard', 'generate', 'define', 'auramax',
+      'flexcard', 'roastcard', 'simpmeter', 'susmeter']) {
+      assert.ok(!loaded.registry.has(gone), `${gone} should have been retired`);
+      assert.ok(!loaded.aliases.has(gone), `${gone} should not survive as an alias`);
+    }
+    // The spellings people actually type still reach the command that took
+    // over, so nobody in a group is left with an "unknown command" for a word
+    // the bot answered last week.
+    const carried = {
+      chat: 'ask', gen: 'imagine', genimg: 'imagine', auraa: 'aura',
+      showoff: 'flex', brag: 'flex', burncard: 'roast', sus: 'toxicmeter',
+    };
+    for (const [alias, owner] of Object.entries(carried)) {
+      assert.ok(loaded.aliases.has(alias), `!${alias} should still answer`);
+      assert.strictEqual(loaded.aliases.get(alias), owner, `!${alias} should reach ${owner}`);
+    }
+    return '9 commands retired, 8 spellings carried over';
   });
 
   // ── 14. real names + canvas cards ────────────────────────
@@ -1527,21 +1553,23 @@ function query(doc) {
     const loaded = loader.loadCommands(path.resolve(__dirname, '../commands'));
     const c9 = [...loaded.registry.values()].filter((c) => c.module === 'cmds_9');
     // 35 after the rename, 36 since !pair landed, 39 since the three card
-    // commands (shipcard, flexcard, roastcard) were added. A count here is a
-    // change-detector: a command added on purpose should be the only thing that
-    // moves it, and adding one silently should fail.
-    assert.strictEqual(c9.length, 38, 'cmds_9 should hold 38 commands');
+    // commands (shipcard, flexcard, roastcard) were added, and 33 since the
+    // cleanup retired five of them (flexcard, roastcard, auramax, simpmeter,
+    // susmeter). A count here is a change-detector: a command added on
+    // purpose should be the only thing that moves it, and adding one silently
+    // should fail.
+    assert.strictEqual(c9.length, 33, 'cmds_9 should hold 33 commands');
 
     const dirty = c9.filter((c) => /ultra/i.test(c.name) || (c.aliases || []).some((a) => /ultra/i.test(a)));
     assert.deepStrictEqual(dirty.map((c) => c.name), [], 'these still say ultra');
 
     // The ones that were never "ultra" stay put.
-    for (const keep of ['toxicmeter', 'simpmeter', 'susmeter', 'wouldyourather',
+    for (const keep of ['toxicmeter', 'wouldyourather',
       'neverhaveiever', '2truth1lie', 'ikonfamily']) {
       assert.ok(loaded.registry.has(keep), `${keep} should be untouched`);
     }
     // And the renamed ones are reachable by their short names.
-    for (const now of ['hug', 'slap', 'kiss', 'ship', 'marry', 'besties', 'auramax']) {
+    for (const now of ['hug', 'slap', 'kiss', 'ship', 'marry', 'besties']) {
       assert.ok(loaded.registry.has(now), `${now} is missing after the rename`);
     }
 
@@ -4681,7 +4709,10 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(/\bapi\b/.test(sig), `pick() must take api — got: ${sig}`);
 
     const calls = src.split('\n').filter((l) => /await pick\(reply/.test(l));
-    assert.ok(calls.length >= 20, `expected the tagging commands to call pick(), found ${calls.length}`);
+    // 21 before the cleanup, 18 after it retired the two taggable meters and
+    // the numeric aura meter. The floor is a change-detector: a command that
+    // stops resolving a person has to be noticed here.
+    assert.ok(calls.length >= 18, `expected the tagging commands to call pick(), found ${calls.length}`);
     const missing = calls.filter((l) => !/\bpick\([^)]*,\s*api\)/.test(l));
     assert.strictEqual(missing.length, 0, `pick() called without api:\n${missing.join('\n')}`);
     return `${calls.length} call sites, all pass api`;

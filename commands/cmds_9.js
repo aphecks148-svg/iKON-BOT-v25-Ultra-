@@ -697,7 +697,6 @@ const FEES = {
   dare: 100,
   expose: 100,
   flex: 100,
-  auramax: 50,
   besties: 50,
   enemies: 50,
 };
@@ -1130,7 +1129,9 @@ const commands = [];
 
   commands.push({
     name: 'roast',
-    aliases: ['roast2'],
+    // `burncard` is the spelling the retired picture-roast answered to; this
+    // one roasts for real and can be aimed at somebody.
+    aliases: ['roast2', 'burncard'],
     category: 'fun',
     description: '🔥 Roast somebody — written fresh by the AI, hand-written when it is away',
     usage: '!roast @user',
@@ -1896,7 +1897,9 @@ const commands = [];
 
   commands.push({
     name: 'toxicmeter',
-    aliases: ['toxic'],
+    // `sus` is the spelling the retired sus-meter answered to. This is the
+    // meter that survived the cleanup, so it keeps the word.
+    aliases: ['toxic', 'sus'],
     category: 'fun',
     description: '☣️ Toxicity read straight off the activity tracker. Commands run is the proxy',
     usage: '!toxicmeter @user',
@@ -1936,88 +1939,8 @@ const commands = [];
     }),
   });
 
-  commands.push({
-    name: 'simpmeter',
-    aliases: ['simp'],
-    category: 'fun',
-    description: '🥀 Simp meter — derived from how much you give away versus what you run',
-    usage: '!simpmeter @user',
-    cooldown: 10,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'simpmeter', async () => {
-      await react('🥀');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'simpmeter', api) : userDoc;
-      if (!who) {
-        // No target resolved. A command that answers nothing reads as broken,
-        // so say why instead of returning in silence.
-        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
-        return;
-      }
-
-      const t = f(who);
-      // Gifts out versus gifts in: handing over coins to other people is the
-      // only behaviour here that genuinely resembles simping.
-      const out = clamp(t.giftsOut);
-      const incoming = clamp(t.giftsIn);
-      const pet = await petOf(who);
-      // Holding a weak pet while giving coins away pushes it up.
-      const petPity = pet && petPower(pet) < 200 ? 15 : 0;
-      const scorePct = Math.max(0, Math.min(100, Math.round(out * 1.2 + petPity - incoming * 0.5)));
-      const verdict = scorePct > 75 ? 'CERTIFIED SIMP' : scorePct > 45 ? 'SOFT SIMP' : scorePct > 20 ? 'MIGHT BE A SIMP' : 'NOT A SIMP';
-
-      await reply(
-        `🥀 **${who.name} — SIMP METER**\n`
-        + '· · · · · · ·\n'
-        + `${meter(scorePct, verdict)}\n`
-        + `💸 Given away: ${num(out)} coins of affection\n`
-        + `🎁 Received: ${num(incoming)}\n`
-        + `🐾 ${pet ? `${pet.emoji || '🐾'} ${pet.name} (${num(petPower(pet))} pwr)${petPity ? ` — weak pet, +${petPity} simp` : ''}` : 'no pet, no excuses'}\n`
-        + '📖 _Derived from actual transfers. You can be audited._',
-        event.messageID,
-      );
-    }),
-  });
-
-  commands.push({
-    name: 'susmeter',
-    aliases: ['sus'],
-    category: 'fun',
-    description: '🕵️ SUS meter — kills, stabs and slaps do not look innocent',
-    usage: '!susmeter @user',
-    cooldown: 10,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'susmeter', async () => {
-      await react('🕵️');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'susmeter', api) : userDoc;
-      if (!who) {
-        // No target resolved. A command that answers nothing reads as broken,
-        // so say why instead of returning in silence.
-        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
-        return;
-      }
-
-      const t = f(who);
-      const violent = clamp(t.kills) * 12 + clamp(t.stabs) * 9 + clamp(t.slaps) * 4;
-      const pet = await petOf(who);
-      const unsafe = pet && pet.isSafe === false ? 20 : 0;
-      const scorePct = Math.max(0, Math.min(100, violent + unsafe));
-      const verdict = scorePct > 70 ? 'EXTREMELY SUS' : scorePct > 40 ? 'SOMEWHAT SUS' : scorePct > 15 ? 'A LITTLE SUS' : 'CLEAR';
-
-      await reply(
-        `🕵️ **${who.name} — SUS METER**\n`
-        + '· · · · · · ·\n'
-        + `${meter(scorePct, verdict)}\n`
-        + `💀 Fake kills: ${num(t.kills)} (+${clamp(t.kills) * 12})\n`
-        + `🔪 Stabs: ${num(t.stabs)} (+${clamp(t.stabs) * 9})\n`
-        + `👋 Slaps: ${num(t.slaps)} (+${clamp(t.slaps) * 4})\n`
-        + `🐾 Unsafe pet: ${unsafe ? '+20' : 'none'}\n`
-        + `👛 Wallet: ${kc(who.coins)}\n`
-        + '📖 _Every point is a counter on their own account. All of the violence was a message._',
-        event.messageID,
-      );
-    }),
-  });
-
+  
+  
   commands.push({
     name: 'rizz',
     category: 'fun',
@@ -2097,65 +2020,12 @@ const commands = [];
     }),
   });
 
-  commands.push({
-    name: 'auramax',
-    aliases: ['auraa'],
-    category: 'fun',
-    description: '⚡ Aura, from -1000 to +1000. Coins and pet power pull in both directions',
-    usage: '!auramax @user',
-    cooldown: 10,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'auramax', async () => {
-      await react('⚡');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'auramax', api) : userDoc;
-      if (!who) {
-        // No target resolved. A command that answers nothing reads as broken,
-        // so say why instead of returning in silence.
-        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
-        return;
-      }
-
-      const t = f(who);
-      const pet = await petOf(who);
-      const petPowerN = petPower(pet);
-      // Wealth is the biggest pull and it can drag you DOWN: a rich person with
-      // nothing else going on reads as try-hard, which is the joke.
-      const wealth = Math.round(clamp(who.coins) / 1000);
-      const social = clamp(t.hugs) * 3 + clamp(t.kisses) * 3 + clamp(t.compliments) * 2 - clamp(t.slaps) * 2 - clamp(t.kills) * 2;
-      const raw = Math.round(petPowerN * 0.1 + wealth * 0.5 + social);
-      const aura = Math.max(-1000, Math.min(1000, raw));
-      // The bar is a -1000..1000 scale, so zero sits in the middle at 50%. That
-      // is exactly what NEUTRAL means, and it must not be labelled as a failing
-      // state the way a negative aura is.
-      const title = aura > 600 ? 'MAIN CHARACTER ENERGY' : aura > 300 ? 'POSITIVE AURA' : aura > 0 ? 'STEADY' : aura === 0 ? 'NEUTRAL AURA' : aura > -300 ? 'SHAKY' : aura > -600 ? 'NEGATIVE AURA' : 'AURA EMERGENCY';
-
-      const art = await card({
-        title: '⚡ AURA',
-        api,
-        threadID: event.threadID,
-        left: { uid: who.uid, name: who.name },
-        body: meter(Math.round((aura + 1000) / 20), `${aura > 0 ? '+' : ''}${num(aura)} · ${title}`),
-        footer: aura >= 0 ? 'COINS. PETS. BEING LIKED.' : 'TOO MUCH SLAPPING. TOO LITTLE RESPECT.',
-        accent: aura >= 0 ? canvasKit.theme.accent : canvasKit.theme.accent2,
-      });
-      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
-
-      await reply(
-        `⚡ **${who.name} — AURA ${aura > 0 ? '+' : ''}${num(aura)} / 1000**\n`
-        + '· · · · · · ·\n'
-        + `${meter(Math.round((aura + 1000) / 20), title)}\n`
-        + `💰 Wallet: ${kc(who.coins)} (${wealth > 0 ? '+' : ''}${num(wealth)})\n`
-        + `🐾 Pet power: ${num(petPowerN)} (${petPowerN > 0 ? '+' : ''}${num(Math.round(petPowerN * 0.1))})\n`
-        + `🤗 Social: ${social > 0 ? '+' : ''}${num(social)}\n`
-        + '📖 _Every term is a counter or a balance. You can check the maths._',
-        event.messageID,
-      );
-    }),
-  });
-
+  
   commands.push({
     name: 'flex',
-    aliases: ['flex2'],
+    // `showoff` and `brag` are the spellings the retired picture-flex
+    // answered to; this one posts the flex in the chat.
+    aliases: ['flex2', 'showoff', 'brag'],
     category: 'fun',
     description: '💪 Flex your wallet and your pet. Costs 100, because showing off should',
     usage: '!flex',
@@ -2700,73 +2570,16 @@ commands.push({
     }),
   });
 
-  commands.push({
-    name: 'flexcard',
-    aliases: ['showoff', 'brag', 'flexviz'],
-    category: 'fun',
-    description: '💪 Render your flex as a picture — stats, title, wealth',
-    usage: '!flexcard',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'flexcard', async () => {
-      await react('💪');
-      const card = await cards.userCard({
-        emoji: '💪', title: 'THE FLEX', subtitle: userDoc.title || 'Citizen', api,
-        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
-        rows: [
-          ['Title', userDoc.title || 'Citizen'],
-          ['Level', userDoc.level],
-          ['XP', num(userDoc.xp)],
-          ['Wealth', kc(userDoc.coins)],
-          ['Wins', num(userDoc.wins || 0)],
-        ],
-      });
-      if (card) {
-        await reply({ body: '💪 **THE FLEX**\n· · · · · · ·\n' + userDoc.name + ' · Lv ' + userDoc.level, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply('💪 **THE FLEX**\n· · · · · · ·\n' + userDoc.name + ' · Lv ' + userDoc.level + '\n📖 Canvas unavailable — text fallback', event.messageID);
-    }),
-  });
-
-  commands.push({
-    name: 'roastcard',
-    aliases: ['burncard', 'roastviz'],
-    category: 'fun',
-    description: '🔥 Render a roast as a picture — targeted, in the house style',
-    usage: '!roastcard [@user]',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'roastcard', async () => {
-      await react('🔥');
-      const target = await userTarget.resolve(api, event, args, userDoc);
-      if (!target) { await reply('❌ I could not find that hunter.', event.messageID); return; }
-      const tdoc = await cache.getOrCreateUser(target.uid, api);
-      const roast = 'Your balance is ' + kc(tdoc.coins) + ' and your level is ' + tdoc.level + '. The city feels bad for you, but not enough to help.';
-      const card = await cards.userCard({
-        emoji: '🔥', title: 'THE ROAST', subtitle: target.name, api,
-        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
-        rows: [
-          ['Cash', kc(tdoc.coins)],
-          ['Level', tdoc.level],
-          ['Verdict', roast.slice(0, 40)],
-        ],
-      });
-      if (card) {
-        await reply({ body: '🔥 **THE ROAST**\n· · · · · · ·\n' + roast.slice(0, 120), attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-await reply('🔥 **THE ROAST**\n· · · · · · ·\n' + roast.slice(0, 200) + '\n📖 Canvas unavailable — text fallback', event.messageID);
-    }),
-  });
-
+  
+  
   // ── VIBE CHECK ─────────────────────────────────────────────
   // Five cards, all of them pictures of a feeling. They use the same
   // userCard path as the flex and the roast, so a missing canvas binary or a
   // failed avatar lookup leaves the text reply — never a silent card.
 
   const vibeVerdicts = [
-    { key: 'aura', emoji: '🌀', title: 'THE AURA CHECK', noun: 'aura', review: 'Your aura is a whole weather system and half the chat is checking their umbrella.' },
+    // `auraa` is the spelling the retired numeric aura meter answered to.
+    { key: 'aura', extra: ['auraa'], emoji: '🌀', title: 'THE AURA CHECK', noun: 'aura', review: 'Your aura is a whole weather system and half the chat is checking their umbrella.' },
     { key: 'glowup', emoji: '✨', title: 'THE GLOW UP', noun: 'glow up', review: 'You have been levelling in the dark and the chat just noticed.' },
     { key: 'sigma', emoji: '🧎', title: 'THE SIGMA TEST', noun: 'sigma', review: 'You do not need the room to approve of you. The room is quieter for it.' },
     { key: 'redflag', emoji: '🚩', title: 'RED FLAGS', noun: 'red flag', review: 'There are some. They are real. They are not all yours.' },
@@ -2776,7 +2589,7 @@ await reply('🔥 **THE ROAST**\n· · · · · · ·\n' + roast.slice(0, 200) +
   for (const v of vibeVerdicts) {
     commands.push({
       name: v.key,
-      aliases: [v.key + 'check', v.key + 'card'],
+      aliases: [v.key + 'check', v.key + 'card', ...(v.extra || [])],
       category: 'fun',
       description: `${v.emoji} The ${v.noun} check — a picture card of your vibe`,
       usage: `!${v.key} [@user]`,
