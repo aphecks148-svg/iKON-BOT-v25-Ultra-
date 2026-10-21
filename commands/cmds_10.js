@@ -869,6 +869,7 @@ commands.push({
   category: 'farming',
   description: '🚜 Claim your farm — 3 plots, free. Start the long game',
   usage: '!farmstart',
+  hint: 'Three plots and a starter kit, free. It is the long game and it starts here.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'farmstart', async () => {
@@ -950,6 +951,7 @@ commands.push({
   category: 'farming',
   description: '🌱 Plant a seed in a plot — !plant wheat 1',
   usage: '!plant <crop> <plot>',
+  hint: 'One seed in one plot. The plot number is the row, and it has to be a plot you own.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'plant', async () => {
@@ -1008,6 +1010,7 @@ commands.push({
   category: 'farming',
   description: '💧 Water a plot for 20% faster growth',
   usage: '!water <plot>',
+  hint: 'Twenty percent faster growth on a plot, and the water is free. The cheapest upgrade in the bot.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'water', async () => {
@@ -1049,6 +1052,7 @@ commands.push({
   category: 'farming',
   description: '🧺 Harvest ready plots into your barn — no number does all of them',
   usage: '!harvest [plot]',
+  hint: 'Picks every ready plot into the barn, or one plot if you name it. No number does all of them at once.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'harvest', async () => {
@@ -1127,6 +1131,7 @@ commands.push({
   category: 'farming',
   description: '🛒 Every farm price in one place — seeds and land',
   usage: '!farmshop',
+  hint: 'Every farm price in one place — the seeds and the land, and what they run to.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'farmshop', async () => {
@@ -1152,6 +1157,7 @@ commands.push({
   category: 'farming',
   description: '🛍️ Buy seeds — !farmbuy corn_seed',
   usage: '!farmbuy <crop>_seed [qty]',
+  hint: 'Buys seeds for a crop. `!farmbuy corn_seed` is the shortest form that works.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'farmbuy', async () => {
@@ -1197,6 +1203,7 @@ commands.push({
   category: 'farming',
   description: '💰 Sell crops — !farmsell wheat 10 (no quantity sells all)',
   usage: '!farmsell <crop> [qty]',
+  hint: 'Sells crops. Leave the quantity off and it sells all of them, which is usually what you want.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'farmsell', async () => {
@@ -1240,6 +1247,7 @@ commands.push({
   category: 'farming',
   description: '🏚️ Everything you have stored — crops, fish, ores, meat, skins',
   usage: '!barn',
+  hint: 'Everything you have stored — crops, fish, ores, meat and skins, in one list.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'barn', async () => {
@@ -1271,6 +1279,7 @@ commands.push({
   category: 'farming',
   description: '📐 Buy another plot — 10k each, 10 max',
   usage: '!farmexpand',
+  hint: 'Another plot for 10,000, ten plots at the most. The land is the only real upgrade.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'farmexpand', async () => {
@@ -1307,6 +1316,7 @@ commands.push({
   category: 'farming',
   description: '🥷 Steal crops — 30% works, otherwise a 500 fine and a bad story',
   usage: '!farmsteal @user',
+  hint: 'Thirty percent of the time it works. Otherwise it is a 500 fine and a bad story about you.',
   cooldown: 30,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'farmsteal', async () => {
@@ -1361,6 +1371,7 @@ commands.push({
   category: 'farming',
   description: '🏆 Top farmers by level and total harvest',
   usage: '!farmleaderboard',
+  hint: 'The top farmers, by level and then by everything they have brought in.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'farmleaderboard', async () => {
@@ -1405,6 +1416,7 @@ commands.push({
   category: 'farming',
   description: '📅 Daily: free seeds, tool refills and 5k coins',
   usage: '!dailyfarm',
+  hint: 'Free seeds, refilled tools and 5,000 coins. It is the daily, for the farm instead of the wallet.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'dailyfarm', async () => {
@@ -1462,6 +1474,7 @@ commands.push({
   category: 'farming',
   description: '♻️ Reset at level 50 for +10% yield forever and an evolution stone',
   usage: '!farmprestige',
+  hint: 'Level 50 resets the farm for +10% yield forever, and hands back an evolution stone.',
   cooldown: 30,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'farmprestige', async () => {
@@ -1520,6 +1533,7 @@ commands.push({
   category: 'farming',
   description: '⛏️ Swing for ore. Costs 1 durability, better picks find rarer stone',
   usage: '!mineultra',
+  hint: 'One swing, one durability. A better pick finds rarer stone and a worse one finds nothing.',
   cooldown: 300,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'mineultra', async () => {
@@ -1572,6 +1586,7 @@ commands.push({
   category: 'farming',
   description: '🛠️ Pickaxes — the only thing between you and a cave',
   usage: '!mineshop',
+  hint: 'The pickaxes, and what they cost. This is the only thing standing between you and a cave.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'mineshop', async () => {
@@ -1600,6 +1615,7 @@ commands.push({
   category: 'farming',
   description: '🛠️ Buy or replace a pickaxe — !minebuy diamond_pick',
   usage: '!minebuy <pick>',
+  hint: 'Buys or replaces your pickaxe. The good ones are the difference between ore and gravel.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'minebuy', async () => {
@@ -1657,6 +1673,7 @@ commands.push({
   category: 'farming',
   description: '🪨 Ore in your pack and what it is worth',
   usage: '!mineinventory',
+  hint: 'The ore in your pack and what it is worth if you sold it today.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'mineinventory', async () => {
@@ -1679,6 +1696,7 @@ commands.push({
   category: 'farming',
   description: '💎 Sell ore — !minesell diamond 5',
   usage: '!minesell <ore> [qty]',
+  hint: 'Sells ore. Leave the quantity off and it sells the lot.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'minesell', async () => {
@@ -1721,6 +1739,7 @@ commands.push({
   category: 'farming',
   description: '⛏️ Mining level leaderboard',
   usage: '!minerank',
+  hint: 'The mining level board — the people who have actually gone deep.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'minerank', async () => {
@@ -1762,6 +1781,7 @@ commands.push({
   category: 'farming',
   description: '🕳️ Hourly deep dig, big haul — 20% chance the cave comes down on your pickaxe',
   usage: '!minedig',
+  hint: 'Once an hour, a big haul, and a 20% chance the cave comes down on your pickaxe.',
   cooldown: 3600,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'minedig', async () => {
@@ -1847,6 +1867,7 @@ commands.push({
   category: 'farming',
   description: '🎣 Get your first rod — free. The friendliest grind in the bot',
   usage: '!fishstart',
+  hint: 'Your first rod, free. The friendliest grind in the bot and the one nobody complains about.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'fishstart', async () => {
@@ -1881,6 +1902,7 @@ commands.push({
   category: 'farming',
   description: '🎣 Cast a line. Costs 1 durability, better rods catch rarer fish',
   usage: '!fishultra',
+  hint: 'One cast, one durability. A better rod catches the rarer fish, and the sea is not generous.',
   cooldown: 180,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'fishultra', async () => {
@@ -1941,6 +1963,7 @@ commands.push({
   category: 'farming',
   description: '🪝 Rods — cheap, and the only reason to ever be broke',
   usage: '!fishshop',
+  hint: 'The rods and the prices. The cheap ones exist, and they are the reason to be broke anyway.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'fishshop', async () => {
@@ -1969,6 +1992,7 @@ commands.push({
   category: 'farming',
   description: '🪝 Buy or replace a rod — !fishbuy pro_rod',
   usage: '!fishbuy <rod>',
+  hint: 'Buys or replaces your rod. `!fishbuy pro_rod` is the one worth having.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'fishbuy', async () => {
@@ -2017,6 +2041,7 @@ commands.push({
   category: 'farming',
   description: '🐟 Sell fish — !fishsell shark 2',
   usage: '!fishsell <fish> [qty]',
+  hint: 'Sells fish. Leave the quantity off and it sells the lot.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'fishsell', async () => {
@@ -2056,6 +2081,7 @@ commands.push({
   category: 'farming',
   description: '🐟 The cooler — every fish and what it is worth',
   usage: '!fishinventory',
+  hint: 'The cooler: every fish you have and what it is worth.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'fishinventory', async () => {
@@ -2078,6 +2104,7 @@ commands.push({
   category: 'farming',
   description: '🏆 GC tournament — 10k to whoever lands the rarest fish before the clock runs out',
   usage: '!fishtournament',
+  hint: 'Ten thousand to whoever lands the rarest fish before the clock runs out.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'fishtournament', async () => {
@@ -2195,6 +2222,7 @@ commands.push({
   category: 'farming',
   description: '🎫 Hunting licence — 1k. The most expensive way to shoot a squirrel',
   usage: '!huntstart',
+  hint: 'A hunting licence for a thousand. The most expensive way to shoot a squirrel.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'huntstart', async () => {
@@ -2230,6 +2258,7 @@ commands.push({
   category: 'farming',
   description: '🏹 Hunt an animal. Costs 1 durability, 25% of shots end in hospital',
   usage: '!huntultra',
+  hint: 'One shot, one durability, and a 25% chance of ending the day in hospital.',
   cooldown: 300,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'huntultra', async () => {
@@ -2329,6 +2358,7 @@ commands.push({
   category: 'farming',
   description: '🔫 Guns — the most expensive toys in the bot',
   usage: '!huntshop',
+  hint: 'The guns. The most expensive toys in the bot, and they do not shoot any better than a bow.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'huntshop', async () => {
@@ -2358,6 +2388,7 @@ commands.push({
   category: 'farming',
   description: '🔫 Buy or replace a gun — !huntbuy rifle',
   usage: '!huntbuy <gun>',
+  hint: 'Buys or replaces your gun. `!huntbuy rifle` is where most people start.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'huntbuy', async () => {
@@ -2411,6 +2442,7 @@ commands.push({
   category: 'farming',
   description: '💵 Sell meat and skins — !huntsell bear 1',
   usage: '!huntsell <animal> [qty]',
+  hint: 'Sells meat and skins. Leave the quantity off and it sells everything on the rack.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'huntsell', async () => {
@@ -2457,6 +2489,7 @@ commands.push({
   category: 'farming',
   description: '🥩 Meat and skins on the rack, with your licence standing',
   usage: '!huntinventory',
+  hint: 'Meat and skins on the rack, and whether your licence is still standing.',
   cooldown: 5,
   permission: 'all',
   execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'huntinventory', async () => {
@@ -2484,6 +2517,7 @@ commands.push({
   category: 'farming',
   description: '🏹 Duel — 3 hunts each, whoever lands the rarest animal takes the pot',
   usage: '!huntduel @user',
+  hint: 'Three hunts each, and the rarest animal takes the pot.',
   cooldown: 30,
   permission: 'all',
   execute: async ({ userDoc, reply, react, args, event }) => guard(reply, event.messageID, 'huntduel', async () => {
@@ -2668,6 +2702,7 @@ commands.push({
     category: 'farming',
     description: '🌾 Render your farm as a picture — fields, crops, yield',
     usage: '!farmcard',
+    hint: 'Your farm as a picture: the fields, the crops and the yield.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'farmcard', async () => {
@@ -2699,6 +2734,7 @@ commands.push({
     category: 'farming',
     description: '🎣 Render your tackle box as a picture — catch, size, rare fish',
     usage: '!fishcard',
+    hint: 'Your tackle box as a picture: the catch, the sizes and the rare ones.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'fishcard', async () => {
@@ -2730,6 +2766,7 @@ commands.push({
     category: 'farming',
     description: '⛏️ Render your mine as a picture — depth, ore, yield',
     usage: '!minecard',
+    hint: 'Your mine as a picture: the depth, the ore and the yield.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'minecard', async () => {
