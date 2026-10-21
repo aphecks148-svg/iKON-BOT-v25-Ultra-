@@ -1415,6 +1415,7 @@ const commands = [];
     category: 'downloader',
     description: '📥 Facebook video downloader — the real file, with a Groq caption',
     usage: '!fbdown <fb link>',
+    hint: 'A hundred coins, and the real file comes down with a caption Groq wrote about it. The link has to be the video itself.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'fbdown', async () => {
@@ -1463,6 +1464,7 @@ const commands = [];
     category: 'downloader',
     description: '📥 TikTok downloader in HD — the real file, with a Groq roast',
     usage: '!tiktokdown <link>',
+    hint: 'A hundred coins for the real HD file, and a Groq roast with it. Watermarked if the platform watermarked it.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'tiktokdown', async () => {
@@ -1510,6 +1512,7 @@ const commands = [];
     category: 'downloader',
     description: '📥 Instagram reel/post downloader — the real file, with a Groq caption',
     usage: '!igdown <reel link>',
+    hint: 'A hundred coins for the reel or the post, and a Groq caption. A private account stays private.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'igdown', async () => {
@@ -1724,6 +1727,7 @@ const commands = [];
     category: 'downloader',
     description: '📥 X/Twitter video downloader — the real file, with a Groq read',
     usage: '!twitterdown <x link>',
+    hint: 'A hundred coins for the video out of the post, and Groq reads it back at you.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'twitterdown', async () => {
@@ -2120,6 +2124,7 @@ const commands = [];
     category: 'downloader',
     description: '🗣️ Groq rewrites your text into full iKON savage mode',
     usage: '!say <text>',
+    hint: 'Fifty coins, and your own words come back nastier. It is a rewrite, not a quote.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'say', async () => {
@@ -2165,6 +2170,7 @@ const commands = [];
     category: 'downloader',
     description: '🤖 Ask the iKON mind anything. It knows who the owner is',
     usage: '!ask <question>',
+    hint: 'Fifty coins for the iKON mind. It knows who the owner is, and it answers in character.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'ask', async () => {
@@ -2192,6 +2198,7 @@ const commands = [];
     category: 'downloader',
     description: '⚡ Same mind as !ask but it plans first and answers harder',
     usage: '!ai <prompt>',
+    hint: 'The same mind as `!ask`, except that it plans the answer first and then hits harder. Fifty coins.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'ai', async () => {
@@ -2225,6 +2232,7 @@ const commands = [];
     category: 'downloader',
     description: '🌐 Translate anything and keep the slang intact',
     usage: '!translate <lang> <text>',
+    hint: 'Fifty coins, and the slang survives the trip. Give the language first, then the words.',
     cooldown: 15,
     permission: 'all',
 execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'translate', async () => {
@@ -2286,6 +2294,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🌐 Every language `!translate` knows, grouped by region',
     usage: '!translatelang',
+    hint: 'Every language `!translate` knows, grouped by region. The list, not the translation.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'translatelang', async () => {
@@ -2318,6 +2327,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🖼️ The image generator — Groq writes the prompt, the render lands on a card',
     usage: '!imagine <prompt>',
+    hint: 'Two hundred coins. Groq writes the prompt, the image is rendered, and it lands on a card.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'imagine', async () => {
@@ -2375,6 +2385,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🔍 Reply to a photo — 2x canvas upscale, Groq explains what it sharpened',
     usage: '!4k (reply to an image)',
+    hint: 'Reply to a photo. Two hundred coins, twice the resolution, and Groq explains what it sharpened.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, '4k', async () => {
@@ -2424,6 +2435,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🔬 Reply to a photo — 4x canvas upscale for the real 4K people',
     usage: '!upscale (reply to an image)',
+    hint: 'Reply to a photo. Two hundred coins, four times the pixels. This is the one the 4K people wanted.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, 'upscale', async () => {
@@ -2473,6 +2485,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '✨ Reply to a photo — Groq picks the fix, canvas applies contrast and saturation',
     usage: '!enhance (reply to an image)',
+    hint: 'Reply to a photo. Groq picks the fix and the canvas applies it — contrast and saturation, 150 coins.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, 'enhance', async () => {
@@ -2527,6 +2540,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '✂️ Reply to a photo — canvas background knock-out, Groq names the subject',
     usage: '!bgremove (reply to an image)',
+    hint: 'Reply to a photo. Two hundred coins to knock the background out, and Groq names what it left behind.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, 'bgremove', async () => {
@@ -2730,6 +2744,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'football',
     description: '📊 One team, one number — their scoreline if it is on, a probability if it is not',
     usage: '!score <team>',
+    hint: 'Fifty coins. A real scoreline when the match has been played, and a probability when it has not.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'score', async () => {
@@ -2795,6 +2810,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'football',
     description: '📰 Football news — the biggest stories, and what they mean',
     usage: '!footballnews',
+    hint: 'Fifty coins for the stories, and for what they mean for the table.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'footballnews', async () => {
@@ -2845,6 +2861,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'football',
     description: '🔮 "Real vs Barca" — a winner, the percentages, and the reasoning',
     usage: '!matchpredict <teamA> vs <teamB>',
+    hint: 'A hundred coins. "Real vs Barca" — a winner, the percentages and the reasoning behind them.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'matchpredict', async () => {
@@ -3041,6 +3058,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'football',
     description: '📅 The next batch of fixtures — the list, and the two that matter',
     usage: '!fixtures <league>',
+    hint: 'Fifty coins. The next batch of fixtures, and the two in the list that actually matter.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'fixtures', async () => {
@@ -3167,6 +3185,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'football',
     description: '🔔 What the football ticker is watching in this chat',
     usage: '!alerts',
+    hint: 'What the football ticker is watching in this chat, and what it will say when it moves.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'alerts', async () => {
@@ -3205,6 +3224,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🏏 Cricket score and situation — Groq reads the game',
     usage: '!cricketscore',
+    hint: 'The score and the situation, with Groq reading the game rather than the numbers.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'cricketscore', async () => {
@@ -3233,6 +3253,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🌦️ Real weather for anywhere, plus Groq outfit advice with an attitude',
     usage: '!weatherai <place>',
+    hint: 'Fifty coins. Real weather for anywhere, and Groq tells you what to wear with an attitude.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'weatherai', async () => {
@@ -3290,6 +3311,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🌍 The world right now — Groq summarises it in the iKON register',
     usage: '!newsai',
+    hint: 'Fifty coins. The world right now, summarised in the iKON register.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'newsai', async () => {
@@ -3320,6 +3342,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '📚 Wikipedia in one paragraph, then Groq explains it like you are five',
     usage: '!wiki <topic>',
+    hint: 'Fifty coins. Wikipedia in a paragraph, then Groq explains it like you are five.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'wiki', async () => {
@@ -3366,6 +3389,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '📋 Reply to a long message — Groq tells you what actually happened',
     usage: '!summarize (reply to a message)',
+    hint: 'Reply to a long message. Groq tells you what actually happened in it.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'summarize', async () => {
@@ -3409,6 +3433,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '✍️ Same words, different energy — fancy, toxic or funny',
     usage: '!rewrite <fancy|toxic|funny> <text>',
+    hint: 'Fifty coins. The same words in a different register: fancy, toxic or funny.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'rewrite', async () => {
@@ -3449,6 +3474,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '📖 Write a story with the reader in it — horror, comedy, whatever',
     usage: '!storyai <topic> [genre]',
+    hint: 'Fifty coins for a story with you in it. Horror, comedy, whatever you ask for.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'storyai', async () => {
@@ -3491,6 +3517,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🧑‍💻️ Groq reviews your code, roasts it, and shows the fix',
     usage: '!codeai <code>',
+    hint: 'Fifty coins. Groq reads your code, roasts it, and shows you the fix.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'codeai', async () => {
@@ -3529,6 +3556,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🎵 Groq writes the whole song — verse, chorus, and how to sing it',
     usage: '!songai <topic> [mood]',
+    hint: 'Fifty coins for a whole song — the verse, the chorus and how to sing it.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'songai', async () => {
@@ -3594,6 +3622,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '📥 Render the downloader status as a picture — supported sites',
     usage: '!downloadcard',
+    hint: 'The downloader as a picture: every site it handles and what each one costs.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'downloadcard', async () => {
@@ -3633,6 +3662,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🌐 Set the language the bot answers you in, or show what it is',
     usage: '!setlang <lang> | !setlang off',
+    hint: 'The language the bot answers you in, and the freedom to change it.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'setlang', async () => {
