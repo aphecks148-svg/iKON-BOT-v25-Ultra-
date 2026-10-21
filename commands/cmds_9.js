@@ -741,6 +741,7 @@ const commands = [];
     category: 'fun',
     description: '🤗 Hug somebody and pay them 50. Bringing your pet adds 25',
     usage: '!hug @user',
+    hint: 'Fifty to them, and twenty-five more if you brought a pet. It is a transfer and a message, and the card goes with it.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'hug', async () => {
@@ -814,6 +815,7 @@ const commands = [];
     category: 'fun',
     description: '👋 Slap somebody — they lose 100, you keep 50, the other 50 evaporates',
     usage: '!slap @user',
+    hint: 'They lose 100, you keep 50, and the other 50 evaporates into the city.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'slap', async () => {
@@ -876,6 +878,7 @@ const commands = [];
     category: 'fun',
     description: '💋 Kiss somebody — a love meter, and pets get a breeding chance out of it',
     usage: '!kiss @user',
+    hint: 'A love meter, and a chance at a breeding pair if you both brought pets. The meter is the point.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kiss', async () => {
@@ -942,6 +945,7 @@ const commands = [];
     category: 'fun',
     description: '💘 Ship two people — permanent score on this chat. No take-backs',
     usage: '!ship @a @b',
+    hint: 'A permanent score on this chat, for two people. There is no take-back and there is no appeal.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'ship', async () => {
@@ -1027,6 +1031,7 @@ const commands = [];
     category: 'fun',
     description: '💫 Bonk somebody into horny jail. Costs 100, no way out for 3 minutes',
     usage: '!bonk @user',
+    hint: 'A hundred coins into horny jail, and three minutes in there. There is no way out early.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'bonk', async () => {
@@ -1085,6 +1090,7 @@ const commands = [];
     category: 'fun',
     description: '💀 Fake kill somebody — and their unsafe pet dies with them, also fake',
     usage: '!kill @user',
+    hint: 'Fake kill. It costs the other person nothing — unless their pet is unsafe, and then the pet goes too.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kill', async () => {
@@ -1161,6 +1167,7 @@ const commands = [];
     category: 'fun',
     description: '🔥 Roast somebody — written fresh by the AI, hand-written when it is away',
     usage: '!roast @user',
+    hint: 'The AI writes a fresh one every time, and there is a hand-written one for when the AI is away.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'roast', async () => {
@@ -1214,6 +1221,7 @@ const commands = [];
     category: 'fun',
     description: '🪞 Compliment somebody. The compliment is real, the backhand is too',
     usage: '!compliment @user',
+    hint: 'The compliment is real. The backhand on the end of it is also real, and it is the good part.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'compliment', async () => {
@@ -1264,6 +1272,7 @@ const commands = [];
     category: 'fun',
     description: '🕵️ Expose somebody — every number on their record, none of it flattering',
     usage: '!expose @user',
+    hint: 'Every number on their record in one place, and not one of them flatters anybody.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'expose', async () => {
@@ -1325,6 +1334,7 @@ const commands = [];
     category: 'fun',
     description: '💍 Marry somebody. 5,000 up front, and they have to already be yours',
     usage: '!marry @user',
+    hint: 'Five thousand up front, and they have to already be yours. It is a purchase, not a proposal.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'marry', async () => {
@@ -1447,6 +1457,7 @@ const commands = [];
     category: 'fun',
     description: '💔 Divorce somebody. 10,000, and you do not get to say why',
     usage: '!divorce @user',
+    hint: 'Ten thousand, and you do not get to say why. The record of it stays forever though.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'divorce', async () => {
@@ -1770,6 +1781,7 @@ const commands = [];
     category: 'fun',
     description: '🫂 Build or read a best-friends board. Score never goes down',
     usage: '!besties @user',
+    hint: 'The best-friends board, and how to build one. The score never goes down, which is the whole point of it.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'besties', async () => {
@@ -1845,6 +1857,7 @@ const commands = [];
     category: 'fun',
     description: '⚔️ Build or read an enemies board. Score never goes down either',
     usage: '!enemies @user',
+    hint: 'The enemies board, and how to build one. The score never goes down either, and that is also the point.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'enemies', async () => {
@@ -1929,6 +1942,7 @@ const commands = [];
     category: 'fun',
     description: '☣️ Toxicity read straight off the activity tracker. Commands run is the proxy',
     usage: '!toxicmeter @user',
+    hint: 'Read straight off the activity tracker. Commands run is the proxy, and it is a rough one.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'toxicmeter', async () => {
@@ -1972,6 +1986,7 @@ const commands = [];
     category: 'fun',
     description: '😏 Rizz score — presence, gifts and whether you actually have a pet',
     usage: '!rizz @user',
+    hint: 'Presence, gifts and whether you actually own a pet. It is a score, not a verdict.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rizz', async () => {
@@ -2013,6 +2028,7 @@ const commands = [];
     category: 'fun',
     description: '😬 Cringe meter — net worth against how much you have spent on being funny',
     usage: '!cringe @user',
+    hint: 'Your net worth against what you have spent on being funny. The ratio is the joke.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cringe', async () => {
@@ -2055,6 +2071,7 @@ const commands = [];
     category: 'fun',
     description: '💪 Flex your wallet and your pet. Costs 100, because showing off should',
     usage: '!flex',
+    hint: 'Your wallet and your pet, on a card, for a hundred coins. Showing off should cost something.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'flex', async () => {
@@ -2129,6 +2146,7 @@ const commands = [];
     category: 'fun',
     description: '🎯 Dare somebody. They reply `!darego` to do it, `!gostop` to weasel and pay 500',
     usage: '!dare @user',
+    hint: 'They answer with `!darego` to do it, or `!gostop` to weasel out and pay 500.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'dare', async () => {
@@ -2249,6 +2267,7 @@ const commands = [];
     category: 'fun',
     description: '🫢 One truth question for the chat. Replying costs nothing and hides nothing',
     usage: '!truth',
+    hint: 'One truth question for the chat. Replying costs nothing and hides nothing.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'truth', async () => {
@@ -2275,6 +2294,7 @@ const commands = [];
     category: 'fun',
     description: '🤔 Two options, one answer. Votes are counted from cache and expire in 2 minutes',
     usage: '!wouldyourather',
+    hint: 'Two options and one answer. The votes come from the cache and they expire in two minutes.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'wouldyourather', async () => {
@@ -2343,6 +2363,7 @@ const commands = [];
     category: 'fun',
     description: '🍻 Never have I ever — the group answers with a number, 1 to 5',
     usage: '!neverhaveiever',
+    hint: 'The group answers with a number from 1 to 5, and the average is the score.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'neverhaveiever', async () => {
@@ -2387,6 +2408,7 @@ const commands = [];
     category: 'fun',
     description: '🃏 Three statements, two true. The group works out the lie',
     usage: '!2truth1lie',
+    hint: 'Three statements, two of them true. The chat works out which one is the lie.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, '2truth1lie', async () => {
@@ -2437,6 +2459,7 @@ const commands = [];
     category: 'fun',
     description: '🧾 One true, unkind fact about somebody — assembled from their own counters',
     usage: '!fact @user',
+    hint: 'One true, unkind fact, assembled from their own counters rather than invented.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'fact', async () => {
@@ -2467,6 +2490,7 @@ const commands = [];
     category: 'fun',
     description: '💘 A pickup line aimed at somebody. Costs 50, because embarrassment is a service',
     usage: '!pickupline @user',
+    hint: 'Fifty coins for a line aimed at somebody. Embarrassment is a service, and it is priced.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pickupline', async () => {
@@ -2504,6 +2528,7 @@ const commands = [];
     category: 'fun',
     description: '👨‍👩‍👧‍👦 The iKON family tree — owner, god-mode winners, and where you sit in it',
     usage: '!ikonfamily',
+    hint: 'The family tree: the owner, the god-mode winners, and where you sit in it.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'ikonfamily', async () => {
@@ -2570,6 +2595,7 @@ commands.push({
     category: 'fun',
     description: '❤️ Render a relationship as a picture — compatibility, status',
     usage: '!shipcard [@user]',
+    hint: 'A relationship as a picture: the compatibility and the status, drawn on a card.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'shipcard', async () => {
