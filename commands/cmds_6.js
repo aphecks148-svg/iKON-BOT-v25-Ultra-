@@ -739,6 +739,7 @@ const commands = [];
     category: 'group',
     description: '✍️ Set the welcome text — {user}, {mention}, {group}, {thread} all work',
     usage: '!setwelcome <message>',
+    hint: 'The line the bot says when somebody joins. `{user}` and `{mention}` fill in the person, `{group}` the chat.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'setwelcome', async () => {
@@ -783,6 +784,7 @@ const commands = [];
     category: 'group',
     description: '✍️ Set the goodbye text — {user}, {mention}, {group}, {thread} all work',
     usage: '!setgoodbye <message>',
+    hint: 'The line for when somebody leaves, and the same placeholders as the welcome.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'setgoodbye', async () => {
@@ -825,6 +827,7 @@ const commands = [];
     category: 'group',
     description: '📜 Set or show the rules of this chat',
     usage: '!gcpolicy [rules]',
+    hint: 'The rules of this chat, in the bot\'s own words. No rules set means no policy to lean on.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gcpolicy', async () => {
@@ -911,6 +914,7 @@ const commands = [];
     category: 'group',
     description: '⬆️ Make somebody an admin of this chat',
     usage: '!promote @user',
+    hint: 'Gives somebody admin in this chat. It is Facebook\'s admin, not the bot\'s — the bot follows it.',
     cooldown: 15,
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'promote', async () => {
@@ -944,6 +948,7 @@ const commands = [];
     category: 'group',
     description: '⬇️ Remove somebody\'s admin rights in this chat',
     usage: '!demote @user',
+    hint: 'Takes admin away again. The person stays in the chat, and the bot stops treating them as an operator.',
     cooldown: 15,
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'demote', async () => {
@@ -979,6 +984,7 @@ const commands = [];
     category: 'group',
     description: '🔗 Auto-fine anyone who pastes a link. 500 coins each, plus a roast',
     usage: '!antilink on|off [fine]',
+    hint: 'A fine for every link, 500 by default, and a roast with it. It is per chat and it is meant to sting.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'antilink', async () => {
@@ -1064,6 +1070,7 @@ const commands = [];
     category: 'group',
     description: '👻 Invisible ban. They still see their own messages. The chat does not',
     usage: '!ghostban @user [minutes]',
+    hint: 'They still see their own messages, and the chat does not. Nothing tells them it happened.',
     cooldown: 30,
     permission: 'groupAdmin',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'ghostban', async () => {
@@ -1118,6 +1125,7 @@ const commands = [];
     category: 'group',
     description: '⚔️ Turn this chat into a warzone — the wealthy pay a tax on every message',
     usage: '!warzone on|off [tax]',
+    hint: 'This chat starts taxing the wealthy on every message. `!unlockgc` is the way out of it.',
     cooldown: 15,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'warzone', async () => {
@@ -1291,6 +1299,7 @@ const commands = [];
     category: 'group',
     description: '🔓 Lift every lockdown, mute and warzone in this chat at once',
     usage: '!unlockgc',
+    hint: 'Lifts every lockdown, mute and warzone in this chat at once. It is the one command that always works.',
     cooldown: 20,
     permission: 'groupAdmin',
     execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'unlockgc', async () => {
@@ -1477,6 +1486,7 @@ const commands = [];
     category: 'group',
     description: '🤐 Mute everybody except admins for 5 minutes. Total chaos',
     usage: '!gcmuteall [minutes]',
+    hint: 'Mutes everybody except admins, for five minutes. The chaos is the point.',
     cooldown: 60,
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'gcmuteall', async () => {
@@ -1530,6 +1540,7 @@ const commands = [];
     category: 'group',
     description: '🔈 Lift a mute, a ban, or a ghostban on somebody',
     usage: '!gcunmute @user',
+    hint: 'Lifts a mute, a ban or a ghostban on one person. A ghostban needs this — nothing else will free them.',
     cooldown: 15,
     permission: 'groupAdmin',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'gcunmute', async () => {
@@ -1615,6 +1626,7 @@ const commands = [];
     category: 'group',
     description: '📢 Make the bot announce a message to the whole chat',
     usage: '!gcannounce <message>',
+    hint: 'The bot says exactly this, to everybody. It is the only way to say something that is not a command.',
     cooldown: 15,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gcannounce', async () => {
@@ -1645,6 +1657,7 @@ const commands = [];
     category: 'group',
     description: '🚪 Five minute invite war — whoever pulls in the most people wins 10,000',
     usage: '!invitewar start|join|status|end',
+    hint: 'Five minutes, and whoever pulls in the most people wins 10,000. `start`, `join`, `status` and `end`.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'invitewar', async () => {
@@ -1747,6 +1760,7 @@ const commands = [];
     category: 'group',
     description: '📈 How loud this chat is — chat level 1 to 100 from message count',
     usage: '!gclevel',
+    hint: 'How loud this chat is, from the message count, level 1 to 100. It is a number, not a compliment.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'gclevel', async () => {
@@ -1787,6 +1801,7 @@ const commands = [];
     category: 'group',
     description: '🏆 Richest, loudest, most toxic and most ghosted hunters in this chat',
     usage: '!gcstatsultra',
+    hint: 'The four boards of this chat at once: richest, loudest, most toxic and most ghosted.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'gcstatsultra', async () => {
@@ -1848,6 +1863,7 @@ const commands = [];
     category: 'group',
     description: '👑 At chat level 50 the bot claims the room, icon and lore included',
     usage: '!ikondomination',
+    hint: 'At chat level 50 the bot claims the room, icon and lore included. It is one threshold and it is permanent.',
     cooldown: 60,
     permission: 'groupAdmin',
     execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'ikondomination', async () => {
@@ -1907,6 +1923,7 @@ const commands = [];
     category: 'group',
     description: '🖼️ Render this chat as an iKON banner image',
     usage: '!gcbanner',
+    hint: 'This chat as a banner image. It is the group\'s own picture, not a screenshot of a page.',
     cooldown: 30,
     permission: 'groupAdmin',
     execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'gcbanner', async () => {
@@ -1945,6 +1962,7 @@ const commands = [];
     category: 'group',
     description: '🖼️ Set the chat icon, or preview the new one when the build cannot',
     usage: '!gcicon <emoji>',
+    hint: 'Sets the chat icon, or previews the new one when the build cannot change it.',
     cooldown: 20,
     permission: 'groupAdmin',
     execute: async ({ args, api, event, reply, react }) => guard(reply, event.messageID, 'gcicon', async () => {
@@ -1992,6 +2010,7 @@ const commands = [];
     category: 'group',
     description: '📋 Thread id, level, member count, approval and every toggle',
     usage: '!groupinfo',
+    hint: 'Everything about this chat in one place: the thread id, the level, the member count and every switch.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'groupinfo', async () => {
@@ -2046,6 +2065,7 @@ const commands = [];
     category: 'group',
     description: '👥 Member count and the busiest hunters recorded in this chat',
     usage: '!gcmembers',
+    hint: 'How many are in here, and the busiest hunters the bot has recorded here.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'gcmembers', async () => {
@@ -2099,6 +2119,7 @@ const commands = [];
     category: 'group',
     description: '🛡️ Everyone who can run the moderator commands in this chat',
     usage: '!gcadmins',
+    hint: 'Everybody who can run the moderator commands in this chat — Facebook admins and bot admins both.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'gcadmins', async () => {
@@ -2147,6 +2168,7 @@ const commands = [];
     category: 'group',
     description: '🎭 Truth or dare for the whole chat — the bot picks, somebody answers',
     usage: '!truthordaregc [truth|dare]',
+    hint: 'Truth or dare for the whole chat. The bot picks, and somebody answers.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'truthordaregc', async () => {
@@ -2181,6 +2203,7 @@ const commands = [];
     category: 'group',
     description: '🕯️ Post a confession to the chat wall, anonymously',
     usage: '!confessionwall <confession>',
+    hint: 'A confession on the chat wall, with no name on it. The wall is the only place it is kept.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'confessionwall', async () => {
@@ -2221,6 +2244,7 @@ const commands = [];
     category: 'group',
     description: '💣 Ten quotes attributed to random members, none of which they said',
     usage: '!quotebomb',
+    hint: 'Ten quotes attributed to members of this chat, none of which they said. The roasts are aimed at you.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ event, reply, react, api }) => guard(reply, event.messageID, 'quotebomb', async () => {
@@ -2329,6 +2353,7 @@ const commands = [];
     category: 'group',
     description: '💥 Wipe every module 6 setting this chat has accumulated',
     usage: '!resetgroup',
+    hint: 'Wipes every module 6 setting this chat has collected. It is the clean-slate button.',
     cooldown: 60,
     permission: 'owner',
     execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'resetgroup', async () => {
@@ -2577,6 +2602,7 @@ const commands = [];
       category: 'group',
       description: '⏳ List the chats waiting for approval',
       usage: '!pending',
+      hint: 'The chats waiting for approval, and how long they have been waiting.',
       cooldown: 20,
       permission: 'owner',
       execute: async ({ event, reply, react, api, config }) => guard(reply, event.messageID, 'pending', async () => {
@@ -2622,6 +2648,7 @@ const commands = [];
       category: 'group',
       description: '✅ Approve this chat and switch the bot on — or `all` of them',
       usage: '!approve [tid | all]',
+      hint: 'Switches the bot on in a chat, or in every waiting chat with `all`. The bot stays out of chats that have not said yes.',
       cooldown: 20,
       permission: 'owner',
       execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'approve', async () => {
@@ -2735,6 +2762,7 @@ const commands = [];
       category: 'group',
       description: '🚫 Refuse this chat and take the bot back out',
       usage: '!deny [tid]',
+      hint: 'Refuses a chat and takes the bot back out of it. The refusal is remembered, so it cannot ask again.',
       cooldown: 20,
       permission: 'owner',
       execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'deny', async () => {
@@ -2788,6 +2816,7 @@ const commands = [];
     category: 'group',
     description: '⏸️ Switch the bot off in this chat',
     usage: '!pause [reason]',
+    hint: 'Switches the bot off in this chat, with a reason if you give one. The chat is remembered as paused.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react, config }) => guard(reply, event.messageID, 'pause', async () => {
@@ -2824,6 +2853,7 @@ const commands = [];
     category: 'group',
     description: '▶️ Switch the bot back on in this chat',
     usage: '!unpause [tid]',
+    hint: 'Switches the bot back on in this chat, or in another one by its id.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'unpause', async () => {
@@ -2863,6 +2893,7 @@ const commands = [];
     category: 'group',
     description: '▶️ Switch the bot back on in every paused chat',
     usage: '!unpauseall',
+    hint: 'Switches the bot back on in every paused chat at once.',
     cooldown: 30,
     permission: 'owner',
     execute: async ({ args, event, reply, react, config }) => guard(reply, event.messageID, 'unpauseall', async () => {
@@ -2918,6 +2949,7 @@ const commands = [];
     category: 'group',
     description: '⏸️ List every chat the bot is switched off in',
     usage: '!pausedlist',
+    hint: 'Every chat the bot is currently switched off in, with the id you need to bring it back.',
     cooldown: 20,
     permission: 'owner',
     execute: async ({ event, reply, react, config }) => guard(reply, event.messageID, 'pausedlist', async () => {
@@ -2949,6 +2981,7 @@ commands.push({
     category: 'group',
     description: '🖼️ Render this chat as a picture — name, members, level',
     usage: '!gcpicture',
+    hint: 'This chat as a picture: the name, the member count and the level.',
     cooldown: 60,
     permission: 'groupAdmin',
     execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'gcpicture', async () => {
@@ -2981,6 +3014,7 @@ commands.push({
     category: 'group',
     description: '🔒 Render the lockdown state of this chat as a picture',
     usage: '!lockdowncard',
+    hint: 'The lockdown state of this chat as a picture — what is on, and what is holding it.',
     cooldown: 30,
     permission: 'groupAdmin',
     execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'lockdowncard', async () => {
@@ -3132,6 +3166,7 @@ await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavaila
     category: 'group',
     description: '🪪 Set this bot\'s name in the chat, or show what it is',
     usage: '!botnick <name> | !botnick off',
+    hint: 'What the bot is called in this chat, and the freedom to call it something else.',
     cooldown: 20,
     permission: 'groupAdmin',
     execute: async ({ api, event, args, reply, react }) => guard(reply, event.messageID, 'botnick', async () => {
