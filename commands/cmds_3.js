@@ -729,6 +729,7 @@ kingdomCommands.push({
   category: 'kingdom',
   description: '🏰 Your kingdom — view it, found one, or disband it',
   usage: '!kingdom [create <name>|disband|open|close]',
+  hint: 'Your kingdom, and the crown over it. Founding one is a decision; the monarch can invite, kick and declare war.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kingdom', async () => {
@@ -883,6 +884,7 @@ kingdomCommands.push({
   category: 'kingdom',
   description: '🚪 Join an open kingdom by name',
   usage: '!kingdomjoin <name>',
+  hint: 'Joins an open kingdom by name. A closed one will not take you, whatever your reputation.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kingdomjoin', async () => {
@@ -938,6 +940,7 @@ kingdomCommands.push({
   category: 'kingdom',
   description: '🚶 Leave your kingdom — the monarch must disband instead',
   usage: '!kingdomleave',
+  hint: 'You can walk out any time. The monarch cannot — a kingdom does not abandon its own people.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kingdomleave', async () => {
@@ -982,6 +985,7 @@ kingdomCommands.push({
   category: 'kingdom',
   description: '🤝 The monarch brings somebody into the kingdom',
   usage: '!kingdominvite @user',
+  hint: 'The monarch pulls somebody in. It is the only way in besides joining an open kingdom yourself.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kingdominvite', async () => {
@@ -1041,6 +1045,7 @@ kingdomCommands.push({
   category: 'kingdom',
   description: '🦵 The monarch removes a member from the kingdom',
   usage: '!kingdomkick @user',
+  hint: 'The monarch removes a member. It costs nothing, and it is not a small thing to do to somebody.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kingdomkick', async () => {
@@ -1098,6 +1103,7 @@ kingdomCommands.push({
   category: 'kingdom',
   description: '🔍 Read a kingdom\'s card — its crown, treasury and wars',
   usage: '!kingdominfo [name]',
+  hint: 'One kingdom in full: the crown, the treasury and the wars it has fought.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kingdominfo', async () => {
@@ -1131,6 +1137,7 @@ kingdomCommands.push({
   category: 'kingdom',
   description: '💰 Pay coins into your kingdom\'s treasury',
   usage: '!kingdomdonate <amount>',
+  hint: 'Coins into the kingdom treasury. The board is ranked by what is in the pot, so it counts.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kingdomdonate', async () => {
@@ -1184,6 +1191,7 @@ kingdomCommands.push({
   category: 'kingdom',
   description: '👥 The kingdom roster, ranked by donations',
   usage: '!kingdommembers [name]',
+  hint: 'The roster, ranked by what they have donated. Loyalty and money, in that order.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kingdommembers', async () => {
@@ -1223,6 +1231,7 @@ kingdomCommands.push({
   category: 'kingdom',
   description: '⚔️ Wager your treasury against another kingdom',
   usage: '!kingdomwar <name>',
+  hint: 'The treasury against another kingdom\'s. The winner takes the pot, and no coin is printed along the way.',
   cooldown: 60,
   permission: 'all',
   execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kingdomwar', async () => {
@@ -1340,6 +1349,7 @@ kingdomCommands.push({
   category: 'kingdom',
   description: '🏆 The kingdom board, ranked by treasury',
   usage: '!kingdoms',
+  hint: 'Every kingdom, ranked by treasury. The one at the top has the most money, which is not the same as the best.',
   cooldown: 10,
   permission: 'all',
   execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'kingdoms', async () => {
@@ -1403,6 +1413,7 @@ kingdomCommands.push({
     category: 'kingdom',
     description: '👑 Render a kingdom as a picture — treasury, members, ranks',
     usage: '!kingdomcard [name]',
+    hint: 'A kingdom as a picture: the treasury, the roster and the ranks, all on one card.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'kingdomcard', async () => {
@@ -1436,6 +1447,7 @@ kingdomCommands.push({
     category: 'kingdom',
     description: '⚔️ Render a war as a picture — the two sides, the stakes',
     usage: '!warcard [kingdom]',
+    hint: 'A war as a picture: the two sides and what is at stake. The text above it says the same thing.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'warcard', async () => {
@@ -1703,6 +1715,7 @@ module.exports = [
     category: 'rpg',
     description: '📜 Daily hunt mission - Complete for 2k-5k coins +100 XP',
     usage: '!quest',
+    hint: 'An hour on the clock, and 1 stamina. `!dailyquest` is the one that only comes back once a day; this one comes back every hour.',
     cooldown: 3600,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'quest', async () => {
@@ -1755,6 +1768,7 @@ module.exports = [
     category: 'rpg',
     description: '🗓️ A new mission every day - costs 1 stamina',
     usage: '!dailyquest',
+    hint: 'One mission a day, and it is a different one each time. 1 stamina, and 24 hours between them.',
     cooldown: 3600,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'dailyquest', async () => {
@@ -1816,6 +1830,7 @@ module.exports = [
     category: 'rpg',
     description: '🗺️ Go on adventure - Random rewards 500-3000, risk injury',
     usage: '!adventure',
+    hint: '500-3,000 and a fair chance of coming back hurt. `!work` is the way to earn without the risk.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'adventure', async () => {
@@ -1887,6 +1902,7 @@ module.exports = [
     category: 'rpg',
     description: '💪 Train at academy - +50 XP +500 coins, 1h cooldown',
     usage: '!train',
+    hint: 'The honest grind: +50 XP and +500 coins, once an hour. It never fails and it never injures you.',
     cooldown: 3600,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'train', async () => {
@@ -1917,6 +1933,7 @@ module.exports = [
     category: 'rpg',
     description: '⚔️ Battle wild monster - Win coins + XP, lose -100 coins',
     usage: '!battle',
+    hint: 'A wild monster, picked to be roughly your level. Win and you are paid; lose and it costs you 100.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'battle', async () => {
@@ -1982,6 +1999,7 @@ module.exports = [
     category: 'rpg',
     description: '🗡️ Quick attack - 70% hit chance',
     usage: '!attack',
+    hint: '70% to land it. The cheapest damage in the game, and it never misses twice in a row.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'attack', async () => {
@@ -2037,6 +2055,7 @@ module.exports = [
     category: 'rpg',
     description: '🛡️ Defend stance - Reduce next damage 50%',
     usage: '!defend',
+    hint: 'Halves the next hit that lands on you, then it is used up. Put it up before a boss, not after.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'defend', async () => {
@@ -2063,6 +2082,7 @@ module.exports = [
     category: 'rpg',
     description: '💚 Use potion or 500 coins to heal - Restores for battle',
     usage: '!heal',
+    hint: 'A potion if you have one, 500 coins if you do not. It is for after a fight, not during one.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'heal', async () => {
@@ -2112,6 +2132,7 @@ module.exports = [
     category: 'rpg',
     description: '📈 Your fight stats - Wins, losses, messages sent',
     usage: '!stats',
+    hint: 'Your record: battles won and lost, monsters slain, messages sent. The numbers you cannot argue with.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'stats', async () => {
@@ -2150,6 +2171,7 @@ module.exports = [
     category: 'rpg',
     description: '🎭 Choose hunter class - Warrior, Mage, Archer, Assassin',
     usage: '!class',
+    hint: 'Warrior, Mage, Archer or Assassin, and what each one gives you. It only lists them; `!selectclass` is the one that picks.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'class', async () => {
@@ -2179,6 +2201,7 @@ module.exports = [
     category: 'rpg',
     description: '✅ Lock your class - Each class has unique bonus',
     usage: '!selectclass <warrior | mage | archer | assassin>',
+    hint: 'One class, and the registrar does not give it back. Only `!prestige` can change a hunter\'s class.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'selectclass', async () => {
@@ -2230,6 +2253,7 @@ module.exports = [
     category: 'rpg',
     description: '🔮 Your skills - Class-based powers',
     usage: '!skill',
+    hint: 'The powers your class gives you and the ones you have bought. Skills are what a level does not do.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'skill', async () => {
@@ -2263,6 +2287,7 @@ module.exports = [
     category: 'rpg',
     description: '📚 Learn new skill for 5k coins',
     usage: '!learn <powerstrike | luckycharm | ironwill | swiftfoot>',
+    hint: '5,000 coins for a permanent skill. `!skill` says what each one does before you spend the money.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'learn', async () => {
@@ -2320,6 +2345,7 @@ module.exports = [
     category: 'rpg',
     description: '🎒 RPG inventory - Potions, weapons from shop',
     usage: '!inventoryrpg',
+    hint: 'Potions, gear and the rest of it. `!buy` brings more in, `!unequip` takes something off.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'inventoryrpg', async () => {
@@ -2411,6 +2437,7 @@ module.exports = [
     category: 'rpg',
     description: '📦 Unequip gear',
     usage: '!unequip <item>',
+    hint: 'Takes a piece of gear off and puts it back in the bag. The stats drop; the item does not disappear.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'unequip', async () => {
@@ -2447,6 +2474,7 @@ module.exports = [
     category: 'rpg',
     description: '👹 Fight iKON Boss - Need lvl 5+, reward 10k if win',
     usage: '!boss',
+    hint: 'The named bosses, level 5 and up, 10,000 for a win. The reward is real and so is the difficulty.',
     cooldown: 1800,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'boss', async () => {
@@ -2682,6 +2710,7 @@ module.exports = [
     category: 'rpg',
     description: '👾 List monsters - From slime lvl1 to dragon lvl50',
     usage: '!monster',
+    hint: 'The whole ladder, from a level 1 slime to a level 50 dragon. It says what is out there and what it wants.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'monster', async () => {
@@ -2712,6 +2741,7 @@ module.exports = [
     category: 'rpg',
     description: '🐉 Hunt random boss - Scales with your level',
     usage: '!huntboss',
+    hint: 'A random boss scaled to your level. No gate and no waiting, and a payout that scales with it.',
     cooldown: 1800,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'huntboss', async () => {
@@ -2780,6 +2810,7 @@ module.exports = [
     category: 'rpg',
     description: '💉 Emergency heal - Free once per hour',
     usage: '!healme',
+    hint: 'Free, once an hour, and it needs no potion. The rescue for when the shop is shut and you are out.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'healme', async () => {
@@ -2823,6 +2854,7 @@ module.exports = [
     category: 'rpg',
     description: '⚡ Your energy - Needed for adventures, refills 1 per 10min',
     usage: '!stamina',
+    hint: 'The energy that missions and adventures spend. It refills one point every ten minutes, up to ten.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'stamina', async () => {
@@ -2858,6 +2890,7 @@ module.exports = [
     category: 'rpg',
     description: '🥇 Top winners - Most battle wins',
     usage: '!topwins',
+    hint: 'Most battle wins, ever. The board of the people who have been fighting the most.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'topwins', async () => {
@@ -2917,6 +2950,7 @@ module.exports = [
     category: 'rpg',
     description: '🌟 Top XP grinders',
     usage: '!topxp',
+    hint: 'Most XP, ever. The grinders, ranked by the total rather than by the level.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'topxp', async () => {
@@ -2996,6 +3030,7 @@ module.exports = [
     category: 'rpg',
     description: '📝 Set hunter biography - Shown in profile',
     usage: '!setbio <text>',
+    hint: '120 characters, shown on your `!profile` card. It is the only free-form line you get.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'setbio', async () => {
@@ -3032,6 +3067,7 @@ module.exports = [
     category: 'rpg',
     description: "🏷️ Unlock titles - 'Slayer', 'Legend', 'God' at lvl milestones",
     usage: '!title',
+    hint: 'Titles unlock at level milestones. The good ones are earned rather than bought, and they sit above your name.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'title', async () => {
@@ -3064,6 +3100,7 @@ module.exports = [
     category: 'rpg',
     description: '🌐 Academy stats - Total hunters, avg level, total battles',
     usage: '!rpgstats',
+    hint: 'The academy as a whole: how many hunters, how far along they are, how much fighting has happened.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'rpgstats', async () => {
@@ -3339,6 +3376,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
     category: 'rpg',
     description: '⚔️ Render your class as a picture — stats, skills, gear',
     usage: '!classcard [@user]',
+    hint: 'Your class as a picture: the stats it gives, the skills you have, the gear you are wearing.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'classcard', async () => {
@@ -3386,6 +3424,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
     category: 'rpg',
     description: '🏅 Render your title as a picture — the honour above your name',
     usage: '!titlecard [@user]',
+    hint: 'Your title as a picture, with the honour above your name. A card is the only way to show it off.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'titlecard', async () => {
@@ -3431,6 +3470,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
     category: 'rpg',
     description: '🐉 Every boss, ranked by how much trouble they are',
     usage: '!bossboard',
+    hint: 'Every boss, ranked by how much trouble it is. It is a reading list, not a dare.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, config }) => guard(reply, event.messageID, 'bossboard', async () => {
@@ -3474,6 +3514,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
     category: 'rpg',
     description: '🐉 Seed the boss table with the city roster (owner only)',
     usage: '!bossseed',
+    hint: 'Owner only. Fills the boss table with the city roster, so a fresh deploy has something to fight.',
     cooldown: 60,
     permission: 'owner',
     execute: async ({ args, reply, react, event, config }) => guard(reply, event.messageID, 'bossseed', async () => {
