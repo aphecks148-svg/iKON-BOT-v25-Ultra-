@@ -13,6 +13,7 @@
     "test": "node bot/test.js",
     "test:e2e": "node bot/e2e.js",
     "test:exec": "node bot/exec-all.js",
+    "audit": "node bot/audit.js",
     "check": "node bot/check.js"
   },
   "keywords": [

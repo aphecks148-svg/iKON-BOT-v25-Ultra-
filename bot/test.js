@@ -1898,12 +1898,20 @@ function query(doc) {
     const authored = loaded.registry.get('ping');
     assert.ok(authored && authored.hint, 'ping has a hint of its own, authored');
     // And a command with no hint of its own must not borrow the deck's.
-    const bare = [...loaded.registry.values()].find((c) => !c.hint && c.category === 'system');
-    assert.ok(bare, 'expected a system command with no hint');
-    assert.strictEqual(bare.hint, '', `${bare.name} must not inherit the system deck hint`);
+    //
+    // The fixture is synthetic on purpose. Every real command has a hint of
+    // its own now, and a test that needs a half-written command to exist in
+    // the registry would only keep working until somebody finished the
+    // registry — which is exactly the moment it would stop meaning anything.
+    const bare = {
+      name: 'bare', aliases: [], category: 'system',
+      description: 'A command that never got a hint of its own',
+      usage: '!bare', cooldown: 5, permission: 'all',
+    };
+    assert.strictEqual(bare.hint, undefined, 'the fixture must have no hint of its own');
     const hint = decks.get('system').hint;
     assert.ok(!menu.commandPage({ cmd: bare, prefix: '!' }).includes(hint),
-      `${bare.name}'s page must not carry the deck hint`);
+      'a hintless command\'s page must not carry the deck hint');
     // The deck hint belongs on the deck page, where it is about everything.
     assert.ok(menu.categoryPage({ cat: decks.get('system'), commands: [], prefix: '!' }).includes(hint),
       'the deck page must still carry its own hint');
@@ -2217,17 +2225,21 @@ function query(doc) {
     // (commands/cmds_3.js, `story()`), so two runs differ even when the router
     // is behaving perfectly. Compared raw, this check failed seven runs out of
     // eight — it was measuring the dice, not the routing. The story line is
-    // normalised away the same way ping's savage line is below, and the two
-    // runs are still required to carry a story line each, so a reply that
-    // quietly lost the line would still fail.
+    // normalised away the same way ping's savage line is below.
+    //
+    // The story line is only there on the text side of the command. When the
+    // canvas binary is present, `!profile` sends a drawn card and a one-line
+    // caption instead, and that caption has no story line in it at all. So the
+    // guard is the mark BOTH sides carry — the ID card emoji — and not the
+    // story line, which only one of them has.
     const stripStory = (s) => String(s).replace(/📖 [^\n]*/g, '📖 X');
     for (const name of ['profile']) {
       assert.ok(loaded.registry.has(name), `${name} must exist for this to mean anything`);
       const plain = await run(`!${name}`);
       const spaced = await run(`! ${name}`);
       assert.ok(plain.length > 0, `!${name} must reply`);
-      assert.ok(/📖 /.test(plain), `!${name} must still carry its story line`);
-      assert.ok(/📖 /.test(spaced), `! ${name} must still carry its story line`);
+      assert.ok(/🧬/.test(plain), `!${name} must still be the ID card`);
+      assert.ok(/🧬/.test(spaced), `! ${name} must still be the ID card`);
       assert.strictEqual(
         stripStory(spaced),
         stripStory(plain),

@@ -232,6 +232,7 @@ module.exports = [
     category: 'system',
     description: '⏱ How long the bot has been running',
     usage: '!uptime',
+    hint: 'How long the process has been up. A restart resets it, and with it every in-memory cooldown.',
     cooldown: 3,
     permission: 'all',
     execute: async ({ reply, event }) => guard(reply, event.messageID, 'uptime', async () => {
@@ -254,6 +255,7 @@ module.exports = [
     category: 'system',
     description: '📊 Total users and groups stored in the database',
     usage: '!dbstats',
+    hint: 'Counts, not sizes. A count that stops growing is the first sign the database is not being written to.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'dbstats', async () => {
@@ -314,6 +316,7 @@ module.exports = [
     category: 'system',
     description: '👤 Show your RPG profile and live Facebook name',
     usage: '!userinfo',
+    hint: 'Your id, your live Facebook name and what this bot has on file. The name is read from Facebook, so it is right even when the stored record is old.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'userinfo', async () => {
@@ -365,6 +368,7 @@ module.exports = [
     category: 'system',
     description: '👥 Show this group name, member count and admin list',
     usage: '!threadinfo',
+    hint: 'This chat\'s id, name and admin list. Moderation commands take an id, so this is where you get one.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'threadinfo', async () => {
@@ -409,6 +413,7 @@ module.exports = [
     category: 'system',
     description: '🛡️ List bot admins (ADMIN_IDS) and this group admin',
     usage: '!adminlist',
+    hint: 'Who can run the owner-only commands, and who can moderate here. Two lists, because they are not the same people.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ api, event, config, reply }) => guard(reply, event.messageID, 'adminlist', async () => {
@@ -461,6 +466,7 @@ module.exports = [
     category: 'system',
     description: '⚙️ Show the command prefix used in this chat',
     usage: '!prefix',
+    hint: 'The prefix this chat uses. It is set per group, so two chats can use two different ones.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ event, config, reply }) => guard(reply, event.messageID, 'prefix', async () => {
@@ -485,6 +491,7 @@ module.exports = [
     category: 'system',
     description: '⚙️ Set a custom command prefix for this group',
     usage: '!setprefix ?',
+    hint: 'One character, and it changes this group only — every command here has to be typed with it, `!help` included.',
     cooldown: 10,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'setprefix', async () => {
@@ -522,6 +529,7 @@ module.exports = [
     category: 'system',
     description: '🔧 Turn maintenance mode on or off for this group',
     usage: '!maintenance on|off',
+    hint: 'Owner only, and it is per group. While it is on, ordinary commands answer with a notice instead of working.',
     cooldown: 5,
     permission: 'owner',
     execute: async ({ args, event, config, reply, react }) => guard(reply, event.messageID, 'maintenance', async () => {
@@ -556,6 +564,7 @@ module.exports = [
     category: 'system',
     description: '✅ Re-enable a command that was disabled in this group',
     usage: '!enablecmd <command>',
+    hint: 'Puts one command back after `!disablecmd`. The name is the command itself, not the alias.',
     cooldown: 5,
     permission: 'groupAdmin',
     execute: async ({ args, event, registry, reply, react }) => guard(reply, event.messageID, 'enablecmd', async () => {
@@ -588,6 +597,7 @@ module.exports = [
     category: 'system',
     description: '❌ Disable a command in this group',
     usage: '!disablecmd <command>',
+    hint: 'One command, this group only. `!disablemod` is the wider hammer.',
     cooldown: 5,
     permission: 'groupAdmin',
     execute: async ({ args, event, registry, reply, react }) => guard(reply, event.messageID, 'disablecmd', async () => {
@@ -636,6 +646,7 @@ module.exports = [
     category: 'system',
     description: '✅ Re-enable a whole module in this group',
     usage: '!enablemod <module|category>',
+    hint: 'Puts a whole category back after `!disablemod`. Give it the category name, e.g. `rpg`.',
     cooldown: 5,
     permission: 'groupAdmin',
     execute: async ({ args, event, registry, reply, react }) => guard(reply, event.messageID, 'enablemod', async () => {
@@ -669,6 +680,7 @@ module.exports = [
     category: 'system',
     description: '❌ Disable a whole module in this group',
     usage: '!disablemod <module|category>',
+    hint: 'A whole category, this group only. The switch fails open, so a group can never be locked out of the bot entirely.',
     cooldown: 5,
     permission: 'groupAdmin',
     execute: async ({ args, event, registry, reply, react }) => guard(reply, event.messageID, 'disablemod', async () => {
@@ -792,6 +804,7 @@ module.exports = [
     category: 'system',
     description: '🔄 Auto re-invite members who leave this group',
     usage: '!autoadd <on|off>',
+    hint: 'Re-invites whoever leaves. It is a per-group setting, and it needs the bot to still be an admin here.',
     cooldown: 5,
     permission: 'groupAdmin',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'autoadd', async () => {
@@ -841,6 +854,7 @@ module.exports = [
     category: 'system',
     description: '⬇️ Auto-download video links posted in this chat',
     usage: '!autodownload <on|off>',
+    hint: 'Video links posted in this chat get downloaded for you. It is per group, and it is the links only, not every post.',
     cooldown: 5,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'autodownload', async () => {
@@ -900,6 +914,7 @@ module.exports = [
     category: 'system',
     description: '🔢 Count the members and admins in this group',
     usage: '!count',
+    hint: 'Members and admins, counted from the live member list rather than the bot\'s own bookkeeping.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'count', async () => {
@@ -953,6 +968,7 @@ module.exports = [
     category: 'system',
     description: '🗑 Delete the bot\'s last message, or the one you replied to',
     usage: '!unsend',
+    hint: 'Deletes the bot\'s own last message, or the one you replied to. Facebook only lets a bot unsend what the bot sent.',
     cooldown: 5,
     permission: 'groupAdmin',
     execute: async ({ api, event, reply, react }) => guard(reply, event.messageID, 'unsend', async () => {
@@ -1011,6 +1027,7 @@ module.exports = [
     category: 'system',
     description: '🔒 Restrict this group so only admins can run commands',
     usage: '!onlyadminon',
+    hint: 'From now on only admins get answers here. Ordinary members are told why, so nobody thinks the bot is dead.',
     cooldown: 5,
     permission: 'groupAdmin',
     execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'onlyadminon', async () => {
@@ -1050,6 +1067,7 @@ module.exports = [
     category: 'system',
     description: '🔓 Let everyone run commands in this group again',
     usage: '!onlyadminoff',
+    hint: 'Everyone can run commands in this group again. This is the one that lifts the lock.',
     cooldown: 5,
     permission: 'groupAdmin',
     execute: async ({ event, reply, react }) => guard(reply, event.messageID, 'onlyadminoff', async () => {
@@ -1082,6 +1100,7 @@ module.exports = [
     category: 'system',
     description: '⚙️ Show the bot configuration (secrets are never printed)',
     usage: '!config',
+    hint: 'Owner only. Every setting, with the secrets replaced — a real value is never printed.',
     cooldown: 10,
     permission: 'owner',
     execute: async ({ config, reply, event }) => guard(reply, event.messageID, 'config', async () => {
@@ -1126,6 +1145,7 @@ module.exports = [
     category: 'system',
     description: '🩺 Detailed health check: engine, database and image support',
     usage: '!botstatus',
+    hint: 'Owner only. The engine, the database, and whether images can be drawn at all.',
     cooldown: 10,
     permission: 'owner',
     execute: async ({ config, reply, react, event }) => guard(reply, event.messageID, 'botstatus', async () => {
@@ -1163,6 +1183,7 @@ module.exports = [
     category: 'system',
     description: '🏷 Show the running bot version',
     usage: '!version',
+    hint: 'The running version and when it started. If somebody asks what you are running, this is the answer.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ config, reply, react, event }) => guard(reply, event.messageID, 'version', async () => {
@@ -1193,6 +1214,7 @@ module.exports = [
     category: 'system',
     description: '👑 Information about the bot owner',
     usage: '!owner',
+    hint: 'Who builds and runs this bot, and how to reach them.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ config, registry, reply, react, event }) => guard(reply, event.messageID, 'owner', async () => {
@@ -1218,6 +1240,7 @@ module.exports = [
     category: 'system',
     description: '🆘 Where to get help or report a problem',
     usage: '!support',
+    hint: 'Where to report a problem, and what to include when you do so it can actually be fixed.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ config, reply, react, event }) => guard(reply, event.messageID, 'support', async () => {
@@ -1245,6 +1268,7 @@ module.exports = [
     category: 'system',
     description: '🔄 Ask the host platform to restart the bot process',
     usage: '!restart',
+    hint: 'Owner only. Asks Render to restart the process. The database survives it; the in-memory cooldowns and cache do not.',
     cooldown: 30,
     permission: 'owner',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'restart', async () => {
@@ -1269,6 +1293,7 @@ module.exports = [
     category: 'system',
     description: '♻️ Re-scan the command files without restarting',
     usage: '!reload',
+    hint: 'Owner only. Re-reads the command files without a restart, so the process stays up while the new commands take effect.',
     cooldown: 15,
     permission: 'owner',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'reload', async () => {
@@ -1291,6 +1316,7 @@ module.exports = [
     category: 'system',
     description: '🔍 Validate every command against the required contract',
     usage: '!check',
+    hint: 'Owner only. Every command against the contract it has to satisfy — the shape of it, not what it does.',
     cooldown: 15,
     permission: 'owner',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'check', async () => {
@@ -1324,6 +1350,7 @@ module.exports = [
     category: 'system',
     description: '🧪 Run the built-in self tests and report the result',
     usage: '!e2e',
+    hint: 'Owner only. The chain end to end against a mocked Facebook: loader, router, cooldown, permissions, models and canvas.',
     cooldown: 30,
     permission: 'owner',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'e2e', async () => {
@@ -1473,6 +1500,7 @@ module.exports = [
     category: 'system',
     description: '⏱ Advanced ping: engine, database and network latency',
     usage: '!ping2',
+    hint: 'Slower than `!ping` and far more useful: it times the database and the network, not just the process.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'ping2', async () => {
@@ -1509,6 +1537,7 @@ module.exports = [
     category: 'system',
     description: '🔊 Echo your message back',
     usage: '!echo <text>',
+    hint: 'Says exactly what you said. Useful for checking that a message reaches the bot intact.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, reply, event }) => guard(reply, event.messageID, 'echo', async () => {
@@ -1647,6 +1676,7 @@ module.exports = [
     category: 'system',
     description: '📬 Let the bot owner send broadcasts into this chat',
     usage: '!broadcasts <on|off>',
+    hint: 'Lets the bot owner send notices into this chat. Off by default — the owner cannot broadcast into a chat that has not said yes.',
     cooldown: 5,
     permission: 'groupAdmin',
     execute: async ({ args, event, reply, react }) => guard(reply, event.messageID, 'broadcasts', async () => {
@@ -1744,6 +1774,7 @@ module.exports = [
     category: 'system',
     description: '📊 Render the bot dashboard as a picture — uptime, memory, chats, commands',
     usage: '!dashboard',
+    hint: 'The whole state of the bot as a picture: uptime, memory, chats and the command count on one card.',
     cooldown: 30,
     permission: 'groupAdmin',
     execute: async ({ api, event, reply, react, config, registry }) => guard(reply, event.messageID, 'dashboard', async () => {
@@ -1781,6 +1812,7 @@ module.exports = [
     category: 'system',
     description: '📢 Send a one-line notice to every chat that asked for broadcasts',
     usage: '!notify <message>',
+    hint: 'Owner only. One line to every chat that asked for broadcasts. It spends the fan-out budget.',
     cooldown: 30,
     permission: 'owner',
     execute: async ({ api, args, reply, react, event, config }) => guard(reply, event.messageID, 'notify', async () => {
@@ -1869,6 +1901,7 @@ module.exports = [
     category: 'system',
     description: '🛑 Shut the bot down gracefully (owner only)',
     usage: '!shutdown [delay seconds]',
+    hint: 'Owner only. Stops the bot after an optional delay, so a deploy can be taken down in an orderly way.',
     cooldown: 60,
     permission: 'owner',
     execute: async ({ args, reply, react, event }) => guard(reply, event.messageID, 'shutdown', async () => {
@@ -1904,6 +1937,7 @@ module.exports = [
     category: 'system',
     description: '🔒 Toggle bot-wide safe mode — only admins get replies when on',
     usage: '!safemode on|off',
+    hint: 'Owner only, and it is bot-wide: while it is on, only admins get an answer anywhere, not just here.',
     cooldown: 10,
     permission: 'owner',
     execute: async ({ args, reply, react, event }) => guard(reply, event.messageID, 'safemode', async () => {
