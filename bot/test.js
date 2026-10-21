@@ -4918,6 +4918,62 @@ const PIKACHU = dex.find('pikachu');
     return '!mp3 attaches the file; !download explains itself when it cannot';
   });
 
+  await step('an uploaded picture is NAMED, so Facebook knows it is a picture', async () => {
+    const media = require('./media');
+    // form-data is ws3-fca's dependency, not ours, so it is resolved the way
+    // ws3-fca resolves it — from its own directory.
+    const FormData = require(require.resolve('form-data', {
+      paths: [path.join(__dirname, '..', 'node_modules', 'ws3-fca')],
+    }));
+
+    // A one pixel PNG. Real bytes, so the type is sniffed rather than assumed.
+    const png = Buffer.from(
+      '89504e470d0a1a0a0000000d494844520000000100000001080600000'
+      + '01f15c4890000000d4944415478da63fccfc0500f0004850181' + '84a2a5d7b0000000049454e44ae426082',
+      'hex',
+    );
+
+    // The part ws3-fca actually posts, built the way its uploader builds it.
+    const partFor = async (source) => {
+      const stream = await media.attachment(source);
+      assert.ok(stream, 'the attachment must be a stream');
+      const form = new FormData();
+      form.append('upload_1024', stream);
+      const chunks = [];
+      await new Promise((resolve, reject) => {
+        form.on('data', (c) => chunks.push(c));
+        form.on('end', resolve);
+        form.on('error', reject);
+        form.resume();
+      });
+      const body = chunks.map((c) => (Buffer.isBuffer(c) ? c.toString('latin1') : String(c))).join('');
+      return { stream, header: body.split('\r\n\r\n')[0] };
+    };
+
+    // A nameless stream goes out as an anonymous application/octet-stream
+    // blob. Facebook accepts the upload and then has no idea it was handed a
+    // picture, so the text reply lands and the image is not in the chat.
+    const { stream, header } = await partFor(png);
+    assert.ok(/filename="[^"]+"/.test(header), `the upload must carry a filename:\n${header}`);
+    assert.ok(/Content-Type: image\/png/i.test(header), `and the real content-type:\n${header}`);
+    assert.ok(/\.png"$/m.test(header), 'and the filename must end in the type it is');
+    assert.ok(stream.name, 'the stream itself must carry the name');
+
+    // A data URL is what the canvas helpers hand over, so it is the shape that
+    // matters for every card in the bot.
+    const viaUrl = await partFor(`data:image/png;base64,${png.toString('base64')}`);
+    assert.ok(/filename="[^"]+\.png"/.test(viaUrl.header), `a data URL must be named too:\n${viaUrl.header}`);
+    assert.ok(/Content-Type: image\/png/i.test(viaUrl.header), 'and typed as a png');
+
+    // A voice note is the same upload with a different name, so it must be
+    // named too — an unnamed mp3 is an anonymous blob in the same way.
+    const mp3 = await partFor(Buffer.from('ID3fake-mp3-bytes'));
+    assert.ok(/filename="[^"]+\.mp3"/.test(mp3.header), `audio must be named too:\n${mp3.header}`);
+    assert.ok(/Content-Type: audio\/mpeg/i.test(mp3.header), 'and typed as audio');
+
+    return 'every upload is a named, typed file — Facebook can tell a picture from a blob';
+  });
+
   await step('!pinterestsearch sends five or more pictures', async () => {
     const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
     const media = require('./media');

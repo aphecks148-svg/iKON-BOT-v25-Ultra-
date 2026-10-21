@@ -100,9 +100,63 @@ function isStream(value) {
   return Boolean(value) && typeof value.on === 'function' && typeof value.pipe === 'function';
 }
 
-/** A one-shot readable stream over a Buffer. */
-function streamOf(buffer) {
-  return Readable.from([buffer]);
+/**
+ * A one-shot readable stream over a Buffer, NAMED.
+ *
+ * WHY THE NAME MATTERS
+ * ws3-fca uploads an attachment as multipart/form-data, and form-data reads
+ * the filename and the content-type off the stream's `name`. That is how the
+ * usual `fs.createReadStream('card.png')` goes out as
+ *
+ *   Content-Disposition: ...; filename="card.png"
+ *   Content-Type: image/png
+ *
+ * A nameless stream goes out as an anonymous blob:
+ *
+ *   Content-Disposition: form-data; name="upload_1024"     (no filename)
+ *   Content-Type: application/octet-stream
+ *
+ * Facebook accepts that upload and then has no idea it was handed a picture.
+ * The text reply lands and the image is simply not in the chat — which is
+ * exactly the "the card never shows" report this fixes. Naming the stream is
+ * the whole fix, and it costs no temp file and no disk I/O.
+ *
+ * @param {Buffer} buffer the bytes
+ * @param {string} [mimeType] what those bytes are, for the extension
+ * @returns {Readable}
+ */
+function streamOf(buffer, mimeType = '') {
+  const stream = Readable.from([buffer]);
+  stream.name = uploadName(mimeType);
+  return stream;
+}
+
+/** Counts the uploads so two pictures never claim the same filename. */
+let uploadCounter = 0;
+
+/** A unique-ish filename with the right extension for a mime type. */
+function uploadName(mimeType = '') {
+  uploadCounter += 1;
+  const ext = extensionFor(mimeType, 'bin');
+  return `iKON-${Date.now().toString(36)}-${uploadCounter.toString(36)}.${ext}`;
+}
+
+/**
+ * Give a stream a name if it does not have one.
+ *
+ * A stream that already carries a name or a path (an fs.ReadStream, say) is
+ * left exactly as it is: form-data reads the filename and the content-type
+ * from those, and they are right already. A bare stream is named here so the
+ * upload is still identifiable.
+ *
+ * @param {Readable} stream
+ * @returns {Readable} the same stream
+ */
+function nameStream(stream) {
+  if (typeof stream.name === 'string' && stream.name) return stream;
+  if (typeof stream.path === 'string' && stream.path) return stream;
+  stream.name = uploadName('');
+  return stream;
 }
 
 /**
@@ -196,7 +250,7 @@ function guessMime(buffer) {
  * @returns {Promise<Readable|null>} null when the bytes cannot be had
  */
 async function attachment(source, { type = null, maxBytes = MAX_UPLOAD_BYTES } = {}) {
-  if (isStream(source)) return source;
+  if (isStream(source)) return nameStream(source);
 
   // Accept the descriptor shape the rest of the repo writes, so a caller can
   // hand over whatever it already had without unwrapping it first.
@@ -210,7 +264,9 @@ async function attachment(source, { type = null, maxBytes = MAX_UPLOAD_BYTES } =
 
   const got = await bytes(ref, maxBytes);
   if (!got) return null;
-  return streamOf(got.buffer);
+  // The mime type is what the bytes turned out to be, not what the caller
+  // hoped they were: a "picture" that is really a PNG must be named as one.
+  return streamOf(got.buffer, got.mimeType || kind || '');
 }
 
 /** Build the whole sendMessage payload in one call, attachment included. */
@@ -970,6 +1026,7 @@ module.exports = {
   MAX_UPLOAD_BYTES,
   isStream,
   streamOf,
+  nameStream,
   bytes,
   attachment,
   payload,
