@@ -2212,12 +2212,27 @@ function query(doc) {
     // `!pet` and `!petX` are different commands, so compare against the exact
     // real command names the user named. `pet` output includes a random tagline,
     // so only deterministic commands are compared for exact equality.
+    //
+    // `profile` ends with a story line that is drawn at random from eight
+    // (commands/cmds_3.js, `story()`), so two runs differ even when the router
+    // is behaving perfectly. Compared raw, this check failed seven runs out of
+    // eight — it was measuring the dice, not the routing. The story line is
+    // normalised away the same way ping's savage line is below, and the two
+    // runs are still required to carry a story line each, so a reply that
+    // quietly lost the line would still fail.
+    const stripStory = (s) => String(s).replace(/📖 [^\n]*/g, '📖 X');
     for (const name of ['profile']) {
       assert.ok(loaded.registry.has(name), `${name} must exist for this to mean anything`);
       const plain = await run(`!${name}`);
       const spaced = await run(`! ${name}`);
       assert.ok(plain.length > 0, `!${name} must reply`);
-      assert.strictEqual(spaced, plain, `! ${name} must produce exactly what !${name} does`);
+      assert.ok(/📖 /.test(plain), `!${name} must still carry its story line`);
+      assert.ok(/📖 /.test(spaced), `! ${name} must still carry its story line`);
+      assert.strictEqual(
+        stripStory(spaced),
+        stripStory(plain),
+        `! ${name} must produce exactly what !${name} does`,
+      );
       assert.ok(!/no command/i.test(spaced), `! ${name} must not fall through to "no command"`);
     }
     // Aliases get the same treatment: "! p" is how most people type ping.
