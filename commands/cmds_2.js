@@ -364,6 +364,7 @@ module.exports = [
     category: 'economy',
     description: '💳 Check your K-Cash wallet and vault - See how rich you are in iKON City',
     usage: '!balance',
+    hint: 'Two numbers: what is in your pocket and what is in the vault. The vault is the one robbers cannot reach.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'balance', async () => {
@@ -423,6 +424,7 @@ module.exports = [
     category: 'economy',
     description: '💸 Move K-Cash to vault for safety - Bank is safe from robbers',
     usage: '!deposit <amount | all>',
+    hint: 'Free, and it is the safest money you own. `all` moves the whole wallet — which is usually the right answer.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'deposit', async () => {
@@ -462,6 +464,7 @@ module.exports = [
     category: 'economy',
     description: '💵 Take cash out to spend - Needed for shopping and gambling',
     usage: '!withdraw <amount | all>',
+    hint: 'Takes money back out of the vault. You need it in your pocket to gamble, buy and pay.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'withdraw', async () => {
@@ -503,6 +506,7 @@ module.exports = [
     category: 'economy',
     description: '🎁 Claim a reward: daily, hourly, weekly or monthly',
     usage: '!claim <daily|hourly|weekly|monthly>',
+    hint: 'One of four clocks. The daily is the big one; the hourly is the one you will actually remember.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'claim', async () => {
@@ -597,6 +601,7 @@ module.exports = [
     category: 'economy',
     description: '🥺 Beg on streets of iKON - 70% chance someone pities you 100-1100',
     usage: '!beg',
+    hint: 'A 70% chance of 100-1,100, and a 30% chance of a face. Free money, occasionally.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'beg', async () => {
@@ -639,6 +644,7 @@ module.exports = [
     category: 'economy',
     description: '🤝 Send K-Cash to friends - Support your crew',
     usage: '!pay <user> <amount>',
+    hint: 'To another hunter, not to yourself. There is no fee — what leaves your wallet is what arrives in theirs.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pay', async () => {
@@ -688,6 +694,7 @@ module.exports = [
     category: 'economy',
     description: '🔪 Risky robbery - 50% success to steal 500-5500, 50% you lose and get caught',
     usage: '!rob',
+    hint: '50/50. Win and you take 500-5,500; lose and the fine is 500. Rob the wrong person and it costs you.',
     cooldown: 600,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'rob', async () => {
@@ -776,6 +783,7 @@ module.exports = [
     category: 'economy',
     description: '🍒 iKON Slot Machine - 3x match = 5x jackpot!',
     usage: '!slots <amount>',
+    hint: 'Three in a row pays five times the bet. Everything else is a slower way to lose money.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'slots', async () => {
@@ -842,6 +850,7 @@ module.exports = [
     category: 'economy',
     description: '🪙 Flip the cursed coin - Double your bet if you guess right',
     usage: '!coinflip <amount> <heads | tails>',
+    hint: 'Even money on a fair coin. The curse is in the name, not in the odds.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'coinflip', async () => {
@@ -976,6 +985,7 @@ module.exports = [
     category: 'economy',
     description: '🏦 Vault kings - Top 10 bank holders, the untouchables',
     usage: '!richest',
+    hint: 'The vault alone, top ten. `!wealthcard` and the net worth board count the whole picture instead.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'richest', async () => {
@@ -1100,6 +1110,7 @@ module.exports = [
     category: 'economy',
     description: '🛍️ Buy gear from market - Gear will be needed for RPG battles in cmds_3',
     usage: '!buy <item> [qty]',
+    hint: '24 items, level-gated. The endgame gear cannot be bought on day one, whatever your wallet says.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'buy', async () => {
@@ -1154,6 +1165,7 @@ module.exports = [
     category: 'economy',
     description: '💰 Sell your gear - Get 50% back, market is greedy',
     usage: '!sell <item> [qty]',
+    hint: 'Half of what you paid. The market is greedy, and it is at least honest about it.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'sell', async () => {
@@ -1246,6 +1258,7 @@ module.exports = [
     category: 'economy',
     description: '🦹 Commit crime in dark alley - 60% success 500-4500, 40% pay fine 1000',
     usage: '!crime',
+    hint: '60% of 500-4,500, and a 1,000 fine when it goes wrong. Better odds than robbery, smaller stakes.',
     cooldown: 600,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'crime', async () => {
@@ -1288,6 +1301,7 @@ module.exports = [
     category: 'economy',
     description: '💣 Bank heist with crew - 40% win 5k-15k, 60% lose 3k - The ultimate risk',
     usage: '!heist',
+    hint: 'The big one: 5,000-15,000 on a 40% win, 3,000 lost on the other 60%. Bring money you can afford to lose.',
     cooldown: 3600,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'heist', async () => {
@@ -1443,6 +1457,7 @@ module.exports = [
     category: 'economy',
     description: '🔥 Double or Nothing - Flip your fate, win or lose everything',
     usage: '!double <amount | all>',
+    hint: 'All of it or nothing. The most efficient way to lose a wallet is also the fastest.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'double', async () => {
@@ -1494,6 +1509,7 @@ module.exports = [
     category: 'economy',
     description: '🎡 iKON Roulette - Red or black, 50/50 chaos',
     usage: '!roulette <amount> <red | black>',
+    hint: 'Red or black, 50/50, and the house is not the one with the money.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'roulette', async () => {
@@ -1553,6 +1569,7 @@ module.exports = [
     category: 'economy',
     description: '🎲 Roll 2 dice - Sum >=9 wins, ancient iKON game',
     usage: '!dice <amount>',
+    hint: 'Two dice, and nine or more wins. The oldest game in the city and the least predictable.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'dice', async () => {
@@ -1665,6 +1682,7 @@ module.exports = [
     category: 'economy',
     description: '💎 True wealth - Coins + Bank + Inventory value, your real power',
     usage: '!networth',
+    hint: 'Wallet plus vault plus what your gear is worth. The only number that says how strong you actually are.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'networth', async () => {
@@ -1704,6 +1722,7 @@ module.exports = [
     category: 'economy',
     description: "🔄 [OWNER] Wipe a hunter's wealth - Reset to 10k starter",
     usage: '!reseteco <user>',
+    hint: 'Owner only. Wipes a hunter back to 10,000 and clears their claim clocks — the debt and the gear go too.',
     cooldown: 10,
     permission: 'owner',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'reseteco', async () => {
@@ -1747,6 +1766,7 @@ module.exports = [
     category: 'economy',
     description: '💸 [OWNER] Bless a hunter with K-Cash - Aphecks gift',
     usage: '!addmoney <user> <amount>',
+    hint: 'Owner only. It creates the coins rather than moving them, so the city total rises with the gift.',
     cooldown: 10,
     permission: 'owner',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'addmoney', async () => {
@@ -1786,6 +1806,7 @@ module.exports = [
     category: 'economy',
     description: '💀 [OWNER] Punish - Take coins from cheaters',
     usage: '!removemoney <user> <amount>',
+    hint: 'Owner only. Takes coins off a cheater. The money leaves the wallet, so the total drops with it.',
     cooldown: 10,
     permission: 'owner',
     execute: async ({ api, args, event, reply, react }) => guard(reply, event.messageID, 'removemoney', async () => {
@@ -1829,6 +1850,7 @@ module.exports = [
     category: 'economy',
     description: '🌐 iKON City GDP - Total K-Cash in circulation',
     usage: '!economy',
+    hint: 'Every K-Cash in circulation, counted from the ledger. It is a city that gets richer as you play.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'economy', async () => {
@@ -2064,6 +2086,7 @@ module.exports = [
     category: 'economy',
     description: '📋 Who owes what — your IOUs and who owes you',
     usage: '!debt [@user]',
+    hint: 'Who owes you and who you owe. `!pay` settles the second one; the first one is a collection problem.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc, args, config }) => guard(reply, event.messageID, 'debt', async () => {
@@ -2110,6 +2133,7 @@ module.exports = [
     category: 'economy',
     description: '💳 Render your treasury as a picture — cash, bank, net worth',
     usage: '!wealthcard [@user]',
+    hint: 'The same numbers as `!balance`, drawn as a card instead of a line of text.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc, args, config }) => guard(reply, event.messageID, 'wealthcard', async () => {
