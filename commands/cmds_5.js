@@ -410,6 +410,7 @@ const commands = [];
     category: 'games',
     description: '🔤 Hangman — guess the word one letter at a time, ropes included',
     usage: '!hangmanbet [amount]',
+    hint: 'The word is chosen, the rope is not. Every wrong letter is one rope, and the pot is yours if the word survives.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'hangmanbet', async () => {
@@ -448,6 +449,7 @@ const commands = [];
     category: 'games',
     description: '🔤 Guess one letter of your open hangman word',
     usage: '!hangletter <a-z>',
+    hint: 'One letter at a time, lower case. The board shows what is left and the ropes show what it has cost.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'hangletter', async () => {
@@ -538,6 +540,7 @@ const commands = [];
     category: 'games',
     description: '🧮 Math duel @user — first correct answer takes the pot',
     usage: '!mathduel <user> <amount>',
+    hint: 'A question and a pot. The first correct answer takes all of it, and the clock is sixty seconds.',
     cooldown: 120,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'mathduel', async () => {
@@ -579,6 +582,7 @@ const commands = [];
     category: 'games',
     description: '🧮 Take a math duel — solve with !mathsolve before 60 seconds',
     usage: '!mathaccept',
+    hint: 'Takes the duel and shows the question. Sixty seconds, and the pot goes to the first right answer.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'mathaccept', async () => {
@@ -636,6 +640,7 @@ const commands = [];
     category: 'games',
     description: '✅ Answer your open math duel question',
     usage: '!mathsolve <number>',
+    hint: 'Your answer to the open question. The first correct one takes the pot, whatever anybody else says.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'mathsolve', async () => {
@@ -686,6 +691,7 @@ const commands = [];
     category: 'games',
     description: '⛓️ Chain word — last letter starts the next, break it and pay 200',
     usage: '!chainword <word>',
+    hint: 'The last letter starts the next word. Break the chain and you pay 200.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'chainword', async () => {
@@ -763,6 +769,7 @@ const commands = [];
     category: 'games',
     description: '💣 Light the group bomb — it ticks, then somebody is holding it',
     usage: '!bombgame <amount>',
+    hint: 'The bomb is lit and it moves around the chat. Whoever is holding it when it goes off, pays.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'bombgame', async () => {
@@ -846,6 +853,7 @@ const commands = [];
     category: 'games',
     description: '💣 Pass the lit bomb to somebody else in this chat',
     usage: '!passbomb @user',
+    hint: 'Hands the lit bomb to somebody else. A tag, and it is theirs now.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ api, args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'passbomb', async () => {
@@ -943,6 +951,7 @@ const commands = [];
     category: 'games',
     description: '⭕ Tic-tac-toe @user — first to a line takes the pot',
     usage: '!tictactoe <user> <amount>',
+    hint: 'Nine squares and a pot. First to a line takes it, and the other person is told to wait for their turn.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'tictactoe', async () => {
@@ -984,6 +993,7 @@ const commands = [];
     category: 'games',
     description: '⭕ Take a tic-tac-toe duel — pass a square to play first',
     usage: '!tttaccept [1-9]',
+    hint: 'Take the duel and pick your first square, 1 to 9. The board is numbered in a row and the picture is above it.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'tttaccept', async () => {
@@ -1118,6 +1128,7 @@ const commands = [];
     category: 'games',
     description: '❌ Continue an open tic-tac-toe board with a square 1-9',
     usage: '!tttplay <1-9>',
+    hint: 'Play on an open board with a square from 1 to 9. It is your move or it is refused.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'tttplay', async () => {
@@ -1184,6 +1195,7 @@ const commands = [];
     category: 'games',
     description: '♟️ Four-square chess duel @user — one message per move, no clock',
     usage: '!chessmini <user> <amount>',
+    hint: 'Four squares a side, one message a move, no clock. Simple enough to learn in a single duel.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'chessmini', async () => {
@@ -1225,6 +1237,7 @@ const commands = [];
     category: 'games',
     description: '♟️ Take a chess duel — white moves first',
     usage: '!chessaccept',
+    hint: 'Take the duel and take the white pieces. White moves first.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'chessaccept', async () => {
@@ -1285,6 +1298,7 @@ const commands = [];
     category: 'games',
     description: '♟️ Move the chess board, e.g. !chessplay a1a2 — 8 moves max',
     usage: '!chessplay <e.g. a1a2>',
+    hint: 'A move as two squares, e.g. `a1a2`. Eight moves each, and then the board decides.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'chessplay', async () => {
@@ -1420,6 +1434,7 @@ const commands = [];
     category: 'games',
     description: '🪙 Coin flip duel @user — winner takes the doubled pot',
     usage: '!coinflipduel <user> <amount>',
+    hint: 'A coin, a pot and a winner. The pot is doubled and the flip is not rigged.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'coinflipduel', async () => {
@@ -1462,6 +1477,7 @@ const commands = [];
     category: 'games',
     description: '🪙 Take a coin flip duel — winner takes all',
     usage: '!cfaccept',
+    hint: 'Take the duel and flip the coin. The winner takes all of it.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cfaccept', async () => {
@@ -1526,6 +1542,7 @@ const commands = [];
     category: 'games',
     description: '🎲 Dice war @user — highest roll wins the pot',
     usage: '!dicewar <user> <amount>',
+    hint: 'Both roll and the higher number takes the pot. A tie goes back to the roll.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'dicewar', async () => {
@@ -1567,6 +1584,7 @@ const commands = [];
     category: 'games',
     description: '🎲 Take a dice war — highest roll wins',
     usage: '!dicewaraccept',
+    hint: 'Take the duel and roll. The higher number takes the pot.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'dicewaraccept', async () => {
@@ -1628,6 +1646,7 @@ const commands = [];
     category: 'games',
     description: '✊ Rock paper scissors duel @user — best of one, pot doubles',
     usage: '!rpsduel <user> <amount>',
+    hint: 'One round of rock, paper or scissors. The pot doubles on the result.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rpsduel', async () => {
@@ -1669,6 +1688,7 @@ const commands = [];
     category: 'games',
     description: '✊ Take an RPS duel and throw your hand',
     usage: '!rpsaccept <rock|paper|scissors>',
+    hint: 'Take the duel and throw your hand: rock, paper or scissors.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'rpsaccept', async () => {
@@ -1752,6 +1772,7 @@ const commands = [];
     category: 'games',
     description: '🃏 Five card draw duel @user — best hand takes the pot',
     usage: '!pokerduel <user> <amount>',
+    hint: 'Five cards, best hand wins. The usual rules, and none of the usual shame.',
     cooldown: 120,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pokerduel', async () => {
@@ -1793,6 +1814,7 @@ const commands = [];
     category: 'games',
     description: '🃏 Sit down at a poker duel — best five card hand wins',
     usage: '!pokeraccept',
+    hint: 'Sit down and take five cards. The best hand at the end takes the pot.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pokeraccept', async () => {
@@ -1890,6 +1912,7 @@ const commands = [];
     category: 'games',
     description: '💀 Six chambers, one bullet. Win the pot or get banned for an hour',
     usage: '!russianroulette [amount]',
+    hint: 'One bullet, six chambers. Win the pot, or lose an hour of the bot to go with it.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'russianroulette', async () => {
@@ -1941,6 +1964,7 @@ const commands = [];
     category: 'games',
     description: '🎴 Blackjack against the house — beat 21 and double the bet',
     usage: '!blackjack [amount]',
+    hint: 'Beat 21 against the house. A blackjack doubles the bet and a bust loses it.',
     cooldown: 45,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'blackjack', async () => {
@@ -2057,6 +2081,7 @@ const commands = [];
     category: 'games',
     description: '🎰 Gamble the entire wallet in one pull. No survivors',
     usage: '!gambaall',
+    hint: 'The whole wallet, one pull. There is no careful version of this command.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gambaall', async () => {
@@ -2114,6 +2139,7 @@ const commands = [];
     category: 'games',
     description: '🌀 Roll against the iKON algorithm. Usually nothing. Sometimes not',
     usage: '!anarchy [amount]',
+    hint: 'The algorithm decides and it is usually nothing. The times it is not are the reason anybody plays.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'anarchy', async () => {
@@ -2160,6 +2186,7 @@ const commands = [];
     category: 'games',
     description: '🎱 Ask the 8-Ball a question. It costs you and it always answers',
     usage: '!eightballultra <question>',
+    hint: 'Fifty coins, and it always answers. The 8-Ball has never been wrong, which is the problem.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'eightballultra', async () => {
@@ -2190,6 +2217,7 @@ const commands = [];
     category: 'games',
     description: '😂 Tell a joke for 10 coins. The house is always laughing',
     usage: '!jokeultra',
+    hint: 'Ten coins for a joke. The house is always laughing, and it is never at your expense.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'jokeultra', async () => {
@@ -2221,6 +2249,7 @@ const commands = [];
     category: 'games',
     description: '💬 Guess the author of a quote — bet on your memory',
     usage: '!quoteultra [amount]',
+    hint: 'A quote and your memory of who wrote it. The bet is on your memory.',
     cooldown: 45,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'quoteultra', async () => {
@@ -2254,6 +2283,7 @@ const commands = [];
     category: 'games',
     description: '✅ Name the author of an open quote',
     usage: '!quoteanswer <author>',
+    hint: 'Name the author of the open quote. The pot goes to the first right name.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'quoteanswer', async () => {
@@ -2300,6 +2330,7 @@ const commands = [];
     category: 'games',
     description: '🧩 Solve a riddle for the pot',
     usage: '!riddleultra [amount]',
+    hint: 'A riddle and a pot. It is not always fair, and the answer is always one word.',
     cooldown: 45,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'riddleultra', async () => {
@@ -2333,6 +2364,7 @@ const commands = [];
     category: 'games',
     description: '✅ Answer an open riddle',
     usage: '!riddleanswer <answer>',
+    hint: 'Your answer to the open riddle. The pot goes to the first right one.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'riddleanswer', async () => {
@@ -2380,6 +2412,7 @@ const commands = [];
     category: 'games',
     description: '🧠 Trivia sprint — answer before the clock runs out',
     usage: '!triviaultra [amount]',
+    hint: 'A trivia sprint with a clock on it. Answer before the clock runs out and the pot is yours.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'triviaultra', async () => {
@@ -2412,6 +2445,7 @@ const commands = [];
     category: 'games',
     description: '✅ Answer an open trivia question',
     usage: '!triviaanswer <answer>',
+    hint: 'Answer the open trivia question. The first correct answer takes the pot.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'triviaanswer', async () => {
@@ -2446,6 +2480,7 @@ const commands = [];
     category: 'games',
     description: '📊 Your arcade record — wins, losses, wagered, biggest win',
     usage: '!gstats',
+    hint: 'The whole arcade record: wins, losses, everything wagered and the biggest single win.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gstats', async () => {
@@ -2478,6 +2513,7 @@ commands.push({
     category: 'games',
     description: '🃏 The arcade — odds, tables, and the house edge',
     usage: '!casinocard',
+    hint: 'Every table in the arcade and the house edge on each one, drawn as a card. Read it before you play.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'casinocard', async () => {
@@ -2506,6 +2542,7 @@ commands.push({
     category: 'games',
     description: '⚔️ Your duel record — wins, losses, win rate',
     usage: '!duelcard [@user]',
+    hint: 'Your duel record as a card: wins, losses and the win rate they make.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'duelcard', async () => {
@@ -2541,6 +2578,7 @@ commands.push({
     category: 'games',
     description: '❓ Host a trivia night — first correct answer wins the pot',
     usage: '!trivianight <bet>',
+    hint: 'Host a trivia night for the whole chat. The pot goes to the first correct answer.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, reply, react, event, userDoc }) => guard(reply, event.messageID, 'trivianight', async () => {
