@@ -705,6 +705,7 @@ const commands = [];
     category: 'gta',
     description: '🚗 Start your life of crime. Everything after this costs money',
     usage: '!gtastart',
+    hint: 'One command, and it is the only free one. Everything after this costs money, and the car costs the most.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtastart', async () => {
@@ -749,6 +750,7 @@ const commands = [];
     category: 'gta',
     description: '📊 Your GTA record — level, wanted, garage, armoury, winnings',
     usage: '!gtastats',
+    hint: 'Your whole record: level, wanted stars, the garage, the armoury and what you have won.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtastats', async () => {
@@ -788,6 +790,7 @@ const commands = [];
     category: 'gta',
     description: '🎯 Take a job — drive, shoot, escape, and hope the heat stays off you',
     usage: '!gtamission',
+    hint: 'The day job. Drive, shoot, escape, and hope the heat stays off you.',
     cooldown: 120,
     permission: 'all',
     execute: async ({ event, userDoc, reply, react }) => guard(reply, event.messageID, 'gtamission', async () => {
@@ -870,6 +873,7 @@ const commands = [];
     category: 'gta',
     description: '💀 The vault coup — 400 power car and a real gun required, 60% bust rate',
     usage: '!gtamissionhard',
+    hint: 'The vault coup. It wants a 400-power car and a real gun, and it busts 60% of the time.',
     cooldown: 600,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtamissionhard', async () => {
@@ -958,6 +962,7 @@ const commands = [];
     category: 'gta',
     description: '🏎️ The garage — every car, and the one you should not buy',
     usage: '!gtacarshop',
+    hint: 'Every car in the city, with the numbers that matter. There is one in there you should not buy.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'gtacarshop', async () => {
@@ -1063,6 +1068,7 @@ const commands = [];
     category: 'gta',
     description: '🔑 Your garage — pick which car is active',
     usage: '!gtagarage [car]',
+    hint: 'The cars you own, and which one is on the road. The active car is the one that drives.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtagarage', async () => {
@@ -1125,6 +1131,7 @@ const commands = [];
     category: 'gta',
     description: '🚙 Take the car out. Fuel burns, things crash, occasionally you find money',
     usage: '!gtadrive',
+    hint: 'The car goes out and comes back. Fuel burns, things crash, and now and then you find money.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtadrive', async () => {
@@ -1213,6 +1220,7 @@ const commands = [];
     category: 'gta',
     description: '⛽ Fill the tank — 500 coins, and it is never enough',
     usage: '!gtafuel',
+    hint: '500 coins for a full tank, and it is never as much as you need.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtafuel', async () => {
@@ -1247,6 +1255,7 @@ const commands = [];
     category: 'gta',
     description: '🔧 Get the car off the lift. Cost scales with how fast it is',
     usage: '!gtarepair',
+    hint: 'Gets the car off the lift. The bill scales with how fast the thing is.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtarepair', async () => {
@@ -1292,6 +1301,7 @@ const commands = [];
     category: 'gta',
     description: '💥 How wrecked the car is, and what the mechanic says about it',
     usage: '!gtacrash',
+    hint: 'How wrecked the car is and what the mechanic says about it, in that order.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacrash', async () => {
@@ -1327,6 +1337,7 @@ const commands = [];
     category: 'gta',
     description: '🔧 +20 permanent power, once per car, for 10,000',
     usage: '!gtatune [car]',
+    hint: '+20 power, permanently, once per car, for 10,000. The best money in the game.',
     cooldown: 120,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtatune', async () => {
@@ -1368,6 +1379,7 @@ const commands = [];
     category: 'gta',
     description: '🎨 Repaint the car — 1,000 and a card showing the new colour',
     usage: '!gtacustomize <colour>',
+    hint: 'A new colour for 1,000, and a card showing it. It is the cheapest way to enjoy a car.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacustomize', async () => {
@@ -1417,6 +1429,7 @@ const commands = [];
     category: 'gta',
     description: '💨 Nitro, once per car — the difference between winning and not',
     usage: '!gtanitro [car]',
+    hint: 'Nitro, once per car. It is the difference between winning the night and not.',
     cooldown: 120,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtanitro', async () => {
@@ -1461,6 +1474,7 @@ const commands = [];
     category: 'gta',
     description: '🔫 The armoury — the full stock, from bare knuckles to the Worldender',
     usage: '!gtaweaponshop',
+    hint: 'The whole armoury, from bare knuckles to the Worldender, with the prices.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaweaponshop', async () => {
@@ -1492,6 +1506,7 @@ const commands = [];
     category: 'gta',
     description: '🛒 Buy a gun. The railgun costs more than your first three missions',
     usage: '!gtabuyweapon <name>',
+    hint: 'Buy a gun. The railgun costs more than your first three missions put together.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtabuyweapon', async () => {
@@ -1545,6 +1560,7 @@ const commands = [];
     category: 'gta',
     description: '🔫 Your armoury — pick which gun is equipped',
     usage: '!gtaweapons [gun]',
+    hint: 'The guns you own and which one is in your hand. The equipped one is the one that fires.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaweapons', async () => {
@@ -1589,6 +1605,7 @@ const commands = [];
     category: 'gta',
     description: '💥 Fire the equipped gun. Ammo runs out. Someone usually runs',
     usage: '!gtashoot [@user]',
+    hint: 'Fire the equipped gun. The ammo runs out, and somebody usually runs.',
     cooldown: 45,
     permission: 'all',
     execute: async ({ api, args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtashoot', async () => {
@@ -1660,6 +1677,7 @@ const commands = [];
     category: 'gta',
     description: '⭐ Your wanted level, what the heat is doing, and what it will cost',
     usage: '!gtawanted',
+    hint: 'Your wanted level, what the heat is doing to you, and what it will cost to sit still.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtawanted', async () => {
@@ -1706,6 +1724,7 @@ const commands = [];
     category: 'gta',
     description: '👮 The hunt is on. At five stars they take half your coins in 10 minutes',
     usage: '!gtacops',
+    hint: 'The hunt is on. At five stars they take half your coins inside ten minutes.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtacops', async () => {
@@ -1760,6 +1779,7 @@ const commands = [];
     category: 'gta',
     description: '🛡️ Buy your way out of a hunt — the heat clears completely',
     usage: '!gtabribe',
+    hint: 'Buys your way out of a hunt. The heat clears completely, and it is not cheap.',
     cooldown: 120,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtabribe', async () => {
@@ -1810,6 +1830,7 @@ const commands = [];
     category: 'gta',
     description: '🏃 Outrun the police — the faster the car, the better the odds',
     usage: '!gtaescape',
+    hint: 'Outrun the police. The faster the car, the better the odds, and the odds are never great.',
     cooldown: 120,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaescape', async () => {
@@ -1886,6 +1907,7 @@ const commands = [];
     category: 'gta',
     description: '🏦 Rob a bank — heavy heat either way, one good payout if it holds',
     usage: '!gtabankrob',
+    hint: 'Rob a bank. Heavy heat either way, and one good payout if it holds together.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtabankrob', async () => {
@@ -1960,6 +1982,7 @@ const commands = [];
     category: 'gta',
     description: '🎩 The big heist — once a day, 40% bust rate, huge payout',
     usage: '!gtaheist',
+    hint: 'The big one: once a day, a 40% bust rate and a payout that makes the risk worth it.',
     cooldown: 600,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaheist', async () => {
@@ -2038,6 +2061,7 @@ const commands = [];
     category: 'gta',
     description: '🏪 Rob a corner store — small money, small risk, always available',
     usage: '!gtarobstore',
+    hint: 'A corner store. Small money, small risk, and it is always available.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtarobstore', async () => {
@@ -2103,6 +2127,7 @@ const commands = [];
     category: 'gta',
     description: '🔧 A legal shift at the chop shop. Small money, zero heat',
     usage: '!gtawork',
+    hint: 'A legal shift at the chop shop. Small money, and not one star of heat.',
     cooldown: 900,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtawork', async () => {
@@ -2141,6 +2166,7 @@ const commands = [];
     category: 'gta',
     description: '🎁 Daily payout. Scales with your level, so it matters later',
     usage: '!gtadaily',
+    hint: 'The daily payout. It scales with your level, so it is worth more later than it is now.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtadaily', async () => {
@@ -2190,6 +2216,7 @@ const commands = [];
     category: 'gta',
     description: '🏁 Street race — 300 stake, the faster car usually wins',
     usage: '!gtarace [bet]',
+    hint: 'A street race with a 300 stake. The faster car usually wins, and "usually" is doing work there.',
     cooldown: 120,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtarace', async () => {
@@ -2269,6 +2296,7 @@ const commands = [];
     category: 'gta',
     description: '⚔️ Car duel against another player — the better car takes it',
     usage: '!gtaduel @user',
+    hint: 'Your car against somebody else\'s. The better car takes it, and the pot goes with it.',
     cooldown: 180,
     permission: 'all',
     execute: async ({ api, args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtaduel', async () => {
@@ -2362,6 +2390,7 @@ const commands = [];
     category: 'gta',
     description: '🔫 PvP — damage rolls against the other player, coins change hands',
     usage: '!gtapvp @user',
+    hint: 'Damage is rolled against the other player, and coins change hands either way.',
     cooldown: 180,
     permission: 'all',
     execute: async ({ api, args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtapvp', async () => {
@@ -2453,6 +2482,7 @@ const commands = [];
     category: 'gta',
     description: '💀 The cartel in this chat — vault, members, and the 10% tax',
     usage: '!gtacartel',
+    hint: 'The cartel in this chat: its vault, its members and the 10% tax they take.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'gtacartel', async () => {
@@ -2501,6 +2531,7 @@ const commands = [];
     category: 'gta',
     description: '⚔️ Declare a cartel war on another group — 30 minutes, first to the score',
     usage: '!gtawar',
+    hint: 'A cartel war against another group. Thirty minutes, and first to the score takes it.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'gtawar', async () => {
@@ -2580,6 +2611,7 @@ const commands = [];
     category: 'gta',
     description: '🏆 The top criminals in the city, ranked by level and then winnings',
     usage: '!gtaleaderboard',
+    hint: 'The top criminals in the city, by level and then by winnings.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'gtaleaderboard', async () => {
@@ -2633,6 +2665,7 @@ const commands = [];
     category: 'gta',
     description: '📍 Where you sit on the board, against everyone',
     usage: '!gtarank',
+    hint: 'Where you sit on that board, against everybody else.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtarank', async () => {
@@ -2689,6 +2722,7 @@ const commands = [];
     category: 'gta',
     description: '🎨 Let the bodyshop pick — 2,000 and a random colour from the swatch book',
     usage: '!gtapaint',
+    hint: 'Let the bodyshop choose. 2,000 and a random colour from the swatch book.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'gtapaint', async () => {
@@ -2733,6 +2767,7 @@ commands.push({
     category: 'gta',
     description: '🚗 Render your garage as a picture — cars, stats, wanted level',
     usage: '!gtacard',
+    hint: 'Your garage as a picture: the cars, their numbers and your wanted level.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'gtacard', async () => {
