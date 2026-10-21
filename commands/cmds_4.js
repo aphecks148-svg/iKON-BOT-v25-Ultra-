@@ -780,6 +780,7 @@ module.exports = [
     category: 'pets',
     description: '🐾 Your pet card - power, level, hunger, safe status, stones',
     usage: '!pet [name]',
+    hint: 'Your active pet: power, level, hunger and whether it is safe. Give a name to see somebody else\'s.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pet', async () => {
@@ -964,6 +965,7 @@ module.exports = [
     category: 'pets',
     description: '🔢 Full pet stats + power breakdown (base + level*10 + prestige*50)',
     usage: '!petinfo [name]',
+    hint: 'The full breakdown and the arithmetic behind it: base power, plus level times 10, plus prestige times 50.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petinfo', async () => {
@@ -1007,6 +1009,7 @@ module.exports = [
     category: 'pets',
     description: '🛡️ Toggle safe mode — safe costs 500/day rent, OFF means anyone can !petfight',
     usage: '!petsafe <on | off>',
+    hint: 'Safe costs 500 a day in rent. Unsafe is free, and unsafe means anybody can come and `!petfight` your pet.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petsafe', async () => {
@@ -1097,6 +1100,7 @@ module.exports = [
     category: 'pets',
     description: '🔥 Evolve your pet — lvl 15 Fire, 30 Inferno, 50 Titan, 75 Void, 100 iKON Titan',
     usage: '!petevolve [name]',
+    hint: 'Level 15 Fire, 30 Inferno, 50 Titan, 75 Void, 100 iKON Titan. Each one costs stones, and the stones cost money.',
     cooldown: 120,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petevolve', async () => {
@@ -1190,6 +1194,7 @@ module.exports = [
     category: 'pets',
     description: '🛒 Feed, evolution stones and Revive Crystals — the whole dangerous supply table',
     usage: '!petshop [item] [qty]',
+    hint: 'Food, evolution stones and Revive Crystals. The whole dangerous supply table, and the prices that come with it.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petshop', async () => {
@@ -1273,6 +1278,7 @@ module.exports = [
     category: 'pets',
     description: '💎 Your evolution stone inventory, held by your pet',
     usage: '!petstones [name]',
+    hint: 'The stones your pet is holding, and which evolution each one is for.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petstones', async () => {
@@ -1312,6 +1318,7 @@ module.exports = [
     category: 'pets',
     description: '🗺️ Send your pet into 5 deadly zones — coins, XP, stones, or injuries',
     usage: '!petexplore [name]',
+    hint: 'Five zones, and the deeper ones pay better and hurt worse. A pet can come back carrying nothing but a story.',
     cooldown: 3600,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petexplore', async () => {
@@ -1476,6 +1483,7 @@ module.exports = [
     category: 'pets',
     description: '✅ Accept a pending pet challenge — starts a turn-by-turn fight',
     usage: '!petaccept',
+    hint: 'Takes the challenge and starts a turn-by-turn fight. The other hunter is waiting.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ event, userDoc, reply, react }) => guard(reply, event.messageID, 'petaccept', async () => {
@@ -1533,6 +1541,7 @@ module.exports = [
     category: 'pets',
     description: '🚫 Refuse a pet challenge — no shame, only strategy',
     usage: '!petdeny',
+    hint: 'No shame and no loss. Refusing is a strategy, not an insult.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ event, userDoc, reply, react }) => guard(reply, event.messageID, 'petdeny', async () => {
@@ -1563,6 +1572,7 @@ module.exports = [
     category: 'pets',
     description: '🔪 REPLY to an unsafe pet owner with this to attack their pet — instant, 1 turn',
     usage: '!petfight (as a reply to the victim\'s message)',
+    hint: 'The answer to somebody who challenged you while their pet was unsafe. One turn, and it is instant.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ event, userDoc, reply, react }) => guard(reply, event.messageID, 'petfight', async () => {
@@ -1697,6 +1707,7 @@ module.exports = [
     category: 'pets',
     description: '💀 Revive a dead pet — 20k + Revive Crystal, or 50k alone. Dead pets vanish after 48h',
     usage: '!petrevive [name]',
+    hint: '20,000 and a Revive Crystal, or 50,000 without one. A dead pet is gone for good after 48 hours.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petrevive', async () => {
@@ -1771,6 +1782,7 @@ module.exports = [
     category: 'pets',
      description: '🍖 Feed your pet — +25 hunger for 100 coins, or free scraps if desperate. Also refills 1 stamina.',
      usage: '!petfeed [name]',
+     hint: '+25 hunger for 100 coins, or free scraps when you are broke. It also refills one point of your stamina.',
      cooldown: 60,
      permission: 'all',
      execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petfeed', async () => {
@@ -1826,6 +1838,7 @@ module.exports = [
     category: 'pets',
     description: '💪 Train your pet — XP, power growth, and the occasional accident',
     usage: '!trainpet [name]',
+    hint: 'XP and power growth for the pet, with the occasional accident. The accident is the point of the command.',
     cooldown: 600,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'trainpet', async () => {
@@ -1872,6 +1885,7 @@ module.exports = [
     category: 'pets',
     description: '🏆 Strongest pets in iKON City by total power',
     usage: '!petrank',
+    hint: 'The strongest pets in the city, by total power. The board of everybody else\'s expensive mistakes.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'petrank', async () => {
@@ -2070,6 +2084,7 @@ module.exports = [
     category: 'pets',
     description: '🧬 Breed two Level 30+ pets for 50k — offspring inherits the stronger bloodline',
     usage: '!petbreed <name1> <name2>',
+    hint: 'Two level 30+ pets, 50,000, and the offspring takes the stronger bloodline. One of them does not survive it.',
     cooldown: 3600,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petbreed', async () => {
@@ -2157,6 +2172,7 @@ module.exports = [
     category: 'pets',
     description: '🥚 Hatch a mystery egg in 24h — the roll decides your bloodline',
     usage: '!petegg',
+    hint: 'Twenty-four hours, and the roll decides what is inside. An egg is the cheapest way to a good bloodline.',
     cooldown: 3600,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'petegg', async () => {
@@ -2248,6 +2264,7 @@ module.exports = [
     category: 'pets',
     description: '🗡️ Send your pet hunting — it brings back loot, coins, and occasionally trouble',
     usage: '!pethunt [name]',
+    hint: 'The pet goes out and comes back with loot, coins, and the occasional trouble. It is their job now.',
     cooldown: 1800,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pethunt', async () => {
@@ -2380,6 +2397,7 @@ module.exports = [
     category: 'pets',
     description: '🕵️ Three-hunter crew job — tag 2 allies, share the vault split 50/25/25',
     usage: '!petheist <user1> <user2>',
+    hint: 'A three-hunter job: tag two allies and the vault splits 50/25/25. It only works if all three turn up.',
     cooldown: 3600,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petheist', async () => {
@@ -2475,6 +2493,7 @@ module.exports = [
     category: 'pets',
     description: '🎁 Gift 1000 coins of care to another hunter — feeds and heals their pet',
     usage: '!petgift <user>',
+    hint: '1,000 coins of care, spent on somebody else\'s pet. It feeds and heals it, and it is not the same as sending money.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petgift', async () => {
@@ -2524,6 +2543,7 @@ module.exports = [
     category: 'pets',
     description: '🎾 Play with your pet — free XP, small hunger cost, occasional bonding miracle',
     usage: '!petplay [name]',
+    hint: 'Free XP for a little hunger, and now and then something that bonds the two of you for good.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petplay', async () => {
@@ -2572,6 +2592,7 @@ module.exports = [
     category: 'pets',
     description: '😴 Put your pet to sleep — recovers hunger over 8h, free to use',
     usage: '!petsleep [name]',
+    hint: 'Eight hours off the clock, and hunger comes back on its own. It is free, which is why everybody does it.',
     cooldown: 1800,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petsleep', async () => {
@@ -2613,6 +2634,7 @@ module.exports = [
     category: 'pets',
     description: '📊 Career statistics for your whole menagerie',
     usage: '!petstats',
+    hint: 'The career of every pet you have ever owned, counted together. The number nobody looks at until they do.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'petstats', async () => {
@@ -2669,6 +2691,7 @@ module.exports = [
     category: 'pets',
     description: '♻️ Reset a pet to Level 1 for +50 permanent power per rebirth',
     usage: '!petprestige [name]',
+    hint: 'Back to level 1, and +50 permanent power for the trouble. The power is permanent; the level is not.',
     cooldown: 86400,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petprestige', async () => {
@@ -2718,6 +2741,7 @@ module.exports = [
     category: 'pets',
     description: '🧿 Curse a rival pet — -10% power for 2h, costs 3000 and hurts your own luck',
     usage: '!petcurse <user>',
+    hint: 'Ten percent off a rival\'s pet for two hours, for 3,000 — and it costs your own luck as well.',
     cooldown: 1800,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petcurse', async () => {
@@ -2777,6 +2801,7 @@ module.exports = [
     category: 'pets',
     description: '🙏 Bless your own pet — +10% power for 1h, costs 2000',
     usage: '!petbless [name]',
+    hint: 'Ten percent onto your own pet for an hour, for 2,000. A short, expensive good mood.',
     cooldown: 1800,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petbless', async () => {
@@ -2819,6 +2844,7 @@ module.exports = [
     category: 'pets',
     description: '💘 Raise a pet bond — permanent power that survives rebirths and evolution',
     usage: '!petlove [name]',
+    hint: 'Permanent power that survives both a rebirth and an evolution. The only bond the game keeps for you.',
     cooldown: 3600,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petlove', async () => {
@@ -2872,6 +2898,7 @@ module.exports = [
     category: 'pets',
     description: '👑 Summon the iKON Titan Prime — only ONE exists per bot, and only at max evolution',
     usage: '!ikontitan',
+    hint: 'One exists in the whole bot, and only a pet at max evolution can become it. There is no second try.',
     cooldown: 86400,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'ikontitan', async () => {
@@ -2941,6 +2968,7 @@ module.exports = [
     category: 'pets',
     description: '🏟️ Auto-matchmaking pet battle — house pays, no stake for the loser',
     usage: '!petarena [user]',
+    hint: 'Matched against somebody, the house pays and the loser walks away with their pet. No stakes, no pride.',
     cooldown: 180,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petarena', async () => {
@@ -3065,18 +3093,24 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'petnickname',
-    aliases: [],
+    // The usage line used to say `!petrename`, which was not a command and
+    // never had been — not a name, not an alias. Somebody who read the help
+    // and typed it got "unknown command" and no pet renamed. The alias makes
+    // the documented spelling work; the usage now names the command that
+    // actually answers, and `!help` lists the other spelling beside it.
+    aliases: ['petrename'],
     category: 'pets',
     description: '✏️ Rename a pet — power, level and stones are untouched',
-    usage: '!petrename <name> <new name>',
+    usage: '!petnickname <name> <new name>',
+    hint: 'A new name and nothing else. Power, level, stones and the bond all carry over untouched.',
     cooldown: 60,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petrename', async () => {
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petnickname', async () => {
       await react('✏️');
       const [oldName, ...rest] = args;
       const newName = rest.join(' ').trim();
       if (!oldName || !newName) {
-        await reply('❌ Usage: `!petrename <name> <new name>`', event.messageID);
+        await reply('❌ Usage: `!petnickname <name> <new name>`', event.messageID);
         return;
       }
       if (newName.length > 32) {
@@ -3122,6 +3156,7 @@ module.exports = [
     category: 'pets',
     description: '🕊️ Release a pet into the wild — gone forever, no refunds, 50% back',
     usage: '!petrelease <name>',
+    hint: 'Gone for good, no refund, and half the money back. It is the only way a pet leaves without dying.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petrelease', async () => {
@@ -3167,6 +3202,7 @@ module.exports = [
     category: 'pets',
     description: '🤺 Quick ranked duel — no challenge delay, unsafe pets only, 1 turn',
     usage: '!petduel <user>',
+    hint: 'A ranked duel with no challenge delay, and only for unsafe pets. One turn, and it is over.',
     cooldown: 300,
     permission: 'all',
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petduel', async () => {
@@ -3221,6 +3257,7 @@ module.exports = [
     category: 'pets',
     description: '🎒 Full pet registry — every pet you own, alive or dead, with its stones',
     usage: '!petinventory',
+    hint: 'Every pet you own, alive or dead, with the stones each one holds. The full menagerie.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'petinventory', async () => {
@@ -3270,6 +3307,7 @@ module.exports = [
     category: 'pets',
     description: '🎯 Equip one of your living pets as your active battle pet',
     usage: '!petequip <name>',
+    hint: 'Chooses which pet fights for you. One active pet at a time, and it is the one `!petfight` uses.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petequip', async () => {
@@ -3316,6 +3354,7 @@ module.exports = [
     category: 'pets',
     description: '🔓 Unequip your active battle pet — they go back to the roster',
     usage: '!petunequip [name]',
+    hint: 'Sends your active pet back to the roster, and leaves the slot empty. The pet does not leave.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petunequip', async () => {
@@ -3353,6 +3392,7 @@ module.exports = [
     category: 'pets',
     description: '📜 List a pet\'s combat skills and their tier',
     usage: '!petskill [name]',
+    hint: 'The combat skills a pet has, and the tier each one is at. Tier is what makes a skill worth anything.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petskill', async () => {
@@ -3396,6 +3436,7 @@ module.exports = [
     category: 'pets',
     description: '🔼 Upgrade a pet\'s skill tier — amplifies all skill damage',
     usage: '!petskillup <name> <skill>',
+    hint: 'Lifts a skill one tier, and every bit of that skill\'s damage goes up with it.',
     cooldown: 30,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petskillup', async () => {
@@ -3471,6 +3512,7 @@ module.exports = [
     category: 'pets',
     description: '🏋️🏽 Daily guild boss — all hunters chip away at a shared health pool',
     usage: '!petgym',
+    hint: 'The daily guild boss. Everybody chips at the same health pool, and the day ends when it does.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ event, userDoc, reply, react }) => guard(reply, event.messageID, 'petgym', async () => {
@@ -3572,6 +3614,7 @@ module.exports = [
     category: 'pets',
     description: '🐾 Render your active pet as a picture — stats, mood, gear',
     usage: '!petcard',
+    hint: 'Your active pet as a picture: the stats, the mood and the gear.',
     cooldown: 60,
     permission: 'all',
     execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'petcard', async () => {
