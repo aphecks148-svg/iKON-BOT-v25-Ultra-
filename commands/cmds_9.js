@@ -1060,23 +1060,25 @@ const commands = [];
       await save(userDoc);
 
       await react('🔒');
-      await reply(
-        `💫 **BONK!**\n`
-        + '· · · · · · ·\n'
-        + `${userDoc.name} bonked ${who.name} into horny jail.\n`
-        + `🔒 3 minutes. No appeals.\n`
-        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
-        + '📖 _Horny jail stops the fun commands for three minutes. Nothing else._',
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '🔨 BONK',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'A MESSAGE WITH A HARD-LOOKING EMOJI.',
-    });
+      const sent = await art(reply, event.messageID, {
+        title: '🔨 BONK',
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
+        right: { uid: who.uid, name: who.name },
+        footer: 'A MESSAGE WITH A HARD-LOOKING EMOJI.',
+      });
+      if (!sent) {
+        await reply(
+          `💫 **BONK!**\n`
+          + '· · · · · · ·\n'
+          + `${userDoc.name} bonked ${who.name} into horny jail.\n`
+          + `🔒 3 minutes. No appeals.\n`
+          + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+          + '📖 _Horny jail stops the fun commands for three minutes. Nothing else._',
+          event.messageID,
+        );
+      }
 
     }),
   });
@@ -1199,22 +1201,24 @@ const commands = [];
       await save(userDoc);
 
       await react('💀');
-      await reply(
-        `🔥 **${userDoc.name} ROASTED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `${line}\n\n`
-        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
-        + `📖 _${aiLine ? 'Written this second, and still about you.' : 'Pre-written. No AI was involved in this one.'}_`,
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '🔥 ROAST',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: aiLine ? 'WRITTEN THIS SECOND.' : 'PRE-WRITTEN. NO AI WAS INVOLVED IN THIS ONE.',
-    });
+      const sent = await art(reply, event.messageID, {
+        title: '🔥 ROAST',
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
+        right: { uid: who.uid, name: who.name },
+        footer: aiLine ? 'WRITTEN THIS SECOND.' : 'PRE-WRITTEN. NO AI WAS INVOLVED IN THIS ONE.',
+      });
+      if (!sent) {
+        await reply(
+          `🔥 **${userDoc.name} ROASTED ${who.name}**\n`
+          + '· · · · · · ·\n'
+          + `${line}\n\n`
+          + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+          + `📖 _${aiLine ? 'Written this second, and still about you.' : 'Pre-written. No AI was involved in this one.'}_`,
+          event.messageID,
+        );
+      }
 
     }),
   });
@@ -1250,22 +1254,24 @@ const commands = [];
       await save(userDoc);
 
       await react('🙃');
-      await reply(
-        `🪞 **${userDoc.name} COMPLIMENTED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `${line}\n\n`
-        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
-        + '📖 _Mean it however you want._',
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '💐 COMPLIMENT',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'MEAN IT HOWEVER YOU WANT.',
-    });
+      const sent = await art(reply, event.messageID, {
+        title: '💐 COMPLIMENT',
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
+        right: { uid: who.uid, name: who.name },
+        footer: 'MEAN IT HOWEVER YOU WANT.',
+      });
+      if (!sent) {
+        await reply(
+          `🪞 **${userDoc.name} COMPLIMENTED ${who.name}**\n`
+          + '· · · · · · ·\n'
+          + `${line}\n\n`
+          + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+          + '📖 _Mean it however you want._',
+          event.messageID,
+        );
+      }
 
     }),
   });
