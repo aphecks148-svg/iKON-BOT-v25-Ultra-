@@ -1406,6 +1406,16 @@ commands.push({
         + `${clamp(f.prestige) ? ` · \u{2B50}${clamp(f.prestige)}` : ''}${mine ? ' _← you_' : ''}`;
     });
 
+    const card = await cards.boardCard({
+      emoji: '🌾', title: 'TOP FARMERS', subtitle: 'By level, then by harvest',
+      rows: top, value: (doc) => `Lv ${clamp(doc.farm && doc.farm.level)}`,
+      detail: (doc) => `${num(clamp(doc.farm && doc.farm.totalHarvest))} harvested`,
+      api, limit: 10,
+    });
+    if (card) {
+      await reply({ body: `🏆 **Top farmers**\n\n${lines.join('\n')}\n\n_You are at farm level ${clamp(fm.level)}._`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      return;
+    }
     await reply(`🏆 **Top farmers**\n\n${lines.join('\n')}\n\n_You are at farm level ${clamp(fm.level)}._`, event.messageID);
   }),
 });
