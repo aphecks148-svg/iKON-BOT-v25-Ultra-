@@ -414,15 +414,26 @@ module.exports = [
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'bank', async () => {
       await react('🏦');
       const bank = userDoc.bank || 0;
-      await reply(
-        `🏦 **iKON VAULT — ${userDoc.name || 'Hunter'}**\n`
+      const card = await cards.userCard({
+        emoji: '🏦', title: 'iKON VAULT', subtitle: `Secured: ${kc(bank)}`,
+        user: userDoc, api,
+        rows: [
+          ['Vault', kc(bank)],
+          ['Loose cash', kc(userDoc.coins || 0)],
+          ['Status', 'Robbers cannot touch vault money'],
+        ],
+      });
+      const body = `🏦 **iKON VAULT — ${userDoc.name || 'Hunter'}**\n`
         + '· · · · · · ·\n'
         + `🔐 Secured: ${kc(bank)}\n`
         + `👛 Loose cash: ${kc(userDoc.coins || 0)}\n`
         + `🛡️ Robbers cannot touch vault money.\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
+        + `📖 ${story()}`;
+      if (card) {
+        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
+      await reply(body, event.messageID);
     }),
   },
 
