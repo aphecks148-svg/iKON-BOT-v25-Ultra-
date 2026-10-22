@@ -2027,17 +2027,29 @@ const commands = [];
         : 'This build cannot read the member list for this chat.';
       const more = people.length > shown.length ? `\n…and ${people.length - shown.length} more.` : '';
 
-      await reply(
-        `👥 **THE ROSTER**\n`
+      const busyCard = busiest.length
+        ? await cards.boardCard({
+            emoji: '👥', title: 'BUSIEST HERE', subtitle: `${busiest.length} of ${hunters.length} hunters`,
+            rows: busiest,
+            value: (e) => `${num(val(e, 'gc.msgs'))} msgs`,
+            api, limit: 5,
+          })
+        : null;
+
+      const body = `👥 **THE ROSTER**\n`
         + '· · · · · · ·\n'
         + `👤 ${num(members.length)} members\n`
         + `🛡️ ${num(admins.length)} admins\n`
         + `📈 Level ${cfg ? cfg.level : '?'} · 💬 ${cfg ? num(cfg.msgs) : '?'} messages\n\n`
         + `📋 **Members here**\n${roster}${more}\n\n`
         + `📢 **Busiest here**\n${board}\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
+        + `📖 ${story()}`;
+
+      if (busyCard) {
+        await reply({ body, attachment: { type: 'image', data: { url: busyCard } } }, event.messageID);
+        return;
+      }
+      await reply(body, event.messageID);
     }),
   });
 
