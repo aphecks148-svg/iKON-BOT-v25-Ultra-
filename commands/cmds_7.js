@@ -1033,9 +1033,13 @@ const commands = [];
       // Level before wallet. Somebody with the cash for a Kairoz at Level 3
       // should be told they are early, not poor — otherwise the 10x economy
       // just means everything is buyable immediately.
-      const gate = rarity.missing(userDoc, car);
-      if (gate) {
-        await reply(`${gate}\n🏎️ The garage holds cars you have earned a level for.`, event.messageID);
+      // The gate is on the GTA level, not the RPG one. `rarity.missing()` reads
+      // `userDoc.level`, which is the RPG level — a hunter who has been playing
+      // GTA for weeks and has never touched the academy would be told they are
+      // Level 1 and refused everything in the garage.
+      const gtaLevel = g(userDoc).level;
+      if (car.level > gtaLevel) {
+        await reply(`🔒 **${car.name}** needs GTA **Level ${car.level}** — you are Level ${gtaLevel}.\n🏎️ The garage holds cars you have earned a level for.`, event.messageID);
         return;
       }
 
@@ -1527,9 +1531,10 @@ const commands = [];
         return;
       }
 
-      const gate = rarity.missing(userDoc, gun);
-      if (gate) {
-        await reply(`${gate}\n🔫 Missions and heists pay for the good ones.`, event.messageID);
+      // See `gtabuycar`: the gate is on the GTA level, not the RPG one.
+      const gtaLevel = g(userDoc).level;
+      if (gun.level > gtaLevel) {
+        await reply(`🔒 **${gun.name}** needs GTA **Level ${gun.level}** — you are Level ${gtaLevel}.\n🔫 Missions and heists pay for the good ones.`, event.messageID);
         return;
       }
 
