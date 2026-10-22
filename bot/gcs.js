@@ -118,6 +118,23 @@ const REMOVE_DELAY_MS = 1500;
 const REMOVE_JITTER_MS = 1500;
 
 /**
+ * How many members of ONE chat may be asked about by name.
+ *
+ * A chat with four hundred members would otherwise spend four hundred
+ * requests on itself, which is the same runaway the run cap exists to stop —
+ * only on the reading side instead of the writing side.
+ */
+const LOOKUP_BUDGET_PER_CHAT = 40;
+
+/**
+ * The names Facebook invents instead of resolving a profile.
+ *
+ * ws3-fca's createDefaultUser() returns "Facebook User" when it cannot resolve
+ * somebody, and a few builds answer with the bare username instead.
+ */
+const PLACEHOLDER_NAME = /^(facebook user|facebookuser|unknown|messenger user)$/i;
+
+/**
  * Is this account dead?
  *
  * Two independent signals, because each alone lies:
@@ -144,7 +161,7 @@ function isDeadAccount(member) {
 
   const name = String(member.name || '').trim().toLowerCase();
   if (!name) return true; // nothing to call them, and nothing to appeal with
-  if (name === 'facebook user' || name === 'unknown' || name === 'facebookuser') return true;
+  if (PLACEHOLDER_NAME.test(name)) return true;
 
   const thumb = String(member.thumbSrc || member.profilePicUrl || '').trim();
   return /default|no[._-]?pic|blank|silhouette|unrecognized/i.test(thumb);
@@ -256,10 +273,26 @@ async function membersOf(api, threadID) {
     thumbSrc: String(u.thumbSrc || '').trim(),
   }));
 
-  const doubtful = members.filter((m) => !m.name || !m.thumbSrc);
+  // Only a member whose NAME is missing or is a known placeholder is worth a
+  // second question.
+  //
+  // A member with a real name is not doubtful just because Facebook sent no
+  // picture — and it usually sent no picture: `big_image_src` is null for most
+  // members of a group, which is precisely why this repo ships an install
+  // patch for the thread formatters reading that field unguarded. Asking about
+  // every one of them anyway was one request per member of every group: five
+  // thousand calls for a hundred chats, every one of them Facebook noticing.
+  //
+  // The comment further down says it: only a NAME can rescue a doubtful
+  // member, a thumbnail cannot. So the doubtful ones are the ones without a
+  // name in the first place.
+  const doubtful = members.filter((m) => !m.name || PLACEHOLDER_NAME.test(m.name));
   if (!doubtful.length || typeof api.getUserInfo !== 'function') return members;
 
-  for (const m of doubtful) {
+  // And the budget is per chat, so one enormous group cannot spend the whole
+  // run on itself.
+  const ask = doubtful.slice(0, LOOKUP_BUDGET_PER_CHAT);
+  for (const m of ask) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const one = await api.getUserInfo(m.uid);
@@ -546,6 +579,7 @@ async function cacheThreadsOnLogin(api) {
 module.exports = {
   THREAD_LIMIT,
   KICK_TTL_MS,
+  PLACEHOLDER_NAME,
   isDeadAccount,
   listThreads,
   tidOf,

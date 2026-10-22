@@ -5591,6 +5591,57 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(/did not confirm/i.test(out.join('\\n')), 'and the command says what happened');
   });
 
+  await step('!gccleanup does not ask Facebook about every member of every chat', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const gcs = require('./gcs');
+
+    // A realistic chat: Facebook sends no picture for most members, because
+    // `big_image_src` is null for them. The old code treated a missing picture
+    // as a reason to ask about that member by name, so a hundred chats became
+    // thousands of requests and the run took forever.
+    const people = [
+      { id: '999000111', name: 'iKON BOT', thumbSrc: 'https://cdn.example/bot.jpg' },
+      { id: '111111111', name: 'Real One', thumbSrc: '' },
+      { id: '222222222', name: 'Real Two', thumbSrc: '' },
+      { id: '333333333', name: 'Real Three', thumbSrc: '' },
+      { id: '444444444', name: 'Facebook User', thumbSrc: '' },
+    ];
+    const asked = [];
+    const api = {
+      async getThreadList() {
+        return [{
+          threadID: '1234567890',
+          threadName: 'The Crew',
+          isGroup: true,
+          participantIDs: people.map((p) => p.id),
+          userInfo: people,
+        }];
+      },
+      async getThreadInfo() {
+        return {
+          threadID: '1234567890',
+          isGroup: true,
+          participantIDs: people.map((p) => p.id),
+          userInfo: people,
+          adminIDs: ['999000111'],
+        };
+      },
+      async getUserInfo(uid) {
+        asked.push(uid);
+        return { id: uid, name: 'Facebook User', thumbSrc: '' };
+      },
+      async getCurrentUserID() { return '999000111'; },
+      async gcmember() { return {}; },
+    };
+
+    const report = await gcs.cleanup(api, { dryRun: true });
+    assert.ok(report.dead.length >= 1, 'the dead account was still found');
+    // Only the member whose NAME says "Facebook User" is worth a second
+    // question. The three with real names and no picture are not.
+    assert.ok(asked.length <= 1, `only the suspicious member was asked about, asked ${asked.length}: ${asked.join(', ')}`);
+    assert.ok(asked.every((u) => u === '444444444'), 'and it was the placeholder one');
+  });
+
   await step('the bestiary is two parts, and all fifty pets are in one of them', async () => {
     const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
     const petlist = loaded.registry.get('petlist');
