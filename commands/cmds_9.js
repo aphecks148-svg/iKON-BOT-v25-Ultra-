@@ -1020,7 +1020,19 @@ const commands = [];
         footer: `${OWNER} · SHIPS NEVER UNSHIP`,
         accent: canvasKit.theme.accent2,
       });
-      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+      if (art) {
+        await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+      } else {
+        await reply(
+          `💕 **${a.name} x ${b.name}**\n`
+          + '· · · · · · ·\n'
+          + `${meter(pct, '💕 SHIP SCORE')}\n`
+          + `➕ +${added} from ${userDoc.name}\n`
+          + `📈 Total: ${num(scored.score)}\n`
+          + '📖 _Permanent. There is no unship command._',
+          event.messageID,
+        );
+      }
     }),
   });
 
@@ -1450,16 +1462,19 @@ const commands = [];
         footer: `${OWNER} · 5,000 SPENT`,
         accent: canvasKit.theme.accent2,
       });
-      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
-      await reply(
-        `💍 **${userDoc.name} MARRIED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `💸 -5,000\n`
-        + `💑 Both sides now point at each other.\n`
-        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
-        + `📖 _A field called spouse. It is not real, but it is permanent until one of you pays 10,000._`,
-        event.messageID,
-      );
+      if (art) {
+        await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+      } else {
+        await reply(
+          `💍 **${userDoc.name} MARRIED ${who.name}**\n`
+          + '· · · · · · ·\n'
+          + `💸 -5,000\n`
+          + `婚姻 Both sides now point at each other.\n`
+          + ` Their wallet: ${kc(who.coins)}\n`
+          + `📖 _A field called spouse. It is not real, but it is permanent until one of you pays 10,000._`,
+          event.messageID,
+        );
+      }
     }),
   });
 
@@ -2132,17 +2147,20 @@ const commands = [];
         footer: `-${kc(FEES.flex)} TO POST THIS`,
         accent: canvasKit.theme.gold,
       });
-      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
-      await reply(
-        `💪 **${userDoc.name} IS FLEXING**\n`
-        + '· · · · · · ·\n'
-        + `👛 ${kc(userDoc.coins)}${rank ? ` · rank #${num(rank)}` : ''}\n`
-        + `🐾 ${pet ? `${pet.emoji || '🐾'} ${pet.name} — ${num(petPower(pet))} pwr` : 'no pet'}\n`
-        + `💸 -${kc(FEES.flex)} to post this\n\n`
-        + `${brags.map((b) => `• ${b}`).join('\n')}\n\n`
-        + '📖 _Your real balance and your real pet. The flex is the only fiction._',
-        event.messageID,
-      );
+      if (art) {
+        await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+      } else {
+        await reply(
+          `💪 **${userDoc.name} IS FLEXING**\n`
+          + '· · · · · · ·\n'
+          + ` Wallet: ${kc(userDoc.coins)}${rank ? ` · rank #${num(rank)}` : ''}\n`
+          + `🐾 ${pet ? `${pet.emoji || '🐾'} ${pet.name} — ${num(petPower(pet))} pwr` : 'no pet'}\n`
+          + `💸 -${kc(FEES.flex)} to post this\n\n`
+          + `${brags.map((b) => `• ${b}`).join('\n')}\n\n`
+          + '📖 _Your real balance and your real pet. The flex is the only fiction._',
+          event.messageID,
+        );
+      }
     }),
   });
 
@@ -2587,20 +2605,22 @@ const commands = [];
         footer: pet ? `${pet.emoji || '🐾'} ${pet.name} IS ALSO HERE` : 'NO PET. THAT IS YOUR LEGACY.',
         accent: canvasKit.theme.accent2,
       });
-      if (art) await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
-
-      await reply(
-        `👨‍👩‍👧‍👦 **THE iKON FAMILY**\n`
-        + '· · · · · · ·\n'
-        + `👑 **${OWNER}** — founder, and the only person who cannot be removed.\n`
-        + `💍 ${num(Math.floor(married / 2))} married couple(s) in the database.\n`
-        + `👥 ${num(pets)} hunter(s) on record.\n\n`
-        + `👤 **YOUR SEAT: ${seat}**\n`
-        + `🤗 Hugs ${num(you.hugs)} · 🔪 Stabs ${num(you.stabs)} · 💀 Kills ${num(you.kills)}\n`
-        + `👛 Wallet: ${kc(userDoc.coins)}\n`
-        + '📖 _Your seat is derived from your balance. It is not a metaphor._',
-        event.messageID,
-      );
+      if (art) {
+        await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+      } else {
+        await reply(
+          `👨‍👩‍👧‍👦 **THE iKON FAMILY**\n`
+          + '· · · · · · ·\n'
+          + `👑 **${OWNER}** — founder, and the only person who cannot be removed.\n`
+          + `💍 ${num(Math.floor(married / 2))} married couple(s) in the database.\n`
+          + `👥 ${num(pets)} hunter(s) on record.\n\n`
+          + `👤 **YOUR SEAT: ${seat}**\n`
+          + `🤗 Hugs ${num(you.hugs)} · 🔪 Stabs ${num(you.stabs)} · 💀 Kills ${num(you.kills)}\n`
+          + ` Wallet: ${kc(userDoc.coins)}\n`
+          + '📖 _Your seat is derived from your balance. It is not a metaphor._',
+          event.messageID,
+        );
+      }
     }),
   });
 
