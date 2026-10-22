@@ -1755,19 +1755,7 @@ const commands = [];
       }
 
       await react('💞');
-      await reply(
-        `💘 **THE BOT HAS SPOKEN**\n`
-        + '· · · · · · ·\n'
-        + `**${a.name}** + **${b.name}**\n`
-        + `💘 Ship score: ${num(scored.score)}${scored.score > added ? ` (+${num(added)})` : ''}\n`
-        + (married.length ? `⚠️ ${married.join(' · ')}\n` : '')
-        + (userDoc.uid === aUid || userDoc.uid === bUid
-          ? '📖 _You are in this one. The bot does not take requests._\n'
-          : '📖 _Two strangers to each other five seconds ago._'),
-        event.messageID,
-      );
-
-      await art(reply, event.messageID, {
+      const sent = await art(reply, event.messageID, {
         title: '💘 THE BOT HAS SPOKEN',
         subtitle: `${a.name} + ${b.name}`,
         api,
@@ -1778,6 +1766,19 @@ const commands = [];
         footer: 'PAIRED BY THE BOT · NOT BY EITHER OF THEM',
         accent: canvasKit.theme.accent2,
       });
+      if (!sent) {
+        await reply(
+          `💘 **THE BOT HAS SPOKEN**\n`
+          + '· · · · · · ·\n'
+          + `**${a.name}** + **${b.name}**\n`
+          + `💘 Ship score: ${num(scored.score)}${scored.score > added ? ` (+${num(added)})` : ''}\n`
+          + (married.length ? `⚠️ ${married.join(' · ')}\n` : '')
+          + (userDoc.uid === aUid || userDoc.uid === bUid
+            ? '📖 _You are in this one. The bot does not take requests._\n'
+            : '📖 _Two strangers to each other five seconds ago._'),
+          event.messageID,
+        );
+      }
     }),
   });
 
