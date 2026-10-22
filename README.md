@@ -25,7 +25,7 @@ iKON-BOT/
 ├── ws3-fca.js          central engine (Express, login, routing, permissions, cooldowns)
 ├── config.js           env-only configuration
 ├── commands/
-│   ├── cmds_1.js … cmds_10.js    10 modules, 427 commands
+│   ├── cmds_1.js … cmds_10.js    10 modules, 428 commands
 ├── bot/
 │   ├── loader.js       scans cmds_1..10, builds registry + alias map
 │   ├── router.js       PARSER: "!bank deposit 500" -> { name, args }
@@ -123,6 +123,37 @@ and that picture must be a named stream.
 
 A card draws the person's real Facebook photo when Facebook will give it up,
 and a generated avatar when it will not, so a card is never blank.
+
+### Songs
+
+`!lyrics` gives the real words of a real song, and `!sing` gives you a
+recording of it. Both had a specific reason for not working, and both are
+fixed.
+
+The lyrics lookup was asking lyrics.ovh for a URL that API does not have —
+it wants `v1/{artist}/{title}`, two path segments, and the old code asked
+for one URL-encoded segment. Every request 404'd, so the command never once
+found a real song and always handed back something the AI had just written.
+It asks lrclib now, which also has the words with timestamps on them.
+
+`!sing` was asking the YouTube *player* for a song title, and the player
+only understands a video id. It found nothing, every time. It searches now,
+and plays the best thing it can get: the full recording off YouTube when
+the uploader has not locked it, thirty seconds of the actual commercial
+record off the iTunes or Deezer preview when they have, and the voice box
+reading the real words when there is nothing else. The reply says which of
+the three you got.
+
+**Two songs with the same title** is a real situation — "Hello" alone is
+not enough to pick one — and guessing is worse than asking, because the
+wrong answer looks like the right one. So when more than one song carries
+the title, the command gives a numbered list with the artists and the
+albums, and `!pick 2` takes the choice. `!pick` is a general command: any
+numbered list can hand itself over to it.
+
+Nothing here is charged for unless something was delivered. A lookup that
+comes back empty, or an AI that does not answer, costs nothing and says
+so.
 
 Set `TEST_MONGO_URI` (or `MONGO_URI`) to also run the live database round-trip
 checks in `bot/test.js`.
@@ -241,7 +272,7 @@ rounds of this bug look identical from the chat.
 | cmds_9 (fun & social) | 35 |
 | cmds_10 (farming) | 40 |
 
-**427 commands** across 10 modules, 602 aliases, 0 conflicts. Every command is
+**428 commands** across 10 modules, 604 aliases, 0 conflicts. Every command is
 shaped, aliased, permission-tagged and carries a hint of its own;
 `node bot/check.js` reports the per-module progress and refuses to pass on a
 malformed entry, a missing hint or a usage line that names a command which
