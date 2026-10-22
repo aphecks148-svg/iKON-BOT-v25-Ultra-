@@ -280,6 +280,9 @@ async function payload({ body = '', source = null, type = null, maxBytes = MAX_U
 function extensionFor(mimeType, fallback = 'mp4') {
   const type = String(mimeType || '').toLowerCase();
   if (type.includes('mp4a') || type === 'audio/mp4') return 'm4a';
+  // The iTunes store serves its previews as audio/x-m4p. It is the same
+  // container as m4a, and a file called .bin is a file nobody can play.
+  if (type.includes('m4p') || type.includes('m4a')) return 'm4a';
   if (type.includes('mp4')) return 'mp4';
   if (type.includes('webm')) return 'webm';
   if (type.includes('mpeg') || type.includes('mp3')) return 'mp3';
@@ -392,6 +395,90 @@ async function ytPlayer(id, client) {
 }
 
 /**
+ * The client that answers SEARCHES.
+ *
+ * The player client above is the ANDROID one, and ANDROID answers a search with
+ * a page that carries no results at all — measured, not assumed: the same query
+ * returns twenty-two videos through WEB and zero through ANDROID. So the two
+ * clients do different jobs and both are here.
+ */
+const YT_SEARCH_CLIENT = {
+  name: 'WEB',
+  version: '2.20240726.00.00',
+  agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  extra: {},
+};
+
+/**
+ * Search YouTube for a song, a video, anything with a title.
+ *
+ * This is what turns "sing me adele hello" into a recording. The old code fed
+ * the song title to `youtube()`, which only understands a video ID or a link,
+ * so it never found anything and `!sing` fell through to a synthesiser.
+ *
+ * @param {string} query what to search for
+ * @param {object} [opts]
+ * @param {number} [opts.limit] how many results, 1-20
+ * @returns {Promise<Array<{id:string,title:string,author:string,length:string,thumbnail:string}>>}
+ */
+async function youtubeSearch(query, { limit = 8 } = {}) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const want = Math.max(1, Math.min(20, Number(limit) || 8));
+
+  try {
+    const res = await axios.post(`https://www.youtube.com/youtubei/v1/search?key=${YT_KEY}`, {
+      query: q,
+      contentCheckOk: true,
+      racyCheckOk: true,
+      context: {
+        client: {
+          clientName: YT_SEARCH_CLIENT.name,
+          clientVersion: YT_SEARCH_CLIENT.version,
+          hl: 'en',
+          gl: 'US',
+          userAgent: YT_SEARCH_CLIENT.agent,
+          ...YT_SEARCH_CLIENT.extra,
+        },
+      },
+    }, {
+      timeout: 20000,
+      responseType: 'json',
+      headers: { 'User-Agent': YT_SEARCH_CLIENT.agent, 'Content-Type': 'application/json' },
+    });
+
+    const data = res && res.data;
+    const sections = (data && data.contents
+      && data.contents.twoColumnSearchResultsRenderer
+      && data.contents.twoColumnSearchResultsRenderer.primaryContents
+      && data.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer
+      && data.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents) || [];
+
+    const out = [];
+    const seen = new Set();
+    for (const section of sections) {
+      for (const item of (section.itemSectionRenderer && section.itemSectionRenderer.contents) || []) {
+        const v = item.videoRenderer;
+        if (!v || !v.videoId || seen.has(v.videoId)) continue;
+        seen.add(v.videoId);
+        out.push({
+          id: v.videoId,
+          title: (v.title && v.title.runs && v.title.runs[0] && v.title.runs[0].text) || '',
+          author: (v.ownerText && v.ownerText.runs && v.ownerText.runs[0] && v.ownerText.runs[0].text) || '',
+          length: (v.lengthText && v.lengthText.simpleText) || '',
+          thumbnail: (v.thumbnail && v.thumbnail.thumbnails && v.thumbnail.thumbnails.length
+            ? v.thumbnail.thumbnails[v.thumbnail.thumbnails.length - 1].url : '') || '',
+        });
+        if (out.length >= want) return out;
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Does this stream carry its own audio track?
  *
  * YouTube does not say "audio" in the mime type. A progressive file reads
@@ -456,6 +543,359 @@ function pickVideo(formats, maxHeight = 720) {
     silent: !hasAudio(chosen.mimeType),
     extension: extensionFor(String(chosen.mimeType || '').split(';')[0], 'mp4'),
   };
+}
+
+// ───────────────────────────────────────────────────────────────────
+// SONGS — iTunes, Deezer, YouTube
+// ───────────────────────────────────────────────────────────────────
+
+/**
+ * Find the songs a title could mean.
+ *
+ * Two songs can have the same name, and only the artist tells them apart, so
+ * a lookup has to bring back the alternatives and not just the first hit.
+ *
+ * Three sources, because each one is good at something:
+ *
+ *   - iTunes: the real commercial recording, with a 30-second preview of it.
+ *   - Deezer: the same, and more of the back catalogue. Its previews are mp3,
+ *     which play everywhere.
+ *   - YouTube: the FULL recording, when the uploader has not locked it. Many
+ *     have: the official music video of a major artist answers the innertube
+ *     player with LOGIN_REQUIRED, because "Sign in to confirm you are not a
+ *     bot" is on it. Some videos are fine, so it is worth asking, and worth
+ *     trying several.
+ *
+ * @param {string} query the title, or "artist - title"
+ * @param {object} [opts]
+ * @param {number} [opts.limit] how many candidates
+ * @returns {Promise<Array<{title:string,artist:string,album:string,preview:string,source:string,youtubeId:string}>>}
+ */
+async function songCandidates(query, { limit = 8 } = {}) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const want = Math.max(1, Math.min(20, Number(limit) || 8));
+  const { artist: wantedArtist } = splitArtistTitle(q);
+
+  const rows = [];
+  const seen = new Set();
+  const add = (row) => {
+    const key = `${String(row.title).toLowerCase()}|${String(row.artist).toLowerCase()}`;
+    if (!row.title || seen.has(key)) return;
+    seen.add(key);
+    rows.push(row);
+  };
+
+  // iTunes first: it is the store the record came from.
+  for (const r of await itunesSearch(q, want)) add(r);
+  // Deezer second: deeper catalogue, and its previews are mp3.
+  for (const r of await deezerSearch(q, want)) add(r);
+
+  // YouTube third, and MERGED rather than appended. It is the only source of
+  // a full recording, and its title reads "Rick Astley - Never Gonna Give You
+  // Up (Official Video)" where the store calls it "Never Gonna Give You Up",
+  // so appending it would put a second row for the same song at the end of the
+  // list — and the list is cut short, so the full recording would never be
+  // reached. Merging it into the store's row means one song, one row, and
+  // both ways to play it.
+  for (const yt of await youtubeSearch(q, { limit: want })) {
+    const row = {
+      title: yt.title,
+      artist: yt.author,
+      album: '',
+      preview: '',
+      source: 'youtube',
+      youtubeId: yt.id,
+      length: yt.length,
+    };
+    const twin = rows.find((r) => looseMatch(r, row));
+    if (twin) {
+      if (!twin.youtubeId) {
+        twin.youtubeId = yt.id;
+        twin.length = yt.length;
+      }
+      continue;
+    }
+    add(row);
+  }
+
+  // A song the person asked for by artist goes to the top.
+  if (wantedArtist) {
+    rows.sort((a, b) => {
+      const hit = (r) => String(r.artist || '').toLowerCase().includes(wantedArtist.toLowerCase()) ? 0 : 1;
+      return hit(a) - hit(b);
+    });
+  }
+  return rows.slice(0, want);
+}
+
+/**
+ * Are these two rows the same song, said two ways?
+ *
+ * The store calls it "Never Gonna Give You Up" and YouTube calls it "Rick
+ * Astley - Never Gonna Give You Up (Official Video)". The artist matches and
+ * one title carries the other, so it is the same song and the two rows belong
+ * together.
+ *
+ * @param {object} a
+ * @param {object} b
+ * @returns {boolean}
+ */
+function looseMatch(a, b) {
+  const at = String((a && a.title) || '').toLowerCase();
+  const bt = String((b && b.title) || '').toLowerCase();
+  const aa = String((a && a.artist) || '').toLowerCase();
+  const ba = String((b && b.artist) || '').toLowerCase();
+  if (!at || !bt) return false;
+
+  const sameArtist = aa && ba && (aa === ba || aa.includes(ba) || ba.includes(aa));
+  if (!sameArtist) return false;
+  return at === bt || at.includes(bt) || bt.includes(at);
+}
+
+/** The iTunes store, which knows the real recording and a preview of it. */
+async function itunesSearch(query, limit = 8) {
+  try {
+    const res = await axios.get('https://itunes.apple.com/search', {
+      timeout: 15000,
+      responseType: 'json',
+      params: { term: query, entity: 'song', limit: Math.max(1, Math.min(20, limit)) },
+    });
+    return (res.data && res.data.results ? res.data.results : []).map((r) => ({
+      title: String(r.trackName || ''),
+      artist: String(r.artistName || ''),
+      album: String(r.collectionName || ''),
+      preview: String(r.previewUrl || ''),
+      source: 'itunes',
+      youtubeId: '',
+      length: '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Deezer, which has more of the back catalogue and gives mp3 previews. */
+async function deezerSearch(query, limit = 8) {
+  try {
+    const res = await axios.get('https://api.deezer.com/search', {
+      timeout: 15000,
+      responseType: 'json',
+      params: { q: query, limit: Math.max(1, Math.min(25, limit)) },
+    });
+    return (res.data && res.data.data ? res.data.data : []).map((r) => ({
+      title: String(r.title || ''),
+      artist: String((r.artist && r.artist.name) || ''),
+      album: String((r.album && r.album.title) || ''),
+      preview: String(r.preview || ''),
+      source: 'deezer',
+      youtubeId: '',
+      length: r.duration ? `${Math.floor(r.duration / 60)}:${String(r.duration % 60).padStart(2, '0')}` : '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────
+// LYRICS — lrclib, then lyrics.ovh
+// ───────────────────────────────────────────────────────────────────
+
+/**
+ * The real words of a real song.
+ *
+ * WHY THIS EXISTS
+ * The old lookup asked lyrics.ovh for `v1/{url-encoded "artist - title"}`,
+ * which is not a URL that API has. It wants `v1/{artist}/{title}` — two path
+ * segments. Every single request 404'd, so `!lyrics` never once found a real
+ * song and always fell through to the AI writing something original. The
+ * command was not "sometimes wrong", it was wrong every time.
+ *
+ * So there are two sources now, in this order:
+ *
+ *   1. lrclib.net — a full lyrics database with a SEARCH endpoint. It is the
+ *      one that matters for the ambiguous case: two songs with the same title
+ *      come back as two rows, each with its own artist, and the person gets to
+ *      say which one they meant. It also carries synced lyrics (the kind with
+ *      timestamps), which is a nicer thing to send than a wall of text.
+ *   2. lyrics.ovh — older, smaller, and no search. It is the fallback, and it
+ *      is only ever asked with the path shape it actually has.
+ *
+ * Nothing here throws. Every function answers null or an empty result, and the
+ * command decides what to say about it.
+ *
+ * @typedef {object} LyricsHit
+ * @property {string} id
+ * @property {string} title
+ * @property {string} artist
+ * @property {string} album
+ * @property {string} plain
+ * @property {string} synced
+ * @property {number} duration seconds, 0 when unknown
+ */
+
+/** lrclib wants a browser-ish agent, or it answers 403. */
+const LRCLIB_HEADERS = { 'User-Agent': UA, Accept: 'application/json' };
+
+/**
+ * Every song a search turned up, with the words when it has them.
+ *
+ * @param {string} query the title, or "artist - title"
+ * @param {number} [limit] how many
+ * @returns {Promise<LyricsHit[]>}
+ */
+async function lyricsCandidates(query, limit = 8) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const want = Math.max(1, Math.min(20, Number(limit) || 8));
+
+  try {
+    const res = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`, {
+      timeout: 15000,
+      responseType: 'json',
+      headers: LRCLIB_HEADERS,
+    });
+    const rows = Array.isArray(res.data) ? res.data : [];
+    return rows.slice(0, want).map((r) => ({
+      id: String(r.id || ''),
+      title: String(r.trackName || r.title || ''),
+      artist: String(r.artistName || r.artist || ''),
+      album: String(r.albumName || ''),
+      plain: String(r.plainLyrics || ''),
+      synced: String(r.syncedLyrics || ''),
+      duration: Number(r.duration) || 0,
+      instrumental: Boolean(r.instrumental),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Split "artist - title" into its two halves.
+ *
+ * The dash is the convention everybody uses, and it is the only reliable way to
+ * say which of two songs with the same name is meant.
+ *
+ * @param {string} query
+ * @returns {{artist:string,title:string}}
+ */
+function splitArtistTitle(query) {
+  const q = String(query || '').trim();
+  const hit = q.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+  if (hit) return { artist: hit[1].trim(), title: hit[2].trim() };
+  return { artist: '', title: q };
+}
+
+/** Do two titles say the same thing, ignoring case, spacing and punctuation? */
+function sameTitle(a, b) {
+  const clean = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const x = clean(a);
+  const y = clean(b);
+  return Boolean(x) && x === y;
+}
+
+/**
+ * The real lyrics for a song, and the alternatives when the title is ambiguous.
+ *
+ * @param {string} query the title, or "artist - title"
+ * @returns {Promise<{found:boolean, ambiguous:boolean, plain:string, synced:string,
+ *   title:string, artist:string, album:string, source:string, candidates:Array}>}
+ */
+async function lyrics(query) {
+  const empty = {
+    found: false, ambiguous: false, plain: '', synced: '',
+    title: '', artist: '', album: '', source: '', candidates: [], alternatives: [],
+  };
+  const q = String(query || '').trim();
+  if (!q) return empty;
+
+  const { artist: wantedArtist, title: wantedTitle } = splitArtistTitle(q);
+
+  const hits = await lyricsCandidates(q, 10);
+  if (hits.length) {
+    // Prefer a hit whose title matches what was asked for, and — when the
+    // person wrote "artist - title" — whose artist matches too. A hit with the
+    // words in it beats one without, so a karaoke cover with no lyrics does
+    // not win from a real recording.
+    const scored = hits.map((h) => {
+      let score = 0;
+      if (sameTitle(h.title, wantedTitle)) score += 4;
+      if (wantedArtist && sameTitle(h.artist, wantedArtist)) score += 4;
+      else if (wantedArtist && String(h.artist).toLowerCase().includes(wantedArtist.toLowerCase())) score += 2;
+      if (h.plain || h.synced) score += 2;
+      return { h, score };
+    }).sort((a, b) => b.score - a.score);
+
+    const best = scored[0].h;
+    // The alternatives: every other song carrying the SAME title. Two rows
+    // from the same artist are the same song twice, not a choice; two rows
+    // from different artists are exactly the case the person needs a menu
+    // for.
+    const sameName = hits.filter((h) => sameTitle(h.title, best.title));
+    const artists = new Set(sameName.map((h) => String(h.artist).toLowerCase()).filter(Boolean));
+    const ambiguous = artists.size > 1 && !wantedArtist;
+
+    return {
+      found: Boolean(best.plain || best.synced),
+      ambiguous,
+      plain: best.plain,
+      synced: best.synced,
+      title: best.title,
+      artist: best.artist,
+      album: best.album,
+      source: 'lrclib',
+      candidates: sameName.length > 1 ? sameName : hits,
+      alternatives: sameName.length > 1 ? sameName : [],
+    };
+  }
+
+  // lrclib had nothing. lyrics.ovh is older and smaller, but it wants two path
+  // segments and no search, so it is only worth asking when we know both.
+  const artist = wantedArtist;
+  const title = wantedTitle;
+  if (artist && title && artist !== title) {
+    const got = await lyricsOvh(artist, title);
+    if (got) {
+      return {
+        found: true,
+        ambiguous: false,
+        plain: got,
+        synced: '',
+        title,
+        artist,
+        album: '',
+        source: 'lyrics.ovh',
+        candidates: [],
+        alternatives: [],
+      };
+    }
+  }
+
+  return empty;
+}
+
+/**
+ * lyrics.ovh, called the way it actually answers.
+ *
+ * The path is two segments — the artist and the title — and each one is
+ * encoded on its own. `/v1/Adele/Hello` answers; `/v1/adele%20hello` is a 404.
+ *
+ * @param {string} artist
+ * @param {string} title
+ * @returns {Promise<string|null>} the lyrics, or null
+ */
+async function lyricsOvh(artist, title) {
+  try {
+    const res = await axios.get(
+      `https://api.lyrics.ovh/v1/${encodeURIComponent(String(artist).trim())}/${encodeURIComponent(String(title).trim())}`,
+      { timeout: 15000, responseType: 'json' },
+    );
+    const text = res && res.data && res.data.lyrics;
+    return text ? String(text) : null;
+  } catch {
+    return null;
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -871,7 +1311,11 @@ function dedupeByUrl(list) {
  *   1. the user pasted the image itself (pinimg.com/<...>.jpg) — send it.
  *   2. the page markup carries an og:image or og:video — still true for
  *      anything that embeds a pin rather than being Pinterest.
- *   3. Bing's image index for that exact pin URL, accepting a result ONLY when
+ *   3. Pinterest's own JSON in the markup — `images_orig` or `imageLargeUrl`.
+ *      This is the one that makes a real pin work: Pinterest builds its pages
+ *      in JavaScript and has no og:image at all, but the pin's own record is
+ *      still in the page, picture and all.
+ *   4. Bing's image index for that exact pin URL, accepting a result ONLY when
  *      its own page URL is the pin the user pasted. A lookalike image is worse
  *      than an honest no, so a fuzzy match is thrown away.
  *
@@ -900,9 +1344,38 @@ async function pinImage(link) {
     const title = pick('og:title');
     if (img) return { url: unescapeHtml(img), video: unescapeHtml(clip), title, source: 'og' };
     if (clip) return { url: unescapeHtml(clip), title, source: 'og-video' };
+
+    // 3. Pinterest's own data.
+    //
+    // Pinterest builds its pages in JavaScript, so there is no og:image in the
+    // markup — that is why this used to answer "no image" for every pin and
+    // the command fell back to handing out a link. But the page still carries
+    // the pin's own record as JSON, and the picture is right there in it:
+    //
+    //   "images_orig":{"url":"https://i.pinimg.com/originals/56/d4/c7/....jpg"
+    //   "imageLargeUrl":"https://i.pinimg.com/1200x/56/d4/c7/....jpg"
+    //
+    // The order matters. A page also contains a CSS asset under
+    // `originals/...`, and that one is the same Pinterest logo on every pin —
+    // a regex that grabbed the first pinimg URL on the page would have sent
+    // the logo instead of the photo. `images_orig` is the pin's own field, so
+    // it is asked for by name and nothing else is.
+    const own = (html.match(/"images_orig"\s*:\s*\{\s*"url"\s*:\s*"([^"]+)"/i)
+      || html.match(/"imageLargeUrl"\s*:\s*"([^"]+)"/i)
+      || [])[1];
+    if (own) {
+      const t = (html.match(/"grid_title"\s*:\s*"([^"]+)"/i)
+        || html.match(/"closeup_unified_description"\s*:\s*"([^"]+)"/i)
+        || [])[1] || '';
+      return {
+        url: unescapeHtml(own),
+        title: unescapeHtml(t),
+        source: 'pinterest-json',
+      };
+    }
   }
 
-  // 3. The search index, exact page match only.
+  // 4. The search index, exact page match only.
   const wanted = barePage(ref);
   const hits = await bingImages(ref);
   const exact = hits.find((h) => barePage(h.page) === wanted && /pinimg|pinterest/i.test(h.url));
@@ -1034,6 +1507,15 @@ module.exports = {
   guessMime,
   youtubeId,
   youtube,
+  youtubeSearch,
+  songCandidates,
+  itunesSearch,
+  deezerSearch,
+  lyrics,
+  lyricsCandidates,
+  lyricsOvh,
+  splitArtistTitle,
+  sameTitle,
   pickAudio,
   pickVideo,
   shortVideo,
