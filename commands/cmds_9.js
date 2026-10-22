@@ -1309,27 +1309,29 @@ const commands = [];
         : 'They are not married to anyone, which explains a lot about this chat.';
 
       await react('📂');
-      await reply(
-        `🕵️ **EXPOSED: ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `💀 Kills: ${num(t.kills)} · Stabs: ${num(t.stabs)} · Slaps dealt: ${num(t.slaps)}\n`
-        + `🔥 Roasts: ${num(t.roasts)} · Dares failed: ${num(t.daresFailed)}\n`
-        + `🤗 Hugs received: ${num(t.giftsIn)} · Given: ${num(t.giftsOut)}\n`
-        + `💸 Spent on this module: ${num(t.giftsOut + t.daresFailed * 500)}\n`
-        + `🐾 Pet: ${pet ? `${pet.emoji || '🐾'} ${pet.name} (${num(petPower(pet))} pwr)` : 'none. Suspicious.'}\n`
-        + `💍 ${exposure}\n`
-        + `👛 Their wallet: ${kc(who.coins)}\n`
-        + '📖 _All of this is from their own command history. Nothing here is invented._',
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '🔍 EXPOSE',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'BUILT FROM THEIR OWN COMMAND HISTORY. NOTHING IS INVENTED.',
-    });
+      const sent = await art(reply, event.messageID, {
+        title: '🔍 EXPOSE',
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
+        right: { uid: who.uid, name: who.name },
+        footer: 'BUILT FROM THEIR OWN COMMAND HISTORY. NOTHING IS INVENTED.',
+      });
+      if (!sent) {
+        await reply(
+          `🕵️ **EXPOSED: ${who.name}**\n`
+          + '· · · · · · ·\n'
+          + `💀 Kills: ${num(t.kills)} · Stabs: ${num(t.stabs)} · Slaps dealt: ${num(t.slaps)}\n`
+          + `🔥 Roasts: ${num(t.roasts)} · Dares failed: ${num(t.daresFailed)}\n`
+          + `🤗 Hugs received: ${num(t.giftsIn)} · Given: ${num(t.giftsOut)}\n`
+          + `💸 Spent on this module: ${num(t.giftsOut + t.daresFailed * 500)}\n`
+          + `🐾 Pet: ${pet ? `${pet.emoji || '🐾'} ${pet.name} (${num(petPower(pet))} pwr)` : 'none. Suspicious.'}\n`
+          + `💍 ${exposure}\n`
+          + ` Their wallet: ${kc(who.coins)}\n`
+          + '📖 _All of this is from their own command history. Nothing here is invented._',
+          event.messageID,
+        );
+      }
 
     }),
   });
