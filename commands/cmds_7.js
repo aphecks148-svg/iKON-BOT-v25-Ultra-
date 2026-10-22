@@ -2654,6 +2654,17 @@ const commands = [];
         return `${place} **${names[i]}** — Lv ${t.level} · ${kc(t.money)} · ${stars(t.wanted)}`;
       });
 
+      const card = await cards.boardCard({
+        emoji: '🏆', title: 'THE CITY BOARD', subtitle: 'By level, then by winnings',
+        rows: docs,
+        value: (d) => `Lv ${g(d).level}`,
+        detail: (d) => kc(g(d).money),
+        api, limit: 10,
+      });
+      if (card) {
+        await reply({ body: `🏆 **THE CITY BOARD**\n· · · · · · ·\n${rows.join('\n')}\n\n📖 ${story()}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
       await reply(
         `🏆 **THE CITY BOARD**\n`
         + '· · · · · · ·\n'
