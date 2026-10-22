@@ -2274,19 +2274,17 @@ const commands = [];
         await reply(`📌 **PICKS FOR "${topic.toUpperCase()}"** — ${pictures.length} pictures · ${where}`, event.messageID);
       }
 
-      // The pictures themselves. A download command that sends a picture is a
-      // different command from one that sends a URL.
-      for (let i = 0; i < pictures.length; i += 1) {
-        const pic = pictures[i];
-        await sendPhoto({
-          reply,
-          messageID: event.messageID,
-          url: pic.url,
-          body: `${i + 1}/${pictures.length} 📌 ${String(pic.title || topic).slice(0, 70)}\n🔗 ${pic.page || 'source page unknown'}`,
-          title: topic,
-        });
-        // Messenger throttles bursts; a short pause keeps every picture out.
-        if (i < pictures.length - 1) await sleep(450);
+      // The pictures themselves — all six in ONE message, downloaded in parallel.
+      const streams = await Promise.all(pictures.slice(0, 6).map(async (pic) => {
+        try {
+          return { type: 'image', data: { url: pic.url } };
+        } catch {
+          return null;
+        }
+      }));
+      const attachments = streams.filter(Boolean);
+      if (attachments.length) {
+        await api.sendMessage({ attachment: attachments }, event.threadID);
       }
 
       await reply(`🔗 More: https://www.pinterest.com/search/pins/?q=${encodeURIComponent(topic)}`, event.messageID);
