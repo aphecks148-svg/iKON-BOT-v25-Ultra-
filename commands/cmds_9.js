@@ -918,23 +918,25 @@ const commands = [];
       }
 
       await react('❤️');
-      await reply(
-        `💋 **${userDoc.name} KISSED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `${meter(rand(10, 95), '❤️ LOVE METER')}\n`
-        + `${petLine}\n`
-        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
-        + `📖 _Nothing about this changes your status._`,
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '💋 KISS',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'NOTHING ABOUT THIS CHANGES YOUR STATUS.',
-    });
+      const sent = await art(reply, event.messageID, {
+        title: '💋 KISS',
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
+        right: { uid: who.uid, name: who.name },
+        footer: 'NOTHING ABOUT THIS CHANGES YOUR STATUS.',
+      });
+      if (!sent) {
+        await reply(
+          `💋 **${userDoc.name} KISSED ${who.name}**\n`
+          + '· · · · · · ·\n'
+          + `${meter(rand(10, 95), '❤️ LOVE METER')}\n`
+          + `${petLine}\n`
+          + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+          + `📖 _Nothing about this changes your status._`,
+          event.messageID,
+        );
+      }
 
     }),
   });
@@ -1497,23 +1499,25 @@ const commands = [];
       await save(who);
 
       await react('🗑️');
-      await reply(
-        `💔 **${userDoc.name} DIVORCED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `💸 -10,000\n`
-        + `📅 It lasted ${num(years)} day(s).\n`
-        + `👛 Your wallet: ${kc(userDoc.coins)}\n`
-        + `📖 _The bot does not record who was at fault. It is not that kind of bot._`,
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '💔 DIVORCE',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'THE BOT DOES NOT RECORD WHO WAS AT FAULT.',
-    });
+      const sent = await art(reply, event.messageID, {
+        title: '💔 DIVORCE',
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
+        right: { uid: who.uid, name: who.name },
+        footer: 'THE BOT DOES NOT RECORD WHO WAS AT FAULT.',
+      });
+      if (!sent) {
+        await reply(
+          `💔 **${userDoc.name} DIVORCED ${who.name}**\n`
+          + '· · · · · · ·\n'
+          + `💸 -10,000\n`
+          + `📅 It lasted ${num(years)} day(s).\n`
+          + `👛 Your wallet: ${kc(userDoc.coins)}\n`
+          + `📖 _The bot does not record who was at fault. It is not that kind of bot._`,
+          event.messageID,
+        );
+      }
 
     }),
   });
