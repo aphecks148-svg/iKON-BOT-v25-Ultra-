@@ -5490,6 +5490,49 @@ const PIKACHU = dex.find('pikachu');
     return 'an answer or no fee';
   });
 
+  await step('!leavegc actually leaves the chat', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const gcs = require('./gcs');
+
+    // This build of ws3-fca has no `leaveThread()` — the method does not
+    // exist — so the old command could only ever answer "this build cannot
+    // leave". The way out is `gcmember('remove', uid, threadID)`: a member
+    // removing itself from a group is a member leaving.
+    const calls = [];
+    const api = {
+      async getCurrentUserID() { return '555555555'; },
+      async getThreadList() {
+        return [
+          { threadID: '1234567890', isGroup: true, name: 'The Crew' },
+          { threadID: '9999999999', isGroup: true, name: 'Another' },
+        ];
+      },
+      async gcmember(action, uid, threadID) { calls.push([action, uid, threadID]); return {}; },
+    };
+
+    const out = [];
+    await loaded.registry.get('leavegc').execute({
+      api,
+      args: ['1234567890'],
+      event: { threadID: '5550000000', messageID: 'm1', senderID: '999000111', isGroup: false },
+      config,
+      reply: async (t) => { out.push(t); },
+      react: async () => true,
+      userDoc: { uid: '999000111', name: 'Owner', coins: 100000 },
+    });
+
+    assert.strictEqual(calls.length, 1, `the bot asked to leave once, got ${calls.length}`);
+    assert.strictEqual(calls[0][0], 'remove', 'by removing itself from the chat');
+    assert.strictEqual(calls[0][1], '555555555', 'and it was the bot doing it');
+    assert.strictEqual(calls[0][2], '1234567890', 'and the chat was the one that was asked for');
+    assert.ok(/LEFT/.test(out.join('\n')), `and the reply says so: ${out.join('\n').slice(0, 120)}`);
+
+    // And the helper itself is honest when the client cannot do it at all.
+    const bare = await gcs.leave({ getCurrentUserID: async () => '1' }, '123');
+    assert.strictEqual(bare.left, false, 'a client with neither method cannot leave');
+    assert.ok(bare.reason, 'and it says why');
+  });
+
   await step('the bestiary is two parts, and all fifty pets are in one of them', async () => {
     const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
     const petlist = loaded.registry.get('petlist');

@@ -322,6 +322,63 @@ async function kick(api, uid, threadID) {
 }
 
 /**
+ * The bot leaves a group chat.
+ *
+ * There is no `api.leaveThread()` in this build of ws3-fca — the method does
+ * not exist, so a command that called it could only ever answer "this build
+ * cannot leave". What the build DOES have is `api.gcmember('remove', uid,
+ * threadID)`, which is how the bot already clears dead accounts out of a
+ * chat. A member removing itself from a group is a member leaving, and
+ * Facebook treats it the same way: the same log:unsubscribe event arrives
+ * moments later.
+ *
+ * @param {object} api ws3-fca client
+ * @param {string} threadID the chat to leave
+ * @returns {Promise<{left:boolean, reason:string}>}
+ */
+async function leave(api, threadID) {
+  const tid = String(threadID || '').trim();
+  if (!tid) return { left: false, reason: 'no chat id' };
+  if (!api) return { left: false, reason: 'no client' };
+
+  // A build that grows a real leaveThread() gets to use it.
+  if (typeof api.leaveThread === 'function') {
+    try {
+      const ok = await api.leaveThread(tid);
+      return { left: Boolean(ok), reason: ok ? '' : 'Facebook refused the request' };
+    } catch (err) {
+      return { left: false, reason: (err && err.message) || String(err) };
+    }
+  }
+
+  if (typeof api.gcmember !== 'function') {
+    return { left: false, reason: 'this build of ws3-fca has neither leaveThread() nor gcmember()' };
+  }
+
+  // The bot's own id. `api.getCurrentUserID()` returns a PROMISE, so it has to
+  // be awaited — stringifying it would give the literal text
+  // "[object Promise]", which is not a member of anything.
+  let me = '';
+  try {
+    if (typeof api.getCurrentUserID === 'function') {
+      const id = await api.getCurrentUserID();
+      if (typeof id === 'string' || typeof id === 'number') {
+        const s = String(id);
+        if (/^\d+$/.test(s)) me = s;
+      }
+    }
+  } catch { /* fall through to the error below */ }
+  if (!me) return { left: false, reason: 'the bot does not know its own id' };
+
+  try {
+    await api.gcmember('remove', me, tid);
+    return { left: true, reason: '' };
+  } catch (err) {
+    return { left: false, reason: (err && err.message) || String(err) };
+  }
+}
+
+/**
  * Find dead accounts across every chat, and try to remove them.
  *
  * NEVER removes the bot or a bot admin. When Facebook refuses the removal the
@@ -495,6 +552,7 @@ module.exports = {
   membersOf,
   exemptIds,
   kick,
+  leave,
   markKicked,
   wasKicked,
   clearKicks,

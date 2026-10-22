@@ -3111,23 +3111,13 @@ await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavaila
         return;
       }
 
-      const canLeave = api && typeof api.leaveThread === 'function';
-      if (!canLeave) {
-        await reply(
-          `⚠️ This build of ws3-fca has no leaveThread(). The bot cannot leave \`${target}\` from here.`
-          + ' Remove it from the group chat directly instead.',
-          event.messageID,
-        );
-        return;
-      }
-
-      let left = false;
-      let errMsg = '';
-      try {
-        left = await api.leaveThread(target);
-      } catch (err) {
-        errMsg = (err && err.message) || String(err);
-      }
+      // Leave the chat.
+      //
+      // The old code called `api.leaveThread()`, which this build of ws3-fca
+      // does not have — so the command could only ever answer "this build
+      // cannot leave", which is a strange thing for the one command whose
+      // whole job is leaving.
+      const { left, reason } = await gcs.leave(api, target);
 
       // The database record is dropped regardless: a chat the bot has left is
       // not a chat it should keep polling or answering in.
@@ -3144,7 +3134,7 @@ await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavaila
       }
       await reply(
         `⚠️ **DID NOT LEAVE**\n· · · · · · ·\nFacebook refused to remove the bot from \`${target}\`.`
-        + (errMsg ? `\nReason: ${errMsg}` : '')
+        + (reason ? `\nReason: ${reason}` : '')
         + '\nRemove it from the group chat directly.',
         event.messageID,
       );
