@@ -974,20 +974,53 @@ async function repliedImage(api, event) {
   return null;
 }
 
-/** Load an image URL into an @napi-rs canvas. Null on any failure. */
+/** Load an image URL into a canvas. Null on any failure. */
 async function loadImage(url) {
-  const made = canvasKit.create(1024, 1024);
-  if (!made) return null;
-  const { ctx } = made;
+  const buf = await fetchBuffer(url);
+  if (!buf || !buf.length) return null;
+  const img = await loadImageBytes(buf);
+  if (!img) return null;
   try {
-    // eslint-disable-next-line global-require
-    const { Image } = canvasKit.lib() || {};
-    const img = new Image();
-    img.src = Buffer.from(await fetchBuffer(url) || []);
     const w = Math.min(1024, img.width || 1024);
     const h = Math.min(1024, img.height || 1024);
-    ctx.drawImage(img, 0, 0, w, h);
+    const made = canvasKit.create(w, h);
+    if (!made) return null;
+    made.ctx.drawImage(img, 0, 0, w, h);
     return made;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load image bytes into something a canvas can draw.
+ *
+ * `new Image(); img.src = buf` is the node-canvas way. @napi-rs/canvas — the
+ * library this bot actually uses — has no such class: its Image has no
+ * constructor arguments and no `src` setter, so the assignment does nothing,
+ * `img.width` comes back undefined, and `drawImage` throws on something that
+ * is not an image.
+ *
+ * `lib.loadImage()` is the API BOTH libraries have, and it is what
+ * bot/cards.js has been using all along. Every path in this file that drew
+ * a photo went through the node-canvas way, which is why `!4k`, `!upscale`,
+ * `!enhance`, `!bgremove` and the contact sheet all failed on the library
+ * the bot actually loads.
+ *
+ * @param {Buffer} buf
+ * @returns {Promise<object|null>} the loaded image, or null
+ */
+async function loadImageBytes(buf) {
+  const lib = canvasKit.lib();
+  if (!lib || !buf || !buf.length) return null;
+  try {
+    if (typeof lib.loadImage === 'function') return await lib.loadImage(buf);
+    // The node-canvas fallback, for a build that somehow has no loadImage.
+    const { Image } = lib;
+    if (!Image) return null;
+    const img = new Image();
+    img.src = Buffer.from(buf);
+    return img;
   } catch {
     return null;
   }
@@ -1014,13 +1047,11 @@ const BGCOLOURS = {
 async function drawScaled(url, factor, filter = null) {
   const buf = await fetchBuffer(url);
   if (!buf || !buf.length) return null;
-  const lib = canvasKit.lib();
-  if (!lib) return null;
-  const { Image } = lib;
+  if (!canvasKit.lib()) return null;
 
   try {
-    const img = new Image();
-    img.src = buf;
+    const img = await loadImageBytes(buf);
+    if (!img) return null;
     const w = Math.min(4096, Math.max(1, Math.round((img.width || 512) * factor)));
     const h = Math.min(4096, Math.max(1, Math.round((img.height || 512) * factor)));
     const made = canvasKit.create(w, h);
@@ -1320,13 +1351,10 @@ function noFileLine(label, fee, resolved) {
  */
 async function drawCover(ctx, url, x, y, w, h) {
   try {
-    const lib = canvasKit.lib();
-    if (!lib) return false;
     const buf = await fetchBuffer(url);
     if (!buf || !buf.length) return false;
-    const { Image } = lib;
-    const img = new Image();
-    img.src = buf;
+    const img = await loadImageBytes(buf);
+    if (!img) return false;
     const sw = img.width || w;
     const sh = img.height || h;
     if (!sw || !sh) return false;
