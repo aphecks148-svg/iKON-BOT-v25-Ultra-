@@ -1137,24 +1137,26 @@ const commands = [];
       }
 
       await react('⚰️');
-      await reply(
-        `💀 **${userDoc.name} KILLED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `🔪 Cause of death: ${method[0]}. ${method[1]}.\n`
-        + `💸 They lost ${kc(lost.took)}\n`
-        + `👛 Their wallet: ${kc(who.coins)}\n`
-        + `${petLine}\n`
-        + '📖 _Nobody was killed. This is a message with a sad emoji._',
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '💀 KILL',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'NOBODY WAS KILLED. THIS IS A MESSAGE WITH A SAD EMOJI.',
-    });
+      const sent = await art(reply, event.messageID, {
+        title: '💀 KILL',
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
+        right: { uid: who.uid, name: who.name },
+        footer: 'NOBODY WAS KILLED. THIS IS A MESSAGE WITH A SAD EMOJI.',
+      });
+      if (!sent) {
+        await reply(
+          `💀 **${userDoc.name} KILLED ${who.name}**\n`
+          + '· · · · · · ·\n'
+          + `🔪 Cause of death: ${method[0]}. ${method[1]}.\n`
+          + `💸 They lost ${kc(lost.took)}\n`
+          + `👛 Their wallet: ${kc(who.coins)}\n`
+          + `${petLine}\n`
+          + '📖 _Nobody was killed. This is a message with a sad emoji._',
+          event.messageID,
+        );
+      }
 
     }),
   });
