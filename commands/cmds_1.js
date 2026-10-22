@@ -453,6 +453,18 @@ module.exports = [
           lines.push(`• ${names[i]}${id === sender ? '  ← you' : ''}`);
         });
       }
+      const card = owners.length
+        ? await cards.boardCard({
+            emoji: '🛡️', title: 'BOT ADMINS', subtitle: `${owners.length} admin${owners.length === 1 ? '' : 's'}`,
+            rows: owners.map((id) => ({ uid: id })),
+            value: () => 'owner',
+            api, limit: 10,
+          })
+        : null;
+      if (card) {
+        await reply({ body: lines.join('\n'), attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        return;
+      }
       await reply(lines.join('\n'), event.messageID);
     }),
   },
