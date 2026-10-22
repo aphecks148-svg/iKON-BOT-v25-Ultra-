@@ -5660,6 +5660,11 @@ const PIKACHU = dex.find('pikachu');
     const part2 = await say(['2']);
     const one = adopted(part1);
     const two = adopted(part2);
+    // The bestiary is one rarity per part now, so the rest have to be asked
+    // for to make the catalogue complete.
+    const rest = [];
+    for (let n = 3; n <= 9; n += 1) rest.push(await say([String(n)]));
+    const adoptedRest = rest.flatMap((pages) => adopted(pages));
 
     // THE ROSTER ITSELF, straight off disk, so the test cannot pass by agreeing
     // with a hardcoded number.
@@ -5671,7 +5676,7 @@ const PIKACHU = dex.find('pikachu');
     // `!petlist` opens part 1 and STOPS. A catalogue that arrives in one breath
     // is the thing this replaced: part 2 exists because Messenger truncates a
     // long body, not because paging is a nice demo.
-    const both = [...new Set([...one, ...two])].filter((id) => id !== 'starter');
+    const both = [...new Set([...one, ...two, ...adoptedRest])].filter((id) => id !== 'starter');
     assert.strictEqual(both.length, 50, `both parts together list all fifty, got ${both.length}`);
     const missing = ids.filter((id) => !both.includes(id));
     assert.strictEqual(missing.length, 0, `pets missing from the bestiary: ${missing.join(', ')}`);
@@ -5680,7 +5685,7 @@ const PIKACHU = dex.find('pikachu');
     const overlap = one.filter((id) => two.includes(id) && id !== 'starter');
     assert.strictEqual(overlap.length, 0, `a pet is not in both parts: ${overlap.join(', ')}`);
     assert.ok(one.filter((id) => id !== 'starter').length < ids.length, `part 1 alone is not the whole list, got ${one.length}`);
-    assert.ok(part1.length >= 2, `part 1 is paginated per rarity, got ${part1.length} messages`);
+    assert.ok(part1.length >= 1, `part 1 is one rarity, got ${part1.length} messages`);
 
     // A part that ends without saying how to get the rest is a dead end. The
     // footer must name the next part, and the command that asks for it.
@@ -5689,7 +5694,7 @@ const PIKACHU = dex.find('pikachu');
 
     // Ids alone are not a catalogue: a player cannot see what a pet costs or how
     // strong it is without a second command.
-    const prices = (part1.join('\n') + part2.join('\n')).match(/K-Cash/g) || [];
+    const prices = (part1.join('\n') + part2.join('\n') + rest.map((p) => p.join('\n')).join('\n')).match(/K-Cash/g) || [];
     assert.ok(prices.length >= 50, `every pet shows its price — found ${prices.length}`);
 
     // Every rung of the ladder is reachable, and reachable by name. The failure

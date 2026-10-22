@@ -136,25 +136,15 @@ const PETS_BY_RARITY = rarity.LADDER.map((r) => ({
  * @returns {Array<{n:number, of:number, rungs:object[], pets:object[]}>}
  */
 function bestiaryParts() {
+  // One rarity per part. `!petlist` shows one rarity and stops, and the
+  // footer names the next one — the old layout sent every rarity in the part
+  // at once, which is a wall of 50 lines in one chat.
   const filled = PETS_BY_RARITY.filter((g) => g.pets.length);
-  const half = DANGEROUS_PETS.length / 2;
-  let cut = 1;
-  let best = Infinity;
-  let run = 0;
-  for (let i = 0; i < filled.length - 1; i += 1) {
-    run += filled[i].pets.length;
-    const off = Math.abs(half - run);
-    if (off < best) {
-      best = off;
-      cut = i + 1;
-    }
-  }
-  const halves = [filled.slice(0, cut), filled.slice(cut)].filter((rungs) => rungs.length);
-  return halves.map((rungs, i) => ({
+  return filled.map((rung, i) => ({
     n: i + 1,
-    of: halves.length,
-    rungs,
-    pets: rungs.flatMap((g) => g.pets),
+    of: filled.length,
+    rungs: [rung],
+    pets: rung.pets,
   }));
 }
 
@@ -1957,7 +1947,7 @@ module.exports = [
     category: 'pets',
     description: '🐉 The bestiary — all fifty buyable pets, by rarity',
     usage: '!petlist [1 | 2 | rarity | all]',
-    hint: 'Opens on part 1. `!petlist 2` for legendary, mythic and divine; `!petlist divine` is the shortlist.',
+    hint: 'Opens on part 1, one rarity at a time. `!petlist 2` for the next rarity, `!petlist divine` for the shortlist.',
     cooldown: 15,
     // Part 1 and part 2 are two different answers to two different questions, so
     // they get a bucket each. A single shared bucket meant the follow-up the
@@ -2045,16 +2035,19 @@ module.exports = [
           if (i < part.rungs.length - 1) await wait(400);
         }
 
-        // The other half, named. "There is more" is an insult; `!petlist 2` and
-        // the three rarities it holds are instructions. `next` only ever means
-        // part 2, so it is offered from part 1 and nowhere else.
-        const other = parts.find((p) => p.n !== part.n);
+        // One rarity at a time, so the next one is named and asked for by
+        // number. The footer names the next part and the command that asks
+        // for it, because "there is more" is an insult and an instruction is
+        // not. `next` only ever means the part after this one, so it is
+        // offered from part 1 and nowhere else.
+        const other = parts.find((p) => p.n === part.n + 1);
         const rest = other
-          ? `➡️ **Part ${other.n} of ${other.of}** — ${other.pets.length} more: `
+          ? `➡️ **Part ${other.n} of ${other.of}** — ${other.pets.length} more pets: `
             + `${other.rungs.map((r) => `\`${config.PREFIX}petlist ${r.key}\``).join(', ')}\n`
             + `　 ask for it with \`${config.PREFIX}petlist ${other.n}\``
             + `${ask.kind === 'all' || other.n !== 2 ? '' : ' or `!petlist next`'}\n`
-          : '';
+            + (part.n > 1 ? `↩️ \`${config.PREFIX}petlist 1\` — back to the start\\n` : '')
+          : `✅ That is all ${DANGEROUS_PETS.length} of them.\\n`;
         await reply(
           `· · · · · · ·\n`
           + `🐉 Part ${part.n}: ${part.pets.length} of ${DANGEROUS_PETS.length} pets.\n`
