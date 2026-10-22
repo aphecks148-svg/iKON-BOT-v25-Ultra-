@@ -849,23 +849,25 @@ const commands = [];
       }
 
       await react('💢');
-      await reply(
-        `👋 **${userDoc.name} SLAPPED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `💸 They lost ${kc(lost.took)}${lost.short ? ' (that is everything they had)' : ''}\n`
-        + `💰 You took ${kc(stole)}\n`
-        + `👛 Their wallet: ${kc(who.coins)}\n`
-        + `📖 _A message and a transfer. Everybody is fine._`,
-        event.messageID,
-      );
-    await art(reply, event.messageID, {
-      title: '👋 SLAP',
-      api,
-      threadID: event.threadID,
-      left: { uid: userDoc.uid, name: userDoc.name },
-      right: { uid: who.uid, name: who.name },
-      footer: 'A MESSAGE AND A TRANSFER. EVERYBODY IS FINE.',
-    });
+      const sent = await art(reply, event.messageID, {
+        title: '👋 SLAP',
+        api,
+        threadID: event.threadID,
+        left: { uid: userDoc.uid, name: userDoc.name },
+        right: { uid: who.uid, name: who.name },
+        footer: 'A MESSAGE AND A TRANSFER. EVERYBODY IS FINE.',
+      });
+      if (!sent) {
+        await reply(
+          `👋 **${userDoc.name} SLAPPED ${who.name}**\n`
+          + '· · · · · · ·\n'
+          + `💸 They lost ${kc(lost.took)}${lost.short ? ' (that is everything they had)' : ''}\n`
+          + `💰 You took ${kc(stole)}\n`
+          + `👛 Their wallet: ${kc(who.coins)}\n`
+          + `📖 _A message and a transfer. Everybody is fine._`,
+          event.messageID,
+        );
+      }
 
     }),
   });
