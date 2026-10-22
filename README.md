@@ -39,6 +39,7 @@ iKON-BOT/
 │   ├── test.js         core system self-test
 │   ├── e2e.js          end-to-end chain test with a mocked api
 │   ├── check.js        registry shape + per-module progress
+│   ├── audit.js        completeness audit: half-written commands
 │   └── gcs.js          group-chat listing, cleanup, approval sweep
 └── models/             User, Group, Economy, Pet, Inventory
 ```
@@ -93,7 +94,35 @@ npm start
 node bot/test.js   # core system self-test: config, loader, router, cooldown, perms, models
 node bot/e2e.js    # end-to-end chain test with a mocked ws3-fca api
 node bot/check.js  # registry shape + per-module progress
+node bot/audit.js  # completeness audit — the commands that are only half written
 ```
+
+`check.js` and `audit.js` look for different things. `check.js` proves a command
+is shaped right; `audit.js` looks for the ones that are shaped right and still
+wrong — a usage line that names a command nobody can type, a handler that draws
+a card and never sends it, a description with no emoji in it.
+
+Every command carries a hint of its own now, and `check.js` refuses a command
+without one. A help page that ends in nothing is a list rather than a page, and
+the deck's hint is not a substitute: it is about everything in the deck, so it
+belongs on the deck page.
+
+### Pictures
+
+An attachment is uploaded as multipart/form-data, and the uploader reads the
+filename and the content-type off the stream's `name`. A stream with no name
+goes out as an anonymous `application/octet-stream` blob, and Facebook has no
+way to tell that it was handed a picture: the text reply lands and the image
+is simply not in the chat. Every stream the bot builds therefore carries a
+name with the right extension, so a card goes out as
+`filename="iKON-....png"; Content-Type: image/png`. `bot/test.js` builds the
+multipart part the way the uploader builds it and asserts it, and a second
+test drives fifteen card commands through the real engine and holds each one
+to the whole contract — it must not die, it must send exactly one picture,
+and that picture must be a named stream.
+
+A card draws the person's real Facebook photo when Facebook will give it up,
+and a generated avatar when it will not, so a card is never blank.
 
 Set `TEST_MONGO_URI` (or `MONGO_URI`) to also run the live database round-trip
 checks in `bot/test.js`.
@@ -212,9 +241,11 @@ rounds of this bug look identical from the chat.
 | cmds_9 (fun & social) | 35 |
 | cmds_10 (farming) | 40 |
 
-**427 commands** across 10 modules, 601 aliases, 0 conflicts. Every command is
-shaped, aliased and permission-tagged; `node bot/check.js` reports the per-module
-progress and refuses to pass on a malformed entry.
+**427 commands** across 10 modules, 602 aliases, 0 conflicts. Every command is
+shaped, aliased, permission-tagged and carries a hint of its own;
+`node bot/check.js` reports the per-module progress and refuses to pass on a
+malformed entry, a missing hint or a usage line that names a command which
+does not answer.
 
 ### The cleanup
 
