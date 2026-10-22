@@ -2089,6 +2089,22 @@ const commands = [];
       // Named, not numbered. The bot admins are people too, and the whole point
       // of this list is finding out who can help.
       const ownerNames = await Promise.all(owners.map((uid) => cards.realName({ uid }, api)));
+
+      const card = await cards.boardCard({
+        emoji: '🛡️', title: 'THE ADMIN BENCH', subtitle: `${admins.length} chat admin${admins.length === 1 ? '' : 's'}`,
+        rows: admins.map((uid, i) => ({ uid, name: names[i] })),
+        value: () => 'admin',
+        api, limit: 10,
+      });
+      if (card) {
+        await reply({
+          body: `🛡️ **THE ADMIN BENCH**\n· · · · · · ·\n${rows}\n`
+            + (owners.length ? `\n👑 Bot admins (ADMIN_IDS): ${ownerNames.join(', ')}\n` : '')
+            + `📖 ${OWNER} outranks all of them.`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
       await reply(
         `🛡️ **THE ADMIN BENCH**\n· · · · · · ·\n${rows}\n`
         + (owners.length ? `\n👑 Bot admins (ADMIN_IDS): ${ownerNames.join(', ')}\n` : '')
