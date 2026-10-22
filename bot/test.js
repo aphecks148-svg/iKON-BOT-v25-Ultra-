@@ -5200,6 +5200,150 @@ const PIKACHU = dex.find('pikachu');
     return '!sing attaches a voice note; !lyrics write composes';
   });
 
+  await step('the lyrics lookup asks for the URL that exists', async () => {
+    const media = require('./media');
+    const axios = require('axios');
+    const realGet = axios.get;
+    let asked = '';
+    try {
+      axios.get = async (url) => { asked = String(url); return { data: { lyrics: 'the words' } }; };
+      const got = await media.lyricsOvh('Adele', 'Hello');
+      assert.ok(got === 'the words', 'the words come back');
+      // The whole reason this command never found a real song: the old code
+      // asked for `v1/{url-encoded "artist - title"}`, which is a URL that
+      // does not exist. It wants two path segments.
+      assert.ok(asked.endsWith('/v1/Adele/Hello'), `the URL has to be two path segments, got ${asked}`);
+      assert.ok(!/%20/.test(asked), 'and nothing is encoded into one segment');
+    } finally {
+      axios.get = realGet;
+    }
+    assert.deepStrictEqual(
+      media.splitArtistTitle('Adele - Hello'),
+      { artist: 'Adele', title: 'Hello' },
+      'the dash is how somebody says which song they mean',
+    );
+    assert.ok(media.sameTitle('Hello', 'hello'), 'a title is a title');
+    assert.ok(!media.sameTitle('Hello', 'Goodbye'), 'and two different ones are not');
+    return 'the lookup asks for v1/{artist}/{title}, which is the URL that answers';
+  });
+
+  await step('!lyrics finds the real words, and !pick takes your choice', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const media = require('./media');
+    const choices = require('./choices');
+    const realLyrics = media.lyrics;
+    const realAsk = groq.ask;
+
+    const run = async (name, args, uid) => {
+      const out = [];
+      await loaded.registry.get(name).execute({
+        api: mockApi(),
+        args,
+        event: { threadID: 't1', messageID: 'm1', senderID: uid, isGroup: false },
+        config,
+        reply: async (t) => { out.push(t); },
+        react: async () => true,
+        userDoc: { uid, name: 'Tester', coins: 100000, transient: true },
+      });
+      return out;
+    };
+
+    try {
+      // 1. A song that is there. The real words, not something written on the
+      //    spot. The AI is still asked for the review that sits on top — that
+      //    is decoration, and it is not what the words are.
+      groq.ask = async () => 'a review of the song';
+      media.lyrics = async () => ({
+        found: true, ambiguous: false, plain: 'the real words of the song', synced: '',
+        title: 'Hello', artist: 'Adele', album: '25', source: 'lrclib',
+        candidates: [], alternatives: [],
+      });
+      const got = await run('lyrics', ['hello'], 'u_real');
+      const text = got.filter((s) => typeof s === 'string').join('\n');
+      assert.ok(/the real words of the song/.test(text), `the real words are sent: ${text.slice(0, 120)}`);
+      assert.ok(!/written for you/i.test(text), 'and they are not passed off as something the AI wrote');
+      assert.ok(!/a review of the song/.test(text)
+        || /the real words of the song/.test(text), 'the review sits on top of the words, not instead of them');
+
+      // 2. Two songs with the same title: a numbered list, and the list is
+      //    remembered so the number means something.
+      choices.clear('u_two');
+      media.lyrics = async () => ({
+        found: true, ambiguous: true, plain: 'first song words', synced: '',
+        title: 'Hello', artist: 'Adele', album: '25', source: 'lrclib',
+        candidates: [],
+        alternatives: [
+          { title: 'Hello', artist: 'Adele', plain: 'first song words', album: '25' },
+          { title: 'Hello', artist: 'Lionel Richie', plain: 'second song words', album: 'Twenty' },
+        ],
+      });
+      const menu = await run('lyrics', ['hello'], 'u_two');
+      const menuText = menu.filter((s) => typeof s === 'string').join('\n');
+      assert.ok(/1\./.test(menuText) && /2\./.test(menuText), `the list is numbered: ${menuText.slice(0, 160)}`);
+      assert.ok(/Lionel Richie/.test(menuText), 'and it names the other artist');
+      assert.ok(/!pick/.test(menuText), 'and it says how to choose');
+
+      // 3. The number picks that song. Not the first one, and not the AI's.
+      const picked = await run('pick', ['2'], 'u_two');
+      const pickedText = picked.filter((s) => typeof s === 'string').join('\n');
+      assert.ok(/second song words/.test(pickedText), `the chosen song's words: ${pickedText.slice(0, 120)}`);
+      assert.ok(!/first song words/.test(pickedText), 'and not the other one');
+      assert.strictEqual(choices.get('u_two'), null, 'the list is spent');
+
+      // 4. Nothing to pick is not a crash.
+      const empty = await run('pick', ['1'], 'u_nothing');
+      assert.ok(/nothing to pick/i.test(empty.join('\n')), 'and it says so plainly');
+    } finally {
+      media.lyrics = realLyrics;
+      groq.ask = realAsk;
+      choices.clear('u_real');
+      choices.clear('u_two');
+    }
+    return 'the real words, a numbered list when the title is ambiguous, and !pick takes the choice';
+  });
+
+  await step('!sing sends a real recording, and says which one', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const media = require('./media');
+    const realSong = media.songCandidates;
+    const realAttachment = media.attachment;
+    const realYoutube = media.youtube;
+    try {
+      media.songCandidates = async () => ([
+        { title: 'Hello', artist: 'Adele', album: '25', preview: 'https://example.invalid/p.m4a', source: 'itunes', youtubeId: '', length: '' },
+      ]);
+      media.attachment = async () => require('stream').Readable.from([Buffer.from('ID3fake')]);
+      // The stream has to be named, or it leaves as an anonymous blob.
+      const stream = require('stream').Readable.from([Buffer.from('ID3fake')]);
+      stream.name = 'iKON-preview.m4a';
+      media.attachment = async () => stream;
+
+      const sung = [];
+      await loaded.registry.get('sing').execute({
+        api: mockApi(),
+        args: ['hello', 'adele'],
+        event: { threadID: 't1', messageID: 'm1', senderID: 'u_sing', isGroup: false },
+        config,
+        reply: async (t) => { sung.push(t); },
+        react: async () => true,
+        userDoc: { uid: 'u_sing', name: 'Tester', coins: 100000, transient: true },
+      });
+
+      const voice = sung.find((s) => s && typeof s === 'object' && s.attachment);
+      assert.ok(voice, '!sing must attach the recording — a coaching sheet is not singing');
+      assert.ok(voice.attachment && typeof voice.attachment.name === 'string' && voice.attachment.name,
+        'and the recording must be a named stream, or Facebook will not play it');
+      const body = String(voice.body || '');
+      assert.ok(/SINGING/i.test(body), 'and it says what it is singing');
+      assert.ok(/thirty seconds/i.test(body), 'and it is honest that a store preview is half a minute');
+    } finally {
+      media.songCandidates = realSong;
+      media.attachment = realAttachment;
+      media.youtube = realYoutube;
+    }
+    return '!sing sends the recording, named, and says how long it is';
+  });
+
   await step('the bestiary is two parts, and all fifty pets are in one of them', async () => {
     const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
     const petlist = loaded.registry.get('petlist');

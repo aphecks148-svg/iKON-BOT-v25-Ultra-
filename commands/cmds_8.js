@@ -53,6 +53,7 @@ const canvasKit = require('../bot/canvas');
 const cards = require('../bot/cards');
 const groq = require('../bot/groq');
 const media = require('../bot/media');
+const choices = require('../bot/choices');
 
 const config = require('../config');
 const Group = require('../models/Group');
@@ -766,14 +767,32 @@ function dedupeMatches(rows) {
  *
  * @returns {Promise<{ok:boolean, reason?:string}>}
  */
+/**
+ * Can this person pay?
+ *
+ * Checked BEFORE the work, so nobody pays for a lookup that is going to come
+ * back empty. The money only moves once there is something to show.
+ *
+ * @param {object} userDoc
+ * @param {number} cost
+ * @returns {boolean}
+ */
+function affordable(userDoc, cost) {
+  const fee = clamp(cost);
+  if (fee <= 0) return true;
+  return (userDoc.coins || 0) >= fee;
+}
+
+/** The "not enough money" line, in one place so it always reads the same. */
+function tooPoor(userDoc, cost) {
+  return `💸 **Not enough.** This costs ${kc(cost)} and you have ${kc(userDoc.coins || 0)}.`;
+}
+
 async function charge(userDoc, cost, action) {
   const fee = clamp(cost);
   if (fee <= 0) return { ok: true };
-  if ((userDoc.coins || 0) < fee) {
-    return {
-      ok: false,
-      reason: `💸 **Not enough.** This costs ${kc(fee)} and you have ${kc(userDoc.coins)}.`,
-    };
+  if (!affordable(userDoc, fee)) {
+    return { ok: false, reason: tooPoor(userDoc, fee) };
   }
   userDoc.coins = clamp(userDoc.coins - fee);
   await save(userDoc);
@@ -1335,6 +1354,203 @@ async function sendVoice({ reply, messageID, text, body = '' }) {
   return Boolean(sent);
 }
 
+/**
+ * Send an audio file, with a line of text above it.
+ *
+ * The stream is built by media.attachment(), which names it and gives it the
+ * right content-type — an unnamed upload arrives at Facebook as an anonymous
+ * blob and never plays.
+ *
+ * @returns {Promise<boolean>} whether the audio went out
+ */
+async function sendAudio({ reply, messageID, url, body = '' }) {
+  if (!url) return false;
+  const stream = await media.attachment(url, { type: 'audio' });
+  if (!stream) return false;
+  const sent = await reply({ body, attachment: stream }, messageID);
+  return Boolean(sent);
+}
+
+/**
+ * The real words of a song, with the review on top.
+ *
+ * Shared by `!lyrics` and `!pick`, so a person who answers a numbered list
+ * gets exactly what they would have got by asking for that song directly.
+ *
+ * @param {object} opts
+ * @param {Function} opts.reply
+ * @param {string} opts.messageID
+ * @param {object} opts.hit one candidate from media.lyrics()
+ * @param {string} opts.q what the person asked for
+ */
+async function deliverLyrics({ reply, messageID, hit, q }) {
+  const text = String(hit.plain || '').trim() || String(hit.synced || '').trim();
+  const read = await askGroqQuiet(
+    `Explain what this song means, name its mood, and give it a savage iKON review out of 10. `
+    + `Song: ${hit.title || q}${hit.artist ? ` by ${hit.artist}` : ''}.`
+    + `\nFirst lines of the lyrics for context:\n${text.slice(0, 400)}`,
+    'Style: literary but chat-ready. No essay.',
+  );
+
+  await reply(
+    `🎤 **${String(hit.title || q).toUpperCase()}**${hit.artist ? `\n🎙️ ${hit.artist}` : ''}`
+    + `${hit.album ? `\n💿 ${hit.album}` : ''}\n`
+    + '· · · · · · ·\n'
+    + (read ? `${read}\n\n` : '')
+    + `${text.slice(0, 1800)}${text.length > 1800 ? '\n_(truncated)_' : ''}`,
+    messageID,
+  );
+}
+
+/**
+ * Sing a song.
+ *
+ * Three sources, in the order that gives the most music for the money:
+ *
+ *   1. the FULL recording off YouTube, when the video is not locked.
+ *   2. thirty seconds of the REAL record off the iTunes or Deezer preview.
+ *      That is the actual commercial recording, not a synthesiser reading the
+ *      words, and the reply says it is half a minute.
+ *   3. the voice box reading the real words, clearly labelled.
+ *
+ * The old code asked `media.youtube()` for the song TITLE, and that function
+ * only understands a video id or a link, so it never found anything; the
+ * branch after it called a function that did not exist, so the command threw
+ * and fell through to the synthesiser every single time. Now the search finds
+ * the video, the player opens it, and the store serves the preview when the
+ * video says no.
+ *
+ * @param {object} opts
+ * @param {Function} opts.reply
+ * @param {string} opts.messageID
+ * @param {object} opts.hit a candidate { title, artist, preview, youtubeId }
+ * @param {string} opts.q what the person asked for
+ * @param {object} opts.userDoc
+ * @returns {Promise<boolean>} whether anything was sung
+ */
+async function deliverSong({ reply, messageID, hit, q, userDoc }) {
+  const title = hit.title || q;
+  const artist = hit.artist || hit.author || '';
+
+  const guide = await askGroqQuiet(
+    `Turn this into a sing-along vocal guide. Give: the key feel, the tempo, the hardest line to hit, `
+    + `and a 4-line "warm up like this" exercise. Song: ${title}${artist ? ` by ${artist}` : ''}.`
+    + (hit.length ? `\nLength: ${hit.length}.` : ''),
+    'Style: a coach who is honest about how hard it is.',
+  );
+
+  // 1. The full recording, when YouTube will serve it.
+  if (hit.youtubeId) {
+    const recording = await media.youtube(hit.youtubeId);
+    if (recording && recording.audio && recording.audio.url) {
+      const sent = await sendAudio({
+        reply,
+        messageID,
+        url: recording.audio.url,
+        body: `🎙️ **SINGING: ${String(title).slice(0, 80)}**\n`
+          + '· · · · · · ·\n'
+          + (guide ? `${guide}\n` : '')
+          + `🎙️ ${artist || 'unknown'}`
+          + `${recording.lengthSeconds ? ` · ${Math.floor(recording.lengthSeconds / 60)}m` : ''}\n`
+          + `🔎 ${q}`,
+      });
+      if (sent) {
+        await charge(userDoc, FEES.sing, 'downloader:sing');
+        return true;
+      }
+    }
+  }
+
+  // 2. Thirty seconds of the real record, off the store's preview.
+  if (hit.preview) {
+    const sent = await sendAudio({
+      reply,
+      messageID,
+      url: hit.preview,
+      body: `🎙️ **SINGING: ${String(title).slice(0, 80)}**\n`
+        + '· · · · · · ·\n'
+        + (guide ? `${guide}\n` : '')
+        + `🎙️ ${artist || 'unknown'}\n`
+        + '🎧 Thirty seconds of the actual record — the store only lets us have that much.\n'
+        + `🔎 ${q}`,
+    });
+    if (sent) {
+      await charge(userDoc, FEES.sing, 'downloader:sing');
+      return true;
+    }
+  }
+
+  // 3. The voice box, reading the real words.
+  const found = await media.lyrics(q);
+  let lines = found.plain
+    ? String(found.plain).trim().split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 16)
+    : [];
+  if (!lines.length) {
+    const written = await askGroqQuiet(
+      `Write 8 short original singable lines for a song called "${q}". `
+      + `One idea per line, no title, no labels, and the words must be yours — `
+      + `never reuse the lyrics of a real song.`,
+      'Style: singable, catchy, four bars.',
+    );
+    lines = String(written)
+      .split('\n')
+      .map((l) => l.replace(/^[-*\d.)\s]+/, '').replace(/[*_#`~|]/g, '').trim())
+      .filter((l) => l.length > 3)
+      .slice(0, 10);
+  }
+
+  if (!lines.length) {
+    await reply(
+      `🤷 **Nothing to sing for "${q}".**\n`
+      + '· · · · · · ·\n'
+      + 'No recording, no lyrics, and the AI is not answering. No fee for that.\n'
+      + '🔎 Try the artist with it: `!sing <song> <artist>`.',
+      messageID,
+    );
+    return false;
+  }
+
+  const spoken = [`${q}. Here it is sung for you.`, ...lines.slice(0, 10)].join(' ');
+  const sang = await sendVoice({
+    reply,
+    messageID,
+    text: spoken,
+    body: `🎙️ **SINGING: ${q.toUpperCase()}**\n`
+      + '· · · · · · ·\n'
+      + (guide ? `${guide}\n` : '')
+      + (found.plain
+        ? '🎵 The real words, read by the voice box — there was no recording to send.\n'
+        : '🎵 No recording and no real lyrics, so these are eight original lines.\n')
+      + `· · · · · · ·\n${lines.slice(0, 10).join('\n')}`,
+  });
+  if (sang) await charge(userDoc, FEES.sing, 'downloader:sing');
+  return sang;
+}
+
+/**
+ * The numbered list, for when more than one song has the title.
+ *
+ * Two songs with the same name are a real situation — "Hello" alone is not
+ * enough to pick one — and guessing is worse than asking, because the wrong
+ * answer looks like the right one.
+ *
+ * @param {object} opts
+ * @param {Array} opts.candidates
+ * @param {string} opts.q what was asked for
+ * @param {string} opts.emoji the icon for the list
+ * @returns {string}
+ */
+function choiceMenu({ candidates, q, emoji = '🎤' }) {
+  const lines = candidates.slice(0, 10).map((c, i) => (
+    `${i + 1}. **${c.title || c.name || 'untitled'}** — ${c.artist || c.author || 'unknown'}`
+    + `${c.album ? ` _(${c.album})_` : ''}`
+  ));
+  return `${emoji} **${String(q).toUpperCase()}** — ${candidates.length} songs have that title\n`
+    + '· · · · · · ·\n'
+    + lines.join('\n')
+    + `\n\n🔢 Reply \`!pick 1\` for that one.`;
+}
+
 // ───────────────────────────────────────────────────────────
 // SMALL HELPERS
 // ───────────────────────────────────────────────────────────
@@ -1776,7 +1992,7 @@ const commands = [];
     category: 'downloader',
     description: '📌 Pinterest pin downloader — sends the actual picture, Groq names it',
     usage: '!pinterestdown <pin link | image link>',
-    hint: 'Pinterest stopped serving pin images to bots, so this also takes a copied image address.',
+    hint: 'The picture itself, not a link. Pinterest builds its pages in JavaScript, so the bot reads the pin out of the page data; a copied image address works too.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'pinterestdown', async () => {
@@ -1802,14 +2018,15 @@ const commands = [];
       const pin = await media.pinImage(link);
 
       if (!pin) {
-        // Pinterest serves its pins through client-side JavaScript now, so there
-        // is no image in the markup to pull. Saying so plainly is the only
-        // honest option — sending a similar-looking picture would be a lie with
-        // a download button on it.
+        // No image in the markup for THIS pin. Some pins carry their picture
+        // in the page data and some do not, and the ones that do not are the
+        // honest answer rather than a stock photo with a download button on
+        // it.
         const topic = pinTopic(link);
         await reply(
-          `⚠️ **Pinterest gave us no image for that pin.**\n`
-          + 'Their pages are built by JavaScript now, so there is nothing in the markup for a bot to read.\n\n'
+          `⚠️ **That pin had no picture in its page data.**\n`
+          + 'Most pins carry their image; this one did not, and sending a similar-looking '
+          + 'picture would be a lie with a download button on it.\n\n'
           + '🛠️ Two ways that still work:\n'
           + '· Copy the image address off the pin and send that here — an `i.pinimg.com` link downloads every time.\n'
           + (topic
@@ -1937,12 +2154,77 @@ const commands = [];
 // ───────────────────────────────────────────────────────────
 
   commands.push({
+    name: 'pick',
+    aliases: ['choose', 'pickone'],
+    category: 'downloader',
+    description: '🔢 Take your pick — answer a numbered list with a number',
+    usage: '!pick <number>',
+    hint: 'When two songs have the same title, `!lyrics` gives you a numbered list. Answer with the number.',
+    cooldown: 8,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pick', async () => {
+      await react('🔢');
+      const pending = choices.get(userDoc.uid);
+      if (!pending || !pending.candidates.length) {
+        await reply(
+          '❌ **Nothing to pick.**\n'
+          + '· · · · · · ·\n'
+          + 'Ask for a song first — `!lyrics <song>` gives a numbered list when two '
+          + 'songs have the same title, and `!sing <song>` does the same for recordings.',
+          event.messageID,
+        );
+        return;
+      }
+
+      const n = Number(String(args[0] || '').replace(/[^0-9]/g, ''));
+      if (!n || n < 1 || n > pending.candidates.length) {
+        await reply(
+          `❌ **Pick a number between 1 and ${pending.candidates.length}.**\n`
+          + `🔢 The list was:\n${choiceMenu({ candidates: pending.candidates, q: pending.label, emoji: '🔢' })}`,
+          event.messageID,
+        );
+        return;
+      }
+
+      const hit = pending.candidates[n - 1];
+      // The list is spent either way: the same number must not buy the same
+      // song twice.
+      choices.take(userDoc.uid);
+
+      if (pending.kind === 'lyrics') {
+        if (!affordable(userDoc, FEES.lyrics)) {
+          await reply(tooPoor(userDoc, FEES.lyrics), event.messageID);
+          return;
+        }
+        const paid = await charge(userDoc, FEES.lyrics, 'downloader:lyrics');
+        if (!paid.ok) {
+          await reply(paid.reason, event.messageID);
+          return;
+        }
+        await deliverLyrics({ reply, messageID: event.messageID, hit, q: pending.label });
+        return;
+      }
+
+      if (pending.kind === 'sing') {
+        if (!affordable(userDoc, FEES.sing)) {
+          await reply(tooPoor(userDoc, FEES.sing), event.messageID);
+          return;
+        }
+        await deliverSong({ reply, messageID: event.messageID, hit, q: pending.label, userDoc });
+        return;
+      }
+
+      await reply(`✅ **${hit.title || hit.name || 'Picked'}**`, event.messageID);
+    }),
+  });
+
+  commands.push({
     name: 'lyrics',
     aliases: ['lyric'],
     category: 'downloader',
-    description: '🎤 Lyrics from lyrics.ovh — and when nothing is found, Groq writes the song',
+    description: '🎤 The real words of a real song — and a menu when two songs share a title',
     usage: '!lyrics <song> [artist] | !lyrics write <anything>',
-    hint: '`!lyrics write heartbreak` gets you a brand new song instead of a lookup.',
+    hint: 'Real words from a real database. Two songs with the same title? It gives you a numbered list, and `!pick 2` takes your choice.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'lyrics', async () => {
@@ -1965,13 +2247,12 @@ const commands = [];
         }
       }
 
-      const paid = await charge(userDoc, FEES.lyrics, 'downloader:lyrics');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
+      // Can they pay? The money only moves once there is something to show,
+      // so the check is here and the charge is at the end.
+      if (!affordable(userDoc, FEES.lyrics)) {
+        await reply(tooPoor(userDoc, FEES.lyrics), event.messageID);
         return;
       }
-
-      await reply('🔎 Looking it up...', event.messageID);
 
       if (writing) {
         const song = await askGroq(
@@ -1981,49 +2262,85 @@ const commands = [];
           + `Keep it singable: short lines, one idea per line.`,
           'Style: a real songwriter, not a wiki entry. No preamble.',
         );
+        if (!song) {
+          await reply(
+            '🤷 **The AI did not answer**, so there is no song and no fee.\n'
+            + '🔎 Try again in a minute — Groq is flaky and honest about it.',
+            event.messageID,
+          );
+          return;
+        }
+        const paid = await charge(userDoc, FEES.lyrics, 'downloader:lyrics');
+        if (!paid.ok) {
+          await reply(paid.reason, event.messageID);
+          return;
+        }
         await reply(`🎤 **ORIGINAL: ${q.toUpperCase()}**\n· · · · · · ·\n${song}`, event.messageID);
         return;
       }
 
-      const query = encodeURIComponent(q.replace(/\s+-\s+/, ' - '));
-      const data = await fetchJson(`https://api.lyrics.ovh/v1/${query}`);
-      const found = data && data.lyrics;
+      // The real words of a real song.
+      //
+      // The old lookup asked lyrics.ovh for `v1/{url-encoded "artist - title"}`,
+      // which is not a URL that API has — it wants `v1/{artist}/{title}`, two
+      // path segments. Every request 404'd, so this command never once found a
+      // real song and always handed back something the AI had just written.
+      await reply('🔎 Looking it up...', event.messageID);
+      const found = await media.lyrics(q);
 
-      if (!found || String(found).trim().length < 20) {
-        // Nothing in the database is not a dead end: the command writes the
-        // song instead, and says plainly that the words are new rather than
-        // letting Groq's verses pass as somebody else's chorus.
-        const written = await askGroq(
-          `Write an ORIGINAL song with the title "${q}" — for a chat bot to sing. `
-          + `Verse, chorus, verse. The words must be yours: never reproduce or closely imitate `
-          + `the lyrics of any real song, and never claim a real artist wrote them. `
-          + `Keep lines short so it can be sung out loud.`,
-          'Style: catchy, a bit savage, singable.',
-        );
+      // Two songs with the same title: a menu, not a guess.
+      if (found.ambiguous && found.alternatives && found.alternatives.length > 1) {
+        choices.set(userDoc.uid, 'lyrics', found.alternatives, q);
+        await reply(choiceMenu({ candidates: found.alternatives, q, emoji: '🎤' }), event.messageID);
+        return;
+      }
+
+      if (found.found) {
+        const paid = await charge(userDoc, FEES.lyrics, 'downloader:lyrics');
+        if (!paid.ok) {
+          await reply(paid.reason, event.messageID);
+          return;
+        }
+        await deliverLyrics({ reply, messageID: event.messageID, hit: found, q });
+        return;
+      }
+
+      // Nothing in the database is not a dead end: the command writes the
+      // song instead, and says plainly that the words are new rather than
+      // letting Groq's verses pass as somebody else's chorus.
+      const written = await askGroq(
+        `Write an ORIGINAL song with the title "${q}" — for a chat bot to sing. `
+        + `Verse, chorus, verse. The words must be yours: never reproduce or closely imitate `
+        + `the lyrics of any real song, and never claim a real artist wrote them. `
+        + `Keep lines short so it can be sung out loud.`,
+        'Style: catchy, a bit savage, singable.',
+      );
+      if (!written) {
+        // Nothing real and nothing written: no fee, because nothing was
+        // delivered. A paid command that returns nothing is indistinguishable
+        // from a crash, and the money should not go either way.
         await reply(
-          `🎤 **${q.toUpperCase()}**\n· · · · · · ·\n`
-          + `⚠️ lyrics.ovh had nothing for that title, so this is a song **written for you** `
-          + `— not the real track's words.\n\n${written}`,
+          `🤷 **No lyrics for "${q}"**\n`
+          + '· · · · · · ·\n'
+          + 'The databases had nothing for that title, and the AI is not answering right now.\n'
+          + '🔎 Try the artist with it: `!lyrics <title> <artist>`.',
           event.messageID,
         );
         return;
       }
 
-      const read = await askGroq(
-        `Explain what this song means, name its mood, and give it a savage iKON review out of 10. `
-        + `Song: ${q}.`
-        + `\nFirst lines of the lyrics for context:\n${String(found).slice(0, 400)}`,
-        'Style: literary but chat-ready. No essay.',
-      );
-
-      const text = String(found).trim();
+      const paid = await charge(userDoc, FEES.lyrics, 'downloader:lyrics');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
+        return;
+      }
       await reply(
-        `🎤 **${String(data.title || q).toUpperCase()}**${data.artist ? `\n🎙️ ${data.artist}` : ''}\n`
-        + '· · · · · · ·\n'
-        + `${read}\n`
-        + `· · · · · · ·\n${text.slice(0, 1800)}${text.length > 1800 ? '\n_(truncated)_' : ''}`,
+        `🎤 **${q.toUpperCase()}**\n· · · · · · ·\n`
+        + `⚠️ No database had that title, so this is a song **written for you** `
+        + `— not the real track's words.\n\n${written}`,
         event.messageID,
       );
+      return;
     }),
   });
 
@@ -2031,9 +2348,9 @@ const commands = [];
     name: 'sing',
     aliases: ['singing', 'singalong', 'song', 'play'],
     category: 'downloader',
-    description: '🎙️ Sings it — downloads the real mp3 from YouTube and sends it as a voice note',
+    description: '🎙️ Sings it — the real recording from YouTube, sent as a voice note',
     usage: '!sing <song> [artist]',
-    hint: 'The voice note is the actual recording from YouTube, not a synthesiser reading the lyrics. If YouTube has no match, Groq writes eight original lines and the bot sings those.',
+    hint: 'The voice note is the actual recording, found by searching YouTube. Two recordings with the same title? It gives you a numbered list and `!pick 2` takes your choice.',
     cooldown: 20,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'sing', async () => {
@@ -2044,77 +2361,45 @@ const commands = [];
         return;
       }
 
-      const paid = await charge(userDoc, FEES.sing, 'downloader:sing');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
+      if (!affordable(userDoc, FEES.sing)) {
+        await reply(tooPoor(userDoc, FEES.sing), event.messageID);
         return;
       }
 
-      // Look the song up on YouTube first. If there is a real recording, send
-      // that — a voice note of the actual track is worth more than a
-      // synthesiser reading the lyrics, and it is what the command name
-      // promises.
-      const yt = await media.youtube(q);
-      const guide = await askGroq(
-        `Turn this into a sing-along vocal guide. Give: the key feel, the tempo, the hardest line to hit, `
-        + `and a 4-line "warm up like this" exercise. Song: ${q}.`
-        + (yt ? `\nTitle: "${yt.title}" by ${yt.author || 'unknown'}. Length: ${yt.lengthSeconds}s.` : '\nNo YouTube match, so write the guide from the title and say so.'),
-        'Style: a coach who is honest about how hard it is.',
-      );
+      // Find the song.
+      //
+      // The old code asked `media.youtube()` for the song title, and that
+      // function only understands a video id or a link — so it never found
+      // anything at all. The lookup is a different endpoint, and it is three
+      // of them, because the recording can come from the store even when the
+      // video is locked.
+      await reply('🔎 Finding the recording...', event.messageID);
+      const hits = await media.songCandidates(q, { limit: 8 });
 
-      if (yt && yt.audio && yt.audio.url) {
-        const sent = await sendAudio({
-          reply,
-          messageID: event.messageID,
-          url: yt.audio.url,
-          mimeType: yt.audio.mimeType || 'audio/mpeg',
-          body: `🎙️ **SINGING: ${String(yt.title || q).slice(0, 80)}**\n`
-            + '· · · · · · ·\n'
-            + `${guide}\n`
-            + `🎙️ ${yt.author || 'unknown'} · ${yt.lengthSeconds ? `${Math.floor(yt.lengthSeconds / 60)}m` : ''}\n`
-            + `🔎 ${q}`,
-        });
-        if (sent) return;
+      if (!hits.length) {
+        // Nothing anywhere. Sing the real words instead, and be honest that it
+        // is the voice box and not the record.
+        const sang = await deliverSong({ reply, messageID: event.messageID, hit: { title: q }, q, userDoc });
+        if (!sang) {
+          await reply(
+            `🤷 **No recording for "${q}"** and no lyrics to sing either.\n`
+            + '🔎 Try the artist with it: `!sing <song> <artist>`.',
+            event.messageID,
+          );
+        }
+        return;
       }
 
-      // No recording and no audio track: Groq writes eight original lines and
-      // the bot sings those. Its own words, so singing them costs nobody a
-      // copyright — and a fallback that just says "sorry" is a wasted coin.
-      const data = await fetchJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(q)}`);
-      const found = data && data.lyrics;
-      const lines = found
-        ? String(found).trim().split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 16)
-        : [];
-      let sung = lines;
-      if (!sung.length) {
-        const written = await askGroq(
-          `Write 8 short original singable lines for a song called "${q}". `
-          + `One idea per line, no title, no labels, and the words must be yours — `
-          + `never reuse the lyrics of a real song.`,
-          'Style: singable, catchy, four bars.',
-        );
-        sung = String(written)
-          .split('\n')
-          .map((l) => l.replace(/^[-*\d.)\s]+/, '').replace(/[*_#`~|]/g, '').trim())
-          .filter((l) => l.length > 3)
-          .slice(0, 10);
+      // More than one song with the same title: a menu, not a guess.
+      const sameTitle = hits.filter((h) => media.sameTitle(h.title, hits[0].title));
+      const differentArtists = new Set(sameTitle.map((h) => String(h.artist || '').toLowerCase()).filter(Boolean));
+      if (sameTitle.length > 1 && differentArtists.size > 1) {
+        choices.set(userDoc.uid, 'sing', sameTitle, q);
+        await reply(choiceMenu({ candidates: sameTitle, q, emoji: '🎙️' }), event.messageID);
+        return;
       }
 
-      const spoken = [
-        `${q}. Here it is sung for you.`,
-        ...sung.slice(0, 10),
-      ].join(' ');
-
-      await sendVoice({
-        reply,
-        messageID: event.messageID,
-        text: spoken,
-        body: `🎙️ **SINGING: ${q.toUpperCase()}**\n`
-          + '· · · · · · ·\n'
-          + `${guide}\n`
-          + (sung.length ? `· · · · · · ·\n🎵 Sung lines:\n${sung.slice(0, 10).join('\n')}` : '')
-          + `\n🔎 Original recording: https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
-      });
+      await deliverSong({ reply, messageID: event.messageID, hit: hits[0], q, userDoc });
     }),
   });
 
