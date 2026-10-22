@@ -1781,6 +1781,16 @@ commands.push({
         + `${mine ? ' _← you_' : ''}`;
     });
 
+    const card = await cards.boardCard({
+      emoji: '⛏️', title: 'MINING RANKS', subtitle: 'By level, then by XP',
+      rows: top, value: (doc) => `Lv ${clamp(doc.mine && doc.mine.level)}`,
+      detail: (doc) => { const pick = gear(PICKS, (doc.mine || {}).pick && (doc.mine || {}).pick.id); return pick ? pick.label : ''; },
+      api, limit: 10,
+    });
+    if (card) {
+      await reply({ body: `⛏️ **Mining ranks**\n\n${lines.join('\n')}\n\n_You are at mining level ${clamp(mi.level)}._`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      return;
+    }
     await reply(`⛏️ **Mining ranks**\n\n${lines.join('\n')}\n\n_You are at mining level ${clamp(mi.level)}._`, event.messageID);
   }),
 });
