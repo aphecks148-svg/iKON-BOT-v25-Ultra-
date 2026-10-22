@@ -5344,6 +5344,152 @@ const PIKACHU = dex.find('pikachu');
     return '!sing sends the recording, named, and says how long it is';
   });
 
+  await step('the bot answers in the language the hunter set', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const realAsk = groq.ask;
+    let seen = null;
+    try {
+      groq.ask = async (prompt, opts) => { seen = opts; return 'an answer'; };
+
+      const run = async (name, args, lang) => {
+        const out = [];
+        await loaded.registry.get(name).execute({
+          api: mockApi(),
+          args,
+          event: { threadID: 't1', messageID: 'm1', senderID: 'u_lang', isGroup: false },
+          config,
+          reply: async (t) => { out.push(t); },
+          react: async () => true,
+          userDoc: { uid: 'u_lang', name: 'Tester', coins: 100000, lang, transient: true },
+        });
+        return out;
+      };
+
+      // The setting used to be stored and then read by NOTHING, so a hunter
+      // who set `!setlang es` was told the bot would answer in Spanish and
+      // the bot went on answering in English.
+      await run('ask', ['hello'], 'es');
+      assert.ok(seen, 'the AI was asked');
+      assert.ok(/Spanish/.test(String(seen.style)), `the answer is asked for in Spanish: ${seen.style}`);
+      assert.ok(!/Answer in es\b/.test(String(seen.style)), 'and the language is named, not spelled as a code');
+
+      await run('ask', ['hello'], 'en');
+      assert.ok(!/Answer in /.test(String(seen.style)), 'English needs no instruction');
+
+      await run('ask', ['hello'], '');
+      assert.ok(!/Answer in /.test(String(seen.style)), 'and neither does no language at all');
+    } finally {
+      groq.ask = realAsk;
+    }
+    return 'the language the hunter picked is the language the answer comes back in';
+  });
+
+  await step('a command that delivers nothing does not charge for it', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const media = require('./media');
+    const realLyrics = media.lyrics;
+    const realAsk = groq.ask;
+    try {
+      // Nothing in the database and no AI: there is no answer to charge for.
+      media.lyrics = async () => ({
+        found: false, ambiguous: false, plain: '', synced: '',
+        title: '', artist: '', album: '', source: '', candidates: [], alternatives: [],
+      });
+      groq.ask = async () => '';
+
+      const userDoc = { uid: 'u_free', name: 'Tester', coins: 5000, transient: true, rpg: {}, stats: {} };
+      const out = [];
+      await loaded.registry.get('lyrics').execute({
+        api: mockApi(),
+        args: ['a', 'song', 'nobody', 'wrote'],
+        event: { threadID: 't1', messageID: 'm1', senderID: 'u_free', isGroup: false },
+        config,
+        reply: async (t) => { out.push(t); },
+        react: async () => true,
+        userDoc,
+      });
+
+      assert.ok(/no fee|nothing/i.test(out.join('\n')), 'and it says so');
+      assert.strictEqual(userDoc.coins, 5000, 'the money did not move');
+    } finally {
+      media.lyrics = realLyrics;
+      groq.ask = realAsk;
+    }
+    return 'nothing delivered, nothing charged';
+  });
+
+  await step('!translatelang is a list, not a question for the model', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const realAsk = groq.ask;
+    let asked = 0;
+    try {
+      groq.ask = async () => { asked += 1; return 'a list written by the model'; };
+      const out = [];
+      await loaded.registry.get('translatelang').execute({
+        api: mockApi(),
+        args: [],
+        event: { threadID: 't1', messageID: 'm1', senderID: '9', isGroup: false },
+        config,
+        reply: async (t) => { out.push(t); },
+        react: async () => true,
+        userDoc: { uid: '9', name: 'Tester', coins: 100000 },
+      });
+      const text = out.join('\n');
+      assert.strictEqual(asked, 0, 'a list that never changes must not cost a model call');
+      assert.ok(/Swahili/i.test(text), 'and the languages are there');
+      assert.ok(/ESPañol|ESPAÑOL/i.test(text), 'and their own names');
+    } finally {
+      groq.ask = realAsk;
+    }
+    return 'the list is a list — instant, free, and there when Groq is not';
+  });
+
+  await step('an AI command that gets no answer charges nothing', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const realAsk = groq.ask;
+    try {
+      // Groq is down. The command whose whole product is the AI's words must
+      // not take the money: the hunter paid for an answer and got a message
+      // saying there was no answer.
+      groq.ask = async () => { throw new Error('groq is down'); };
+
+      const userDoc = { uid: 'u_ai', name: 'Tester', coins: 5000, transient: true };
+      const out = [];
+      await loaded.registry.get('ask').execute({
+        api: mockApi(),
+        args: ['what', 'is', 'up'],
+        event: { threadID: 't1', messageID: 'm1', senderID: 'u_ai', isGroup: false },
+        config,
+        reply: async (t) => { out.push(t); },
+        react: async () => true,
+        userDoc,
+      });
+
+      assert.ok(out.length, 'the command still answers');
+      assert.ok(/no fee/i.test(out.join('\n')), 'and it says there was no fee');
+      assert.strictEqual(userDoc.coins, 5000, 'the money did not move');
+
+      // And when the AI does answer, the money does move.
+      groq.ask = async () => 'a real answer';
+      const paying = { uid: 'u_ai2', name: 'Tester', coins: 5000, transient: true };
+      const out2 = [];
+      await loaded.registry.get('ask').execute({
+        api: mockApi(),
+        args: ['what', 'is', 'up'],
+        event: { threadID: 't1', messageID: 'm1', senderID: 'u_ai2', isGroup: false },
+        config,
+        reply: async (t) => { out2.push(t); },
+        react: async () => true,
+        userDoc: paying,
+      });
+      assert.ok(/a real answer/.test(out2.join('\n')), 'the answer is sent');
+      assert.strictEqual(paying.coins, 5000 - 50, 'and the fee is taken');
+    } finally {
+      groq.ask = realAsk;
+    }
+    return 'an answer or no fee';
+  });
+
   await step('the bestiary is two parts, and all fifty pets are in one of them', async () => {
     const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
     const petlist = loaded.registry.get('petlist');

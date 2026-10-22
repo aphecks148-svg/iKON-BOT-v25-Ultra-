@@ -103,6 +103,106 @@ const LORE = [
 // ───────────────────────────────────────────────────────────
 
 /**
+ * The languages the bot can answer in, by name.
+ *
+ * `!setlang` stores a two-letter code, and a code is what a model answers
+ * worst: "Answer in es" is obeyed less reliably than "Answer in Spanish".
+ * So the code is turned into a name before the instruction goes out.
+ */
+const LANG_NAMES = {
+  en: 'English', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian',
+  pt: 'Portuguese', ru: 'Russian', ar: 'Arabic', hi: 'Hindi', bn: 'Bengali',
+  ur: 'Urdu', fa: 'Persian', tr: 'Turkish', nl: 'Dutch', pl: 'Polish',
+  uk: 'Ukrainian', zh: 'Chinese', ja: 'Japanese', ko: 'Korean', sw: 'Swahili',
+  ha: 'Hausa', yo: 'Yoruba', ig: 'Igbo', zu: 'Zulu', xh: 'Xhosa',
+  am: 'Amharic', th: 'Thai', vi: 'Vietnamese', id: 'Indonesian', ms: 'Malay',
+  ta: 'Tamil', te: 'Telugu', mr: 'Marathi', gu: 'Gujarati', pa: 'Punjabi',
+  kn: 'Kannada', ml: 'Malayalam', si: 'Sinhala', my: 'Burmese', km: 'Khmer',
+  lo: 'Lao', ka: 'Georgian', hy: 'Armenian', az: 'Azerbaijani', kk: 'Kazakh',
+  uz: 'Uzbek', mn: 'Mongolian', ne: 'Nepali', tl: 'Tagalog', fil: 'Filipino',
+  af: 'Afrikaans', sq: 'Albanian', mk: 'Macedonian', bs: 'Bosnian', cy: 'Welsh',
+  ga: 'Irish', eo: 'Esperanto', ht: 'Haitian Creole', lv: 'Latvian', et: 'Estonian',
+};
+
+/**
+ * The name of a language, from its two-letter code.
+ *
+ * "Answer in es." is a weaker instruction than "Answer in Spanish." and the
+ * model that has to obey it is the one writing the answer. The code is what
+ * gets stored, so the name is looked up here.
+ *
+ * @param {string} code
+ * @returns {string} the name, or '' for English
+ */
+function languageName(code) {
+  const c = String(code || '').trim().toLowerCase();
+  if (!c || c === 'en') return '';
+  return LANG_NAMES[c] || c.toUpperCase();
+}
+
+/**
+ * The AI's answer, or nothing.
+ *
+ * askGroq() always answers something — a real answer or an honest placeholder.
+ * A command whose whole product IS the answer has to tell the two apart,
+ * because a placeholder is not something to charge 50 K-Cash for.
+ *
+ * @param {string} prompt the question, already worded
+ * @param {string} [style] extra persona instruction
+ * @param {string} [lang] two-letter code of the language to answer in
+ * @returns {Promise<string>} the answer, or '' when Groq did not answer
+ */
+async function askGroqReal(prompt, style = '', lang = '') {
+  const text = String(prompt || '').trim();
+  if (!text) return '';
+  const name = languageName(lang);
+  try {
+    return (await groq.ask(text, {
+      system: LORE,
+      style: name ? `${style ? `${style}\n` : ''}Answer in ${name}.` : style,
+      maxTokens: 2048,
+    })) || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Ask the AI, and take the money only if it answered.
+ *
+ * A command whose whole product is the AI's words must not charge for a
+ * placeholder: the hunter paid for an answer and got a message saying there
+ * was no answer, which is the one thing a paid command must never be.
+ *
+ * The affordability check comes first, so nobody spends a model call on a
+ * command they cannot pay for. The charge comes last, so nobody pays for
+ * nothing.
+ *
+ * @returns {Promise<string>} the answer, or '' when there was none
+ */
+async function aiPaid({ userDoc, prompt, style = '', lang = '', cost, action, reply, messageID, offline = 'The AI did not answer' }) {
+  if (!affordable(userDoc, cost)) {
+    await reply(tooPoor(userDoc, cost), messageID);
+    return '';
+  }
+  const answer = await askGroqReal(prompt, style, lang);
+  if (!answer) {
+    await reply(
+      `🤷 **${offline}**, so there is no answer and no fee.\n`
+      + '🔎 Groq is flaky and honest about it — try again in a minute.',
+      messageID,
+    );
+    return '';
+  }
+  const paid = await charge(userDoc, cost, action);
+  if (!paid.ok) {
+    await reply(paid.reason, messageID);
+    return '';
+  }
+  return answer;
+}
+
+/**
  * Ask Groq a question.
  *
  * The HTTP call lives in bot/groq.js so the engine and these commands share one
@@ -110,19 +210,22 @@ const LORE = [
  * so every AI command keeps its existing behaviour: a real answer when Groq
  * answers, an honest placeholder when it cannot.
  *
+ * The third argument is the language to answer IN, and it used to be dropped
+ * on the floor: the signature took two arguments and the call site passed
+ * three. So a hunter who set `!setlang es` was told the bot would answer in
+ * Spanish, and the bot went on answering in English — because the setting was
+ * stored and then never read by anything at all.
+ *
  * @param {string} prompt the user-facing question, already worded
  * @param {string} style extra persona instruction for this kind of task
+ * @param {string} [lang] two-letter code of the language to answer in
  * @returns {Promise<string>} never throws
  */
-async function askGroq(prompt, style = '') {
+async function askGroq(prompt, style = '', lang = '') {
   const text = String(prompt || '').trim();
   if (!text) return aiOffline('', style);
 
-  const answer = await groq.ask(text, {
-    system: LORE,
-    style,
-    maxTokens: 2048,
-  });
+  const answer = await askGroqReal(text, style, lang);
   if (answer) return answer;
 
   // Distinguish "no key" from "key present but Groq refused": telling a user
@@ -2080,9 +2183,13 @@ const commands = [];
         return;
       }
 
-      const paid = await charge(userDoc, FEES.pinterestsearch, 'downloader:pinterestsearch');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
+      // The money moves once there are pictures to send. The old code charged
+      // first, so a search that came back empty — every image source down —
+      // still cost 150 K-Cash and still sent a paragraph of search terms. That
+      // is a paid command that returns nothing, which is the one thing a paid
+      // command must never be.
+      if (!affordable(userDoc, FEES.pinterestsearch)) {
+        await reply(tooPoor(userDoc, FEES.pinterestsearch), event.messageID);
         return;
       }
 
@@ -2095,18 +2202,27 @@ const commands = [];
 
       if (!pictures.length) {
         // Every image source is down. Groq can still name the search terms that
-        // will find the good pins, which is more use than an error page.
+        // will find the good pins, which is more use than an error page — and
+        // it is free, because no picture was sent.
         const picks = await askGroq(
           `Give me the 5 best Pinterest search angles for "${topic}". For each, one line: `
           + `a specific search term, then why it finds something good. `
           + `Do not invent pin URLs.`,
           'Style: a curator with taste, not a keyword list.',
+          userDoc.lang || 'en',
         );
         await reply(
           `⚠️ **Every image source is down right now**, so here are search terms instead:\n\n`
-          + `${picks}\n\n🔗 https://www.pinterest.com/search/pins/?q=${encodeURIComponent(topic)}`,
+          + `${picks}\n\n🔗 https://www.pinterest.com/search/pins/?q=${encodeURIComponent(topic)}\n\n`
+          + '_(No fee — there was no picture to send.)_',
           event.messageID,
         );
+        return;
+      }
+
+      const paid = await charge(userDoc, FEES.pinterestsearch, 'downloader:pinterestsearch');
+      if (!paid.ok) {
+        await reply(paid.reason, event.messageID);
         return;
       }
 
@@ -2255,12 +2371,13 @@ const commands = [];
       }
 
       if (writing) {
-        const song = await askGroq(
+        const song = await askGroqReal(
           `Write an ORIGINAL song called "${q}". Give: the title, one line of the mood it needs, `
           + `then verse 1, chorus, verse 2 and a bridge. Write words nobody has sung before — `
           + `do not reuse or imitate the lyrics of any real song, and do not name a real artist. `
           + `Keep it singable: short lines, one idea per line.`,
           'Style: a real songwriter, not a wiki entry. No preamble.',
+          userDoc.lang || 'en',
         );
         if (!song) {
           await reply(
@@ -2308,12 +2425,13 @@ const commands = [];
       // Nothing in the database is not a dead end: the command writes the
       // song instead, and says plainly that the words are new rather than
       // letting Groq's verses pass as somebody else's chorus.
-      const written = await askGroq(
+      const written = await askGroqReal(
         `Write an ORIGINAL song with the title "${q}" — for a chat bot to sing. `
         + `Verse, chorus, verse. The words must be yours: never reproduce or closely imitate `
         + `the lyrics of any real song, and never claim a real artist wrote them. `
         + `Keep lines short so it can be sung out loud.`,
         'Style: catchy, a bit savage, singable.',
+        userDoc.lang || 'en',
       );
       if (!written) {
         // Nothing real and nothing written: no fee, because nothing was
@@ -2323,7 +2441,8 @@ const commands = [];
           `🤷 **No lyrics for "${q}"**\n`
           + '· · · · · · ·\n'
           + 'The databases had nothing for that title, and the AI is not answering right now.\n'
-          + '🔎 Try the artist with it: `!lyrics <title> <artist>`.',
+          + '🔎 Try the artist with it: `!lyrics <title> <artist>`.\n\n'
+          + '_(Nothing was sent, so there is no fee.)_',
           event.messageID,
         );
         return;
@@ -2420,17 +2539,18 @@ const commands = [];
         return;
       }
 
-      const paid = await charge(userDoc, FEES.say, 'downloader:say');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const savage = await askGroq(
-        `Rewrite this in maximum iKON savage mode. Keep the original meaning, hit harder. `
-        + `Give 3 versions: savage, colder, and funny. Text: "${text}"`,
-        'Style: brutal, harmless, no slurs, no real names.',
-      );
+      const savage = await aiPaid({
+        userDoc,
+        prompt: `Rewrite this in maximum iKON savage mode. Keep the original meaning, hit harder. `
+          + `Give 3 versions: savage, colder, and funny. Text: "${text}"`,
+        style: 'Style: brutal, harmless, no slurs, no real names.',
+        lang: userDoc.lang || 'en',
+        cost: FEES.say,
+        action: 'downloader:say',
+        reply,
+        messageID: event.messageID,
+      });
+      if (!savage) return;
 
       const card = await captionCard({
         title: 'iKON SAVAGE MODE',
@@ -2455,7 +2575,7 @@ const commands = [];
     category: 'downloader',
     description: '🤖 Ask the iKON mind anything. It knows who the owner is',
     usage: '!ask <question>',
-    hint: 'Fifty coins for the iKON mind. It knows who the owner is, and it answers in character.',
+    hint: 'Fifty coins for the iKON mind. It knows who the owner is, it answers in character, and it answers in your language if `!setlang` says so.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'ask', async () => {
@@ -2466,13 +2586,17 @@ const commands = [];
         return;
       }
 
-      const paid = await charge(userDoc, FEES.ask, 'downloader:ask');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const answer = await askGroq(q, `Answer as iKON-BOT v2 Ultra. The owner is ${OWNER}. Be brief and useful.`);
+      const answer = await aiPaid({
+        userDoc,
+        prompt: q,
+        style: `Answer as iKON-BOT v2 Ultra. The owner is ${OWNER}. Be brief and useful.`,
+        lang: userDoc.lang || 'en',
+        cost: FEES.ask,
+        action: 'downloader:ask',
+        reply,
+        messageID: event.messageID,
+      });
+      if (!answer) return;
       await reply(`🤖 **${q.slice(0, 80)}**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ask)}`, event.messageID);
     }),
   });
@@ -2494,18 +2618,19 @@ const commands = [];
         return;
       }
 
-      const paid = await charge(userDoc, FEES.ai, 'downloader:ai');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
       await reply('⚡ Thinking...', event.messageID);
-      const answer = await askGroq(
-        `Answer this properly. State the answer in the first line, then give the reasoning in at most 4 short lines. `
-        + `Question: ${q}`,
-        `Style: iKON pro mode. Sharper than !ask, same brevity rule. Owner is ${OWNER}.`,
-      );
+      const answer = await aiPaid({
+        userDoc,
+        prompt: `Answer this properly. State the answer in the first line, then give the reasoning in at most 4 short lines. `
+          + `Question: ${q}`,
+        style: `Style: iKON pro mode. Sharper than !ask, same brevity rule. Owner is ${OWNER}.`,
+        lang: userDoc.lang || 'en',
+        cost: FEES.ai,
+        action: 'downloader:ai',
+        reply,
+        messageID: event.messageID,
+      });
+      if (!answer) return;
       await reply(`⚡ **PRO MODE**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ai)}`, event.messageID);
     }),
   });
@@ -2584,13 +2709,27 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     permission: 'all',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'translatelang', async () => {
       await react('🌐');
-      const list = await askGroq(
-        'List the languages you can translate into, grouped by region (Africa, Asia, Europe, Americas, Oceania). '
-        + 'For each region give 6-8 common ones with their native script name. '
-        + 'End with a one-line note that the bot keeps slang and insults intact.',
-        'Style: a clean grouped list, no preamble.',
+      // A static list, and that is the point.
+      //
+      // This used to ask Groq to write the same list every single time, which
+      // cost a model call for a page that never changes, and meant the list
+      // disappeared entirely when Groq was down. It is a list of languages:
+      // it can be a list of languages.
+      const groups = [
+        ['AFRICA', 'Swahili (Kiswahili) · Amharic (አማርኛ) · Hausa (Hausa) · Yoruba (Yorùbá) · Igbo (Asụsụ) · Zulu (isiZulu) · Xhosa (isiXhosa)'],
+        ['ASIA', 'Chinese (中文) · Japanese (日本語) · Korean (한국어) · Hindi (हिन्दी) · Bengali (বাংলা) · Urdu (اردو) · Thai (ไทย) · Vietnamese (Tiếng Việt)'],
+        ['MIDDLE EAST', 'Arabic (العربية) · Persian (فارسی) · Turkish (Türkçe) · Hebrew (עברית) · Kurdish (Kurdî)'],
+        ['EUROPE', 'English · Spanish (Español) · French (Français) · German (Deutsch) · Italian (Italiano) · Portuguese (Português) · Dutch (Nederlands) · Polish (Polski) · Ukrainian (Українська)'],
+        ['AMERICAS', 'English · Spanish (Español) · Portuguese (Português) · French (Français) · Haitian Creole (Kreyòl ayisyen) · Quechua (Runasimi)'],
+        ['OCEANIA', 'English · Māori (Te Reo Māori) · Hawaiian (ʻŌlelo Hawaiʻi) · Samoan (Gagana Sāmoa) · Fijian (Na Vosa Vakaviti)'],
+      ];
+      const body = groups.map(([region, list]) => `**${region}**\n${list}`).join('\n\n');
+      await reply(
+        `🌐 **TRANSLATION LANGUAGES**\n· · · · · · ·\n${body}\n\n`
+        + '📖 `!translate <lang> <text>` — e.g. `!translate sw hello there`\n'
+        + '📖 The bot keeps slang and insults intact.',
+        event.messageID,
       );
-      await reply(`🌐 **TRANSLATION LANGUAGES**\n· · · · · · ·\n${list}\n\n📖 \`!translate <lang> <text>\` — e.g. \`!translate sw hello there\``, event.messageID);
     }),
   });
 
@@ -3577,6 +3716,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `day high ${max}C low ${min}C. Give the outfit call: what to wear, and one savage `
         + `line about it. WMO code ${cur.weather_code ?? 'unknown'}.`,
         'Style: fashion editor who does not care about your feelings.',
+        userDoc.lang || 'en',
       );
 
       await reply(
@@ -3601,18 +3741,19 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     permission: 'all',
     execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'newsai', async () => {
       await react('🌍');
-      const paid = await charge(userDoc, FEES.newsai, 'downloader:newsai');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const read = await askGroq(
-        `Give the 5 biggest world stories right now. One line each: what happened, and why `
-        + `anyone should care. If you are not certain a story is current, mark it `
-        + `"(unverified)". Never invent a named quote or a specific number.`,
-        'Style: sharp, weary, allergic to filler.',
-      );
+      const read = await aiPaid({
+        userDoc,
+        prompt: `Give the 5 biggest world stories right now. One line each: what happened, and why `
+          + `anyone should care. If you are not certain a story is current, mark it `
+          + `"(unverified)". Never invent a named quote or a specific number.`,
+        style: 'Style: sharp, weary, allergic to filler.',
+        lang: userDoc.lang || 'en',
+        cost: FEES.newsai,
+        action: 'downloader:newsai',
+        reply,
+        messageID: event.messageID,
+      });
+      if (!read) return;
       await reply(`🌍 **THE WORLD**\n· · · · · · ·\n${read}\n💸 ${kc(FEES.newsai)}`, event.messageID);
     }),
   });
@@ -3655,6 +3796,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         + `One paragraph, then one fun fact.${extract ? `\nReference material: ${extract}` : ''}`
         + `${extract ? '' : '\nI could not fetch the article, so use your own knowledge and say if it is outside what you know.'}`,
         'Style: clear, funny, never condescending.',
+        userDoc.lang || 'en',
       );
 
       await reply(
@@ -3697,17 +3839,18 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         return;
       }
 
-      const paid = await charge(userDoc, FEES.summarize, 'downloader:summarize');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const brief = await askGroq(
-        `Summarise this in 3 lines maximum, then one line naming the real story underneath it. `
-        + `Text: ${text.slice(0, 3000)}`,
-        'Style: the friend who tells you what actually happened.',
-      );
+      const brief = await aiPaid({
+        userDoc,
+        prompt: `Summarise this in 3 lines maximum, then one line naming the real story underneath it. `
+          + `Text: ${text.slice(0, 3000)}`,
+        style: 'Style: the friend who tells you what actually happened.',
+        lang: userDoc.lang || 'en',
+        cost: FEES.summarize,
+        action: 'downloader:summarize',
+        reply,
+        messageID: event.messageID,
+      });
+      if (!brief) return;
       await reply(`📋 **THE SHORT VERSION**\n· · · · · · ·\n${brief}\n💸 ${kc(FEES.summarize)}`, event.messageID);
     }),
   });
@@ -3739,16 +3882,17 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         return;
       }
 
-      const paid = await charge(userDoc, FEES.rewrite, 'downloader:rewrite');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const out = await askGroq(
-        `${styles[mode]} Output only the rewrite, nothing else. Original: "${text}"`,
-        'Style: one rewrite. Do not add a preamble or offer alternatives.',
-      );
+      const out = await aiPaid({
+        userDoc,
+        prompt: `${styles[mode]} Output only the rewrite, nothing else. Original: "${text}"`,
+        style: 'Style: one rewrite. Do not add a preamble or offer alternatives.',
+        lang: userDoc.lang || 'en',
+        cost: FEES.rewrite,
+        action: 'downloader:rewrite',
+        reply,
+        messageID: event.messageID,
+      });
+      if (!out) return;
       await reply(`✍️ **${mode.toUpperCase()}**\n· · · · · · ·\n${out}`, event.messageID);
     }),
   });
@@ -3770,17 +3914,18 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         return;
       }
 
-      const paid = await charge(userDoc, FEES.storyai, 'downloader:storyai');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
-      const story = await askGroq(
-        `Write a short story about "${topic}". Make ${userDoc.name} the main character by name. `
-        + `Under 300 words. End on a line that lands.`,
-        'Style: real prose, not a chat reply. No preamble of any kind.',
-      );
+      const story = await aiPaid({
+        userDoc,
+        prompt: `Write a short story about "${topic}". Make ${userDoc.name} the main character by name. `
+          + `Under 300 words. End on a line that lands.`,
+        style: 'Style: real prose, not a chat reply. No preamble of any kind.',
+        lang: userDoc.lang || 'en',
+        cost: FEES.storyai,
+        action: 'downloader:storyai',
+        reply,
+        messageID: event.messageID,
+      });
+      if (!story) return;
 
       const card = await captionCard({
         title: 'iKON STORY',
@@ -3813,20 +3958,21 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         return;
       }
 
-      const paid = await charge(userDoc, FEES.codeai, 'downloader:codeai');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
       // Length is capped because a whole file pasted into a chat message costs
       // Groq tokens nobody wants to pay for and produces a weaker review.
-      const review = await askGroq(
-        `Review this code in 4 short parts: BUGS (real problems only), ROAST (one line, funny), `
-        + `FIX (a corrected version), SCORE out of 10. Do not invent bugs that are not there. `
-        + `Code:\n\`\`\`\n${code.slice(0, 2500)}\n\`\`\``,
-        'Style: senior engineer, kind about the code and blunt about the habits.',
-      );
+      const review = await aiPaid({
+        userDoc,
+        prompt: `Review this code in 4 short parts: BUGS (real problems only), ROAST (one line, funny), `
+          + `FIX (a corrected version), SCORE out of 10. Do not invent bugs that are not there. `
+          + `Code:\n\`\`\`\n${code.slice(0, 2500)}\n\`\`\``,
+        style: 'Style: senior engineer, kind about the code and blunt about the habits.',
+        lang: userDoc.lang || 'en',
+        cost: FEES.codeai,
+        action: 'downloader:codeai',
+        reply,
+        messageID: event.messageID,
+      });
+      if (!review) return;
 
       await reply(
         `🧑‍💻️ **CODE REVIEW**\n· · · · · · ·\n${review}\n💸 ${kc(FEES.codeai)}`,
@@ -3852,20 +3998,21 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         return;
       }
 
-      const paid = await charge(userDoc, FEES.songai, 'downloader:songai');
-      if (!paid.ok) {
-        await reply(paid.reason, event.messageID);
-        return;
-      }
-
       await reply('🎵 Writing...', event.messageID);
-      const song = await askGroq(
-        `Write a complete short song about "${topic}" for ${userDoc.name}. `
-        + `Structure: TITLE, 2 verses, a chorus, a bridge line, then a 3 line "SING IT LIKE" `
-        + `guide with the vocal note that fits. The words must be original — never reuse the `
-        + `lyrics of any real song. No copyrighted melodies.`,
-        'Style: real lyrics. No commentary before or after.',
-      );
+      const song = await aiPaid({
+        userDoc,
+        prompt: `Write a complete short song about "${topic}" for ${userDoc.name}. `
+          + `Structure: TITLE, 2 verses, a chorus, a bridge line, then a 3 line "SING IT LIKE" `
+          + `guide with the vocal note that fits. The words must be original — never reuse the `
+          + `lyrics of any real song. No copyrighted melodies.`,
+        style: 'Style: real lyrics. No commentary before or after.',
+        lang: userDoc.lang || 'en',
+        cost: FEES.songai,
+        action: 'downloader:songai',
+        reply,
+        messageID: event.messageID,
+      });
+      if (!song) return;
 
       const card = await captionCard({
         title: 'iKON SONG',
@@ -3947,7 +4094,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
     category: 'downloader',
     description: '🌐 Set the language the bot answers you in, or show what it is',
     usage: '!setlang <lang> | !setlang off',
-    hint: 'The language the bot answers you in, and the freedom to change it.',
+    hint: 'The language the bot answers you in, and the freedom to change it. Every AI command follows it.',
     cooldown: 10,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'setlang', async () => {
@@ -3974,11 +4121,15 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
       // Groq speaks hundreds of languages. Rather than gate on a whitelist we
       // ask it to confirm the code is a real language, so `!setlang klingon`
       // gets an honest answer instead of silently being stored.
+      //
+      // The answer here has to be MACHINE-READABLE — two letters, nothing
+      // else — so this call deliberately does NOT ask for the user's own
+      // language back. A translated "yes" would fail the check and the hunter
+      // would be told their language is not a language.
       const check = await askGroq(
         `Is "${want}" a real human language? Answer ONLY with the two-letter ISO code `
         + `if it is (lowercase), or the word "no" if it is not.`,
         'Style: one word, no punctuation, no commentary.',
-        userDoc.lang || 'en',
       );
       const code = String(check || '').trim().toLowerCase().match(/^[a-z]{2}$/);
       if (!code) {
