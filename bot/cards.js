@@ -56,11 +56,17 @@ function paintHeader(ctx, emoji, title, subtitle) {
   roundRect(ctx, 24, 24, W - 48, 108, 22);
   ctx.fill();
 
-  ctx.font = 'bold 44px sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(`${emoji} ${title}`, 48, 66);
+
+  // The emoji is drawn in the emoji face and the title in the text face.
+  // @napi-rs/canvas picks ONE font for a run of text and does not fall back
+  // per glyph, so an emoji in a text face is a tofu box.
+  const size = 44;
+  const emojiWidth = canvasKit.drawEmoji(ctx, emoji, 48, 66, size);
+  ctx.font = `bold ${size}px sans-serif`;
+  ctx.fillText(String(title), 48 + emojiWidth + 14, 66);
 
   if (subtitle) {
     ctx.font = '22px sans-serif';
@@ -432,7 +438,9 @@ async function pokemonCard(pokemon) {
     ctx.fill();
     ctx.font = 'bold 23px sans-serif';
     ctx.fillStyle = '#0f0f1a';
-    ctx.fillText(tier.symbol + '  ' + tier.label, 434, 315);
+    const tierWidth = canvasKit.drawEmoji(ctx, tier.symbol, 434, 315, 24);
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText(tier.label, 434 + tierWidth + 12, 315);
 
     ctx.font = 'bold 24px sans-serif';
     ctx.fillStyle = '#ffffff';
@@ -522,7 +530,7 @@ async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
  * @param {number} [opts.limit] how many rows to draw
  * @returns {Promise<string|null>} PNG data URL, or null without the canvas binary
  */
-async function boardCard({ title, emoji, subtitle, rows, value, detail, api, limit = 10 }) {
+async function boardCard({ title, emoji, subtitle, rows, value, detail, api, limit = 10, wide = false }) {
   if (!canvasKit.available()) return null;
   const shown = (rows || []).slice(0, limit);
   if (!shown.length) return null;
@@ -555,20 +563,33 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
 
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
-      ctx.font = 'bold 30px sans-serif';
-      ctx.fillStyle = '#ffcc00';
-      ctx.fillText(medals[i] || `${i + 1}.`, 44, y);
+      const medal = medals[i];
+      if (medal) {
+        canvasKit.drawEmoji(ctx, medal, 44, y, 30);
+      } else {
+        ctx.font = 'bold 30px sans-serif';
+        ctx.fillStyle = '#ffcc00';
+        ctx.fillText(`${i + 1}.`, 44, y);
+      }
 
       await drawAvatar(ctx, pics[i], 148, y, 60);
 
       ctx.font = 'bold 27px sans-serif';
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(fit(ctx, names[i], 380), 194, y - 13);
+      // A wide row is for a line of prose rather than a number, so the name
+      // gives up half its room and the text takes it.
+      ctx.fillText(fit(ctx, names[i], wide ? 210 : 380), 194, y - 13);
 
       ctx.font = '22px sans-serif';
       ctx.fillStyle = '#9aa0b5';
-      ctx.textAlign = 'right';
-      ctx.fillText(fit(ctx, value(row, i), 300), W - 44, y - 13);
+      if (wide) {
+        // Left-aligned, because a sentence has no right-hand end to align to.
+        ctx.textAlign = 'left';
+        ctx.fillText(fit(ctx, value(row, i), 460), 414, y - 13);
+      } else {
+        ctx.textAlign = 'right';
+        ctx.fillText(fit(ctx, value(row, i), 300), W - 44, y - 13);
+      }
 
       // The caller's second number, under the value.
       //
@@ -579,7 +600,7 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
       // `!gcmembers` and `!gtacartel` were audited for uid leaks while the
       // canvas quietly printed one on all five of these boards.
       const foot = detail ? String(detail(row, i) || '') : '';
-      if (foot) {
+      if (foot && !wide) {
         ctx.textAlign = 'right';
         ctx.font = '19px sans-serif';
         ctx.fillStyle = 'rgba(0,212,255,0.8)';
@@ -809,7 +830,8 @@ async function botCard(opts) {
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🤖 ' + (o.botName || 'iKON-BOT'), 48, 72);
+    const botEmoji = canvasKit.drawEmoji(ctx, '🤖', 48, 72, 40);
+    ctx.fillText(String(o.botName || 'iKON-BOT'), 48 + botEmoji + 14, 72);
     ctx.font = '24px sans-serif';
     ctx.fillStyle = '#9aa0b5';
     ctx.fillText('v' + (o.version || '2.0.0'), 48, 104);

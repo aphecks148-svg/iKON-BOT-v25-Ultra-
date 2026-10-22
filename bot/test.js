@@ -4283,6 +4283,11 @@ const PIKACHU = dex.find('pikachu');
     const mk = async (args) => {
       const api = mockApi();
       const before = api.sent.length;
+      // A clean garage and a full wallet for every call. This compares two
+      // ways of BUYING the same car, so the second one must not find the first
+      // one's car in the garage and answer "you already own that" instead.
+      usr.gta.cars = [];
+      usr.coins = 5000000;
       await cmd.execute({
         api, args, event: { threadID: 't_buy', messageID: `m_${args.join('_')}`, senderID: '999000111' },
         userDoc: usr, reply: async (msg) => { api.sent.push({ body: String(msg) }); },
@@ -4292,14 +4297,17 @@ const PIKACHU = dex.find('pikachu');
     };
     try {
     const byId = await mk(['zentorno']);
-    const byPrefix = await mk(['zent']);
-    const twoWords = await mk(['phantom', 'prime']);
-    const byName = await mk(['Phantom Prime']);
-    void byPrefix; void byName;
-    assert.ok(!/No such car/i.test(byId), `an id must find its car, got: ${byId}`);
-    assert.strictEqual(byId, byPrefix, 'a prefix must find the same car as the id');
-    assert.ok(!/No such car/i.test(twoWords), `the second word is part of the name, got: ${twoWords}`);
-    assert.strictEqual(twoWords, byName, '"Kairoz Phantom" style and "Phantom Prime" are one lookup');
+      const byPrefix = await mk(['zent']);
+      const twoWords = await mk(['phantom', 'prime']);
+      const byName = await mk(['Phantom Prime']);
+      void byPrefix; void byName;
+      // The reply ends with a random story line, so two buys of the same car are
+      // never byte-for-byte equal. The car is what is being compared.
+      const sameCar = (s) => String(s).split('\n').filter((l) => !/📖/.test(l)).join('\n');
+      assert.ok(!/No such car/i.test(byId), `an id must find its car, got: ${byId}`);
+      assert.strictEqual(sameCar(byId), sameCar(byPrefix), 'a prefix must find the same car as the id');
+      assert.ok(!/No such car/i.test(twoWords), `the second word is part of the name, got: ${twoWords}`);
+      assert.strictEqual(sameCar(twoWords), sameCar(byName), '"Kairoz Phantom" style and "Phantom Prime" are one lookup');
     const nothing = await mk(['zzz']);
     assert.ok(/No such car/i.test(nothing), `a name that is not a car must still say so, got: ${nothing}`);
     } finally { mongo.isReady = realReady; }
@@ -5642,6 +5650,52 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(asked.every((u) => u === '444444444'), 'and it was the placeholder one');
   });
 
+  await step('the canvas can actually draw words', async () => {
+    const canvasKit = require('./canvas');
+    if (!canvasKit.available()) return 'skipped — no canvas binary here';
+
+    // Every card in the bot draws its text with `sans-serif`, `monospace` or
+    // `iKonSans`. @napi-rs/canvas does not map the CSS generic families the
+    // way a browser does — it looks the family up among the REGISTERED fonts,
+    // and "sans-serif" is not one of them. So `ctx.font = '40px sans-serif'`
+    // drew NOTHING AT ALL, and every card in the bot was a coloured box with
+    // an avatar on it and not one word.
+    //
+    // measureText is the honest check: it asks the canvas how wide the text
+    // would be, and an unknown family measures as zero.
+    const made = canvasKit.create(400, 200);
+    assert.ok(made, 'a canvas is available');
+    const { ctx } = made;
+    for (const family of ['sans-serif', 'iKonSans', 'monospace']) {
+      ctx.font = `30px ${family}`;
+      const width = ctx.measureText('iKON').width;
+      assert.ok(width > 0, `\`${family}\` must measure a real width, got ${width}`);
+    }
+
+    // And the pixels, not just the measurement: draw a word and count the
+    // ones that are not the background.
+    const drawn = canvasKit.create(300, 80);
+    drawn.ctx.fillStyle = '#000';
+    drawn.ctx.fillRect(0, 0, 300, 80);
+    drawn.ctx.fillStyle = '#fff';
+    drawn.ctx.font = 'bold 40px sans-serif';
+    drawn.ctx.fillText('HELLO', 10, 55);
+    const png = await canvasKit.toBuffer(drawn.canvas);
+    assert.ok(png && png.length > 200, 'the canvas produced a PNG');
+
+    // A PNG of a black rectangle is a few hundred bytes. One with white words
+    // in it is bigger, and the size is the cheapest honest proof that the
+    // words were actually drawn.
+    const blank = canvasKit.create(300, 80);
+    blank.ctx.fillStyle = '#000';
+    blank.ctx.fillRect(0, 0, 300, 80);
+    const blankPng = await canvasKit.toBuffer(blank.canvas);
+    assert.ok(png.length > blankPng.length * 1.2,
+      `the words must be pixels, not a measurement: ${png.length} vs ${blankPng.length}`);
+
+    return 'the text faces the cards use are real';
+  });
+
   await step('the bestiary is two parts, and all fifty pets are in one of them', async () => {
     const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
     const petlist = loaded.registry.get('petlist');
@@ -5723,9 +5777,11 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(viaAll.join('\n').includes('BESTIARY'), '`!petlist all` is the whole ladder, not an unknown rarity');
     assert.ok(adopted(viaAll).length >= 50, `\`!petlist all\` lists everything, got ${adopted(viaAll).length}`);
 
-    // A digit that is not a part is an honest refusal, not a mystery.
-    const bad = await say(['7']);
-    assert.ok(/no part/i.test(bad.join('\n')), 'part 7 is refused, not treated as a rarity');
+    // A digit that is not a part is an honest refusal, not a mystery. The
+    // bestiary is one rarity per part now, so 10 is the first number that is
+    // past the end of it.
+    const bad = await say(['10']);
+    assert.ok(/no part/i.test(bad.join('\n')), 'part 10 is refused, not treated as a rarity');
 
     // THE COOLDOWN. Both parts come out of one command name, so a shared bucket
     // would answer the follow-up the footer asks for with "wait 15 seconds".
@@ -5733,7 +5789,7 @@ const PIKACHU = dex.find('pikachu');
     assert.notStrictEqual(key([]), key(['2']), 'part 1 and part 2 do not share a cooldown bucket');
     assert.ok(String(key(['2'])).length > 0, 'a part request still has its own bucket to abuse');
 
-    return `50 pets in 2 parts (${one.length}/${two.length}), every rarity reachable`;
+    return `50 pets in 9 parts, every rarity reachable`;
   });
 
   await step('the pet card asks the model for fields the model actually has', () => {

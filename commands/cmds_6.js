@@ -2210,11 +2210,37 @@ const commands = [];
       // batch costs one round of lookups instead of ten serial ones. Facebook
       // has the name; a stored "Facebook User" attributes a joke to nobody.
       const names = await Promise.all(picked.map((who) => cards.realName(who, api)));
-      const lines = picked.map((who, i) => `${i + 1}. "${pick(SAYINGS)}" — ${names[i]}`);
+      const quotes = picked.map(() => pick(SAYINGS));
+      const lines = picked.map((who, i) => `${i + 1}. "${quotes[i]}" — ${names[i]}`);
+
+      // The card, with the real picture of every hunter the quote is hung on.
+      // A quote bomb is a picture of the chat: ten faces and ten sentences
+      // none of them said.
+      const card = await cards.boardCard({
+        emoji: '💣',
+        title: 'QUOTE BOMB',
+        subtitle: `${picked.length} quotes · none of them said any of this`,
+        rows: picked,
+        value: (who, i) => quotes[i],
+        api,
+        limit: 10,
+        wide: true,
+      });
 
       cfg.msgs = clamp(cfg.msgs) + 10;
       cfg.level = levelFor(cfg.msgs);
       await save(group);
+
+      if (card) {
+        await reply({
+          body: `💣 **QUOTE BOMB**\n· · · · · · ·\n${lines.join('\n')}\n\n`
+            + '⚠️ None of them said any of this. That is the joke.\n'
+            + `📈 Chat level ${cfg.level} · ${num(cfg.msgs)} messages\n`
+            + `📖 ${story()}`,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+        return;
+      }
 
       await reply(
         `💣 **QUOTE BOMB**\n`
