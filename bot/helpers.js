@@ -403,6 +403,18 @@ const fmt = {
     if (m > 0) return `${m}m ${s % 60}s`;
     return `${s}s`;
   },
+  /**
+   * How long the process has been up.
+   *
+   * The dashboard asked for `fmt.uptime()` and there was no such function, so
+   * the command threw on its very first line and answered "dashboard failed"
+   * instead of the picture it promises. It says the same thing `!uptime` says,
+   * so the two never disagree about how long the bot has been running.
+   *
+   * @param {number} sec seconds of uptime
+   * @returns {string}
+   */
+  uptime: (sec) => fmt.dur(sec),
 };
 
 /** Random savage one-liners. Human beings do not say "Pong!" or "Cooldown:

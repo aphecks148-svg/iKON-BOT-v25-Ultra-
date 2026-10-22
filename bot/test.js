@@ -4986,6 +4986,128 @@ const PIKACHU = dex.find('pikachu');
     return 'every upload is a named, typed file — Facebook can tell a picture from a blob';
   });
 
+  await step('every card command sends a NAMED picture, and none of them dies on the way', async () => {
+    const ik = require('../ws3-fca');
+    const User = require('../models/User');
+    const Group = require('../models/Group');
+    const Pet = require('../models/Pet');
+    const mongo = require('./mongo');
+
+    // The models, mocked, so a card command has something to draw.
+    const realUserFind = User.find;
+    const realUserFindOne = User.findOne;
+    const realUserAggregate = User.aggregate;
+    const realGroupFindOne = Group.findOne;
+    const realPetFindOne = Pet.findOne;
+    const realReady = mongo.isReady;
+    mongo.isReady = () => true;
+
+    // A stand-in for a mongoose query: thenable, lean()-able, and chainable,
+    // because a board command sorts and limits before it reads.
+    const q = (doc) => {
+      const rows = Array.isArray(doc) ? doc : [doc];
+      const query = {
+        lean: () => Promise.resolve(Array.isArray(doc) ? doc : doc),
+        sort: () => query,
+        select: () => query,
+        limit: (n) => { query._n = n; return query; },
+      };
+      query.then = (res, rej) => Promise.resolve(query._n ? rows.slice(0, query._n) : rows).then(res, rej);
+      query.catch = (j) => Promise.resolve(rows).catch(j);
+      return query;
+    };
+    const owner = {
+      uid: '999000111',
+      name: 'Facebook User',
+      coins: 900000, bank: 500000, level: 12, xp: 3400, prestige: 1,
+      reputation: 42, spouse: '', transient: false, lastSeen: new Date(),
+      stats: { messages: 1843, commandsUsed: 267 },
+      fun: { shipped: 0, hugs: 0, slaps: 0, kills: 0, giftsIn: 0, giftsOut: 0, besties: [], enemies: [], ships: [], hugsMap: {} },
+      rpg: { className: 'warrior', titles: [], stamina: 10, skills: [], equipped: {}, lastStamina: new Date(), stats: {}, bio: '', level: 12, xp: 3400 },
+      gta: { started: true, level: 3, cars: [], weapons: [], activeCar: '', activeWeapon: '' },
+      farm: { level: 3, plots: 3, land: [], seeds: {}, crops: {}, food: 0, prestige: 0, totalHarvest: 40 },
+      mine: { level: 2, pack: {}, pick: 'stone_pick' },
+      fish: { level: 2, cooler: {}, rod: 'rod' },
+      hunt: { level: 2, rack: {}, licence: true, gun: 'rifle' },
+      async save() { return this; }, markModified() {},
+    };
+    const pet = {
+      _id: 'pet_1', ownerUid: '999000111', ownerName: 'Tester', name: 'Rex', type: 'dragon',
+      level: 20, xp: 500, hunger: 80, mood: 'happy', basePower: 120, emoji: '🐉',
+      title: 'Slayer', prestige: 2, bond: 40, equipped: true, isSafe: true, isDead: false,
+      stones: { fire: 1, inferno: 0, titan: 0, void: 0 }, skills: [{ name: 'bite', tier: 2 }],
+      async save() { return this; }, markModified() {},
+    };
+
+    User.find = () => q([owner]);
+    User.findOne = () => q(owner);
+    User.aggregate = () => Promise.resolve([
+      { _id: '999000111', name: 'Tester', wins: 40, coins: 500000, xp: 90000, level: 30 },
+    ]);
+    Group.findOne = () => q({
+      tid: 't1',
+      fun: { ships: [], besties: [], enemies: [], hugs: 0, slaps: 0, kills: 0, hugsMap: {} },
+      async save() { return this; }, markModified() {},
+    });
+    Pet.findOne = () => q(pet);
+
+    // The commands that promise a picture. Each one has to produce exactly
+    // one, and it has to be a NAMED stream — an unnamed stream leaves as an
+    // anonymous blob and Facebook never renders it.
+    const CARDS = [
+      'profile', 'rank', 'leaderboard', 'richest', 'topxp',
+      'casinocard', 'downloadcard', 'gcpicture', 'lockdowncard',
+      'dashboard', 'petcard', 'gtacard', 'farmcard', 'fishcard', 'minecard',
+    ];
+
+    const sent = [];
+    const api = {
+      async sendMessage(payload) { sent.push(payload); return { messageID: `m${sent.length}` }; },
+      async react() { return true; },
+      async getCurrentUserID() { return '555555555'; },
+      async getUserInfo(uid) { return { id: uid, name: `Tester ${String(uid).slice(-2)}` }; },
+      async getThreadInfo() {
+        return {
+          threadTitle: 'iKON Crew', isGroup: true, adminIDs: ['999000111'],
+          participantIDs: ['999000111'], userInfo: [],
+        };
+      },
+    };
+
+    try {
+      for (const name of CARDS) {
+        sent.length = 0;
+        cooldown.clear('999000111', name);
+        ik.resetThreadRate();
+        await ik.handleMessage(api, {
+          threadID: 't1', messageID: `m_${name}`, senderID: '999000111',
+          isGroup: true, mentions: {}, body: `!${name}`,
+        });
+
+        const bodies = sent.map((s) => s.body).filter(Boolean).join('\n');
+        assert.ok(!/failed:/i.test(bodies), `${name} must not die: ${bodies.slice(0, 120)}`);
+
+        const pics = sent.filter((s) => s.attachment);
+        assert.strictEqual(pics.length, 1, `${name} must send exactly one picture, got ${pics.length}`);
+        const pic = pics[0].attachment;
+        assert.strictEqual(typeof pic.on, 'function', `${name}: the picture must be a readable stream`);
+        assert.ok(typeof pic.name === 'string' && pic.name,
+          `${name}: the stream must be NAMED, or Facebook sees an anonymous blob`);
+        assert.ok(/\.(png|jpg|jpeg|webp)$/i.test(pic.name),
+          `${name}: the name must carry the type it is, got "${pic.name}"`);
+      }
+    } finally {
+      User.find = realUserFind;
+      User.findOne = realUserFindOne;
+      User.aggregate = realUserAggregate;
+      Group.findOne = realGroupFindOne;
+      Pet.findOne = realPetFindOne;
+      mongo.isReady = realReady;
+    }
+
+    return `${CARDS.length} card commands, one named picture each, none of them broken`;
+  });
+
   await step('!pinterestsearch sends five or more pictures', async () => {
     const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
     const media = require('./media');

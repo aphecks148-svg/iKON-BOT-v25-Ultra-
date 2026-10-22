@@ -6,8 +6,10 @@
  * Verifies the cmds_1..10 contract:
  *   - every file exports a plain array
  *   - every command has name/aliases/category/description/usage/cooldown/permission/execute
+ *   - every command has a hint of its own
  *   - names and aliases are unique
  *   - usage always starts with the configured prefix
+ *   - usage names a command that actually answers
  */
 
 const path = require('path');
@@ -22,6 +24,21 @@ const MODULES = 10;
 const TARGET_PER_MODULE = 35;
 
 /**
+ * The command word a usage line tells the user to type.
+ *
+ * `!petrename <name> <new name>` -> `petrename`
+ *
+ * @param {string} usage
+ * @returns {string} the word, or '' when there is not one
+ */
+function usageWord(usage) {
+  const s = String(usage || '').trim();
+  if (!s) return '';
+  const body = s.startsWith(config.PREFIX) ? s.slice(config.PREFIX.length) : s;
+  return body.split(/\s+/)[0].replace(/[^\w]/g, '');
+}
+
+/**
  * Validate a loaded registry.
  * @param {Map} registry
  * @returns {{problems:string[], categories:number}}
@@ -29,6 +46,14 @@ const TARGET_PER_MODULE = 35;
 function validate(registry, loaderResult) {
   const problems = [];
   const seenNames = new Set();
+
+  // Everything a usage line is allowed to point at: the commands themselves
+  // and their aliases. A usage line that names anything else is telling
+  // somebody to type a word that answers with "unknown command".
+  const known = new Set(registry.keys());
+  if (loaderResult && loaderResult.aliases) {
+    for (const alias of loaderResult.aliases.keys()) known.add(alias);
+  }
 
   for (const cmd of registry.values()) {
     for (const field of SHAPE) {
@@ -42,6 +67,19 @@ function validate(registry, loaderResult) {
     }
     if (seenNames.has(cmd.name)) problems.push(`duplicate command name "${cmd.name}"`);
     seenNames.add(cmd.name);
+
+    // A hint of its own. The help page ends in one, and a page with no next
+    // step is a list. The deck hint is not a substitute: it is about
+    // everything in the deck, so it belongs on the deck page.
+    if (!cmd.hint || !String(cmd.hint).trim()) {
+      problems.push(`${cmd.name}: no hint — "!help ${cmd.name}" would end in nothing`);
+    }
+
+    // The usage line has to name a command that answers.
+    const word = usageWord(cmd.usage);
+    if (word && word !== cmd.name && !known.has(word)) {
+      problems.push(`${cmd.name}: usage tells the user to type "${config.PREFIX}${word}", which is not a command`);
+    }
   }
 
   // Refused aliases. These cannot be found by walking the registry, because
