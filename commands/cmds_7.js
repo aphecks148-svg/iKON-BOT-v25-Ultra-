@@ -1061,8 +1061,11 @@ const commands = [];
         + `👛 Wallet: ${kc(userDoc.coins)}\n`
         + `📖 ${story()}`;
 
-      if (card) await reply({ attachment: { type: 'image', data: { url: card } } });
-      await reply(text, event.messageID);
+      if (card) {
+        await reply({ attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      } else {
+        await reply(text, event.messageID);
+      }
     }),
   });
 
@@ -1422,8 +1425,11 @@ const commands = [];
 
       const painted = { ...base, color: colour.hex };
       const card = await carCard(painted, carPower(userDoc), t.wanted, colour.name.toUpperCase());
-      if (card) await reply({ attachment: { type: 'image', data: { url: card } } });
-      await reply(`🎨 **${base.name} is now ${colour.name}.**\n💸 -1,000\n📖 ${story()}`, event.messageID);
+      if (card) {
+        await reply({ attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      } else {
+        await reply(`🎨 **${base.name} is now ${colour.name}.**\n💸 -1,000\n📖 ${story()}`, event.messageID);
+      }
     }),
   });
 
@@ -2765,14 +2771,18 @@ const commands = [];
 
       const painted = { ...base, color: colour.hex };
       const card = await carCard(painted, carPower(userDoc), t.wanted, colour.name.toUpperCase());
-      if (card) await reply({ attachment: { type: 'image', data: { url: card } } });
-      await reply(
-        `🎨 **THE BODYSHOP PICKED ${colour.name.toUpperCase()}.**\n`
-        + '· · · · · · ·\n'
-        + `🚙 ${base.name}\n`
-        + `💸 -2,000\n`
-        + `📖 ${story()}`,
-        event.messageID,
+      if (card) {
+        await reply({ attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      } else {
+        await reply(
+          `🎨 **THE BODYSHOP PICKED ${colour.name.toUpperCase()}.**\n`
+          + '· · · · · · ·\n'
+          + `🚙 ${base.name}\n`
+          + `💸 -2,000\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+      }
       );
     }),
   });
