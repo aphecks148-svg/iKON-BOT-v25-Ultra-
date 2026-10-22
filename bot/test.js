@@ -5533,6 +5533,64 @@ const PIKACHU = dex.find('pikachu');
     assert.ok(bare.reason, 'and it says why');
   });
 
+  await step('!botnick reads the nickname and confirms the change', async () => {
+    const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
+    const sets = [];
+    const api = {
+      async getCurrentUserID() { return '555555555'; },
+      async getThreadInfo() {
+        // ws3-fca returns `nicknames` as a flat map of participant id to the
+        // nickname STRING, not to an object with a `nickname` inside it.
+        return { nicknames: { '555555555': 'iKON' } };
+      },
+      async setNickname(nickname, threadID) {
+        sets.push([nickname, threadID]);
+        return { type: 'thread_nickname_update', newNickname: nickname, threadID };
+      },
+    };
+
+    const run = async (args) => {
+      const out = [];
+      await loaded.registry.get('botnick').execute({
+        api,
+        args,
+        event: { threadID: '1234567890', messageID: 'm1', senderID: '999000111', isGroup: true },
+        config,
+        reply: async (t) => { out.push(t); },
+        react: async () => true,
+        userDoc: { uid: '999000111', name: 'Admin', coins: 100000 },
+      });
+      return out.join('\\n');
+    };
+
+    // The read path used to ask the thread for the nickname of a user called
+    // "[object Promise]", because the bot's own id was never awaited.
+    const shown = await run([]);
+    assert.ok(/iKON/.test(shown), `the current nickname is shown: ${shown.slice(0, 120)}`);
+    assert.ok(!/no nickname set/i.test(shown), 'and it is not reported as unset');
+
+    const set = await run(['Big', 'Klerk']);
+    assert.strictEqual(sets.length, 1, 'the nickname was set once');
+    assert.deepStrictEqual(sets[0], ['Big Klerk', '1234567890'], 'with the whole name and the chat');
+    assert.ok(/now called/i.test(set), 'and the reply says so');
+
+    // ws3-fca answers with nothing at all when it could not do it, and the
+    // command must not claim it worked.
+    const bare = { ...api, async setNickname() { return undefined; } };
+    const out = [];
+    await loaded.registry.get('botnick').execute({
+      api: bare,
+      args: ['Nope'],
+      event: { threadID: '1234567890', messageID: 'm1', senderID: '999000111', isGroup: true },
+      config,
+      reply: async (t) => { out.push(t); },
+      react: async () => true,
+      userDoc: { uid: '999000111', name: 'Admin', coins: 100000 },
+    });
+    assert.ok(!/now called/i.test(out.join('\\n')), 'an unconfirmed nickname is not announced as done');
+    assert.ok(/did not confirm/i.test(out.join('\\n')), 'and the command says what happened');
+  });
+
   await step('the bestiary is two parts, and all fifty pets are in one of them', async () => {
     const loaded = loader.loadCommands(path.join(path.resolve(__dirname, '..'), 'commands'));
     const petlist = loaded.registry.get('petlist');

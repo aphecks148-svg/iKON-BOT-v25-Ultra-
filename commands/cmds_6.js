@@ -463,12 +463,21 @@ async function safeThreadInfo(api, event) {
  * api.getCurrentUserID is the only reliable source: event.threadAdmins is a
  * list of names, and event.participantIDs is empty on some builds.
  */
-function botUid(api, event) {
+async function botUid(api, event) {
   try {
-    return String(api && api.getCurrentUserID ? api.getCurrentUserID() : (event && event.botID) || '');
-  } catch {
-    return '';
-  }
+    if (api && typeof api.getCurrentUserID === 'function') {
+      const id = await api.getCurrentUserID();
+      if (typeof id === 'string' || typeof id === 'number') {
+        const s = String(id).trim();
+        // Any non-empty id is an id. The only thing to reject is the artefact of
+        // stringifying a promise — and it has to be rejected by name, because
+        // "any id that looks like a number" is a rule that throws away every id
+        // that is not one.
+        if (s && s !== '[object Promise]') return s;
+      }
+    }
+  } catch { /* fall through to the event */ }
+  return String((event && (event.botID || event.BotID)) || '');
 }
 
 /**
@@ -2423,7 +2432,7 @@ const commands = [];
       // dead mention that reads like the admins were summoned when they were
       // not.
       const mine = String(event.senderID);
-      const botId = String((api && typeof api.getCurrentUserID === 'function' ? api.getCurrentUserID() : '') || '');
+      const botId = await botUid(api, event);
       const toCall = admins.filter((uid) => String(uid) !== mine && String(uid) !== botId);
 
       // Real names, so an admin is greeted as themselves and not as a uid.
@@ -3167,9 +3176,9 @@ await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavaila
         // unreadable. A bot with no nickname is not "the bot" — it is a blank
         // slot, and saying so beats inventing a name from the account.
         const info = await safeThreadInfo(api, event);
-        const uid = botUid(api, event);
+        const uid = await botUid(api, event);
         const nick = info && uid && info.nicknames && info.nicknames[uid]
-          ? info.nicknames[uid].nickname
+          ? String(info.nicknames[uid])
           : '';
         await reply(
           `🪪 **BOT NICKNAME**\n`
@@ -3190,7 +3199,15 @@ await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavaila
           return;
         }
         try {
-          await api.setNickname('', String(event.threadID));
+          const res = await api.setNickname('', String(event.threadID));
+          if (!res) {
+            await reply(
+              '🪪 Messenger did not confirm the nickname was cleared.\n'
+              + '📖 Clear it in the app by long-pressing the bot\'s name.',
+              event.messageID,
+            );
+            return;
+          }
           await reply('🪪 Nickname cleared — the bot is back to its account name.', event.messageID);
         } catch (err) {
           await reply(`🪪 Could not clear the nickname: ${err.message}`, event.messageID);
@@ -3208,7 +3225,15 @@ await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavaila
       }
 
       try {
-        await api.setNickname(name, String(event.threadID));
+        const res = await api.setNickname(name, String(event.threadID));
+        if (!res) {
+          await reply(
+            `🪪 Messenger did not confirm **${name}**, so it was probably not applied.\n`
+            + '📖 The bot is usually named in the app by long-pressing its name.',
+            event.messageID,
+          );
+          return;
+        }
         await reply(`🪪 The bot is now called **${name}** in this chat.`, event.messageID);
       } catch (err) {
         await reply(`🪪 Messenger refused the nickname (${err.message}).`, event.messageID);
