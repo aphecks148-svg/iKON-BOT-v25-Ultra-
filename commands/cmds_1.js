@@ -106,22 +106,43 @@ module.exports = [
       const cat = decks.findExact(want);
       if (cat) {
         await react(cat.emoji);
-        const pages = menu.paginate(byCategory.get(cat.key) || [], prefix);
+        const deck = byCategory.get(cat.key) || [];
+        const pages = menu.paginate(deck, prefix);
         const page = Math.min(Math.max(1, Number.parseInt(args[1], 10) || 1), pages.length);
-        await reply(
-          menu.categoryPage({
-            cat,
-            // The commands for THIS page. Passing the whole deck here is what
-            // made `!help pets` a 3,200-character wall while its own footer
-            // claimed "Page 1 of 2".
-            commands: pages[page - 1],
-            prefix,
-            page,
-            pages: pages.length,
-            collidesWith: registry.has(cat.key),
-          }),
-          event.messageID,
-        );
+        const aliases = deck.reduce((n, c) => n + (c.aliases || []).length, 0);
+        // Canvas first: a deck of 40+ commands is a wall of text that Messenger
+        // cuts with a download arrow. The card is 800x1200, two columns, and
+        // nothing gets clipped. Text is the fallback when the canvas binary
+        // is not built on this host.
+        const card = await cards.helpCard({
+          cat,
+          commands: pages[page - 1],
+          prefix,
+          page,
+          pages: pages.length,
+          collidesWith: registry.has(cat.key),
+          total: deck.length,
+          totalAliases: aliases,
+          botName: config.BOT_NAME,
+        });
+        if (card) {
+          await reply({ attachment: { type: 'image', data: { url: card } } }, event.messageID);
+        } else {
+          await reply(
+            menu.categoryPage({
+              cat,
+              // The commands for THIS page. Passing the whole deck here is what
+              // made `!help pets` a 3,200-character wall while its own footer
+              // claimed "Page 1 of 2".
+              commands: pages[page - 1],
+              prefix,
+              page,
+              pages: pages.length,
+              collidesWith: registry.has(cat.key),
+            }),
+            event.messageID,
+          );
+        }
         return;
       }
 
@@ -150,17 +171,33 @@ module.exports = [
           // "settings" is a System Core lookfor word, not the deck's
           // label, so the exact-match branch above never saw it.
           const page = Math.min(Math.max(1, Number.parseInt(args[1], 10) || 1), pages.length);
-          await reply(
-            menu.categoryPage({
-              cat: loose,
-              commands: pages[page - 1],
-              prefix,
-              page,
-              pages: pages.length,
-              collidesWith: registry.has(loose.key),
-            }),
-            event.messageID,
-          );
+          const aliases = list.reduce((n, c) => n + (c.aliases || []).length, 0);
+          const card = await cards.helpCard({
+            cat: loose,
+            commands: pages[page - 1],
+            prefix,
+            page,
+            pages: pages.length,
+            collidesWith: registry.has(loose.key),
+            total: list.length,
+            totalAliases: aliases,
+            botName: config.BOT_NAME,
+          });
+          if (card) {
+            await reply({ attachment: { type: 'image', data: { url: card } } }, event.messageID);
+          } else {
+            await reply(
+              menu.categoryPage({
+                cat: loose,
+                commands: pages[page - 1],
+                prefix,
+                page,
+                pages: pages.length,
+                collidesWith: registry.has(loose.key),
+              }),
+              event.messageID,
+            );
+          }
           return;
         }
 
