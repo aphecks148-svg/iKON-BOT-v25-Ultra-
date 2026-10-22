@@ -2202,7 +2202,7 @@ const commands = [];
     hint: '`strict` keeps every picture a Pinterest pin and says so if it cannot. Without it, the search tops up with Bing and Openverse when Pinterest is quiet.',
     cooldown: 20,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pinterestsearch', async () => {
+    execute: async ({ api, args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'pinterestsearch', async () => {
       await react('🔍');
       const strict = /^(strict|only|pins)$/i.test(String(args[0] || '').trim());
       const topic = strict ? args.slice(1).join(' ').trim() : args.join(' ').trim();

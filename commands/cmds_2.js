@@ -367,7 +367,7 @@ module.exports = [
     hint: 'Two numbers: what is in your pocket and what is in the vault. The vault is the one robbers cannot reach.',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'balance', async () => {
+    execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, 'balance', async () => {
       await react('💳');
       const coins = userDoc.coins || 0;
       const bank = userDoc.bank || 0;
