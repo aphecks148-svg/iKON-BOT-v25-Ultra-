@@ -649,9 +649,11 @@ async function card({
 async function art(reply, messageID, opts) {
   try {
     const png = await card(opts);
-    if (png) await reply({ attachment: { type: 'image', data: { url: png } } }, messageID);
+    if (png) { await reply({ attachment: { type: 'image', data: { url: png } } }, messageID); return true; }
+    return false;
   } catch {
     /* a picture is never worth failing a command over */
+    return false;
   }
 }
 
@@ -780,21 +782,7 @@ const commands = [];
       }
 
       await react('💚');
-      await reply(
-        `🤗 **${userDoc.name} HUGGED ${who.name}**\n`
-        + '· · · · · · ·\n'
-        + `💚 +${kc(got)}${petBonus ? ` (includes +${petBonus} pet bonus${pet && pet.name ? ` — ${pet.name}` : ''})` : ''}\n`
-        + `👛 Their wallet: ${kc(who.coins)}\n`
-        + `📖 _This is a message and a transfer. Nobody was hugged._`,
-        event.messageID,
-      );
-
-      // The picture is a bonus on top of the text above, never a replacement:
-      // art() swallows every canvas failure, so a missing binary or an
-      // unreachable avatar leaves the reply the user already got as the answer.
-      // (It used to be `const art = await card(...)`, which shadowed the art()
-      // helper inside this very handler.)
-      await art(reply, event.messageID, {
+      const sent = await art(reply, event.messageID, {
         title: '🤗 HUG',
         api,
         threadID: event.threadID,
@@ -806,6 +794,16 @@ const commands = [];
         footer: 'A MESSAGE AND A TRANSFER — NOT A HUG',
         accent: canvasKit.theme.gold,
       });
+      if (!sent) {
+        await reply(
+          `🤗 **${userDoc.name} HUGGED ${who.name}**\n`
+          + '· · · · · · ·\n'
+          + `💚 +${kc(got)}${petBonus ? ` (includes +${petBonus} pet bonus${pet && pet.name ? ` — ${pet.name}` : ''})` : ''}\n`
+          + `👛 Their wallet: ${kc(who.coins)}\n`
+          + `📖 _This is a message and a transfer. Nobody was hugged._`,
+          event.messageID,
+        );
+      }
     }),
   });
 
