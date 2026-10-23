@@ -2783,7 +2783,6 @@ const commands = [];
           event.messageID,
         );
       }
-      );
     }),
   });
 
