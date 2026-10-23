@@ -817,14 +817,22 @@ async function arrivalCard({ kind, uid, name, threadName, threadID, picUrl = '',
     const cv = canvasKit.create(ARRIVAL_W, ARRIVAL_H);
     const ctx = cv.ctx;
 
-    // House gradient, then the dark overlay. Two passes rather than one: the
-    // gradient is the brand and the overlay is what makes white type readable
-    // on top of a bright profile photo.
+    // House gradient with star field and neon grid.
     const grad = ctx.createLinearGradient(0, 0, ARRIVAL_W, ARRIVAL_H);
-    grad.addColorStop(0, '#0f0f1a');
-    grad.addColorStop(1, '#1a1030');
+    grad.addColorStop(0, '#0a0a1a');
+    grad.addColorStop(0.5, '#1a0a3a');
+    grad.addColorStop(1, '#0d0618');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, ARRIVAL_W, ARRIVAL_H);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    for (let i = 0; i < 60; i += 1) {
+      const x = (i * 137) % ARRIVAL_W;
+      const y = (i * 89) % ARRIVAL_H;
+      const r = (i % 3) + 1;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.fillStyle = 'rgba(6,6,14,0.46)';
     ctx.fillRect(0, 0, ARRIVAL_W, ARRIVAL_H);
 
