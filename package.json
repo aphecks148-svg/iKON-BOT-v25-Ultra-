@@ -37,7 +37,7 @@
     "express": "^4.21.2",
     "fs-extra": "^11.4.1",
     "mongoose": "^8.24.5",
-    "ws3-fca": "https://github.com/Schmavery/facebook-chat-api-plus.git"
+    "ws3-fca": "^3.5.2"
   },
   "optionalDependencies": {
     "canvas": "^3.2.3"
