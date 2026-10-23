@@ -993,6 +993,100 @@ async function helpCard({ cat, commands, prefix, page = 1, pages = 1, collidesWi
   }
 }
 
+/**
+ * A free-form text card for economy commands: work, beg, deposit, withdraw,
+ * rob, crime, coinflip, slots, dice.
+ *
+ * These used to be plain paragraphs, which is why a factory shift — "you
+ * earned 1,200" — arrived as a wall of text with no picture of who got paid.
+ * This draws the same lines on a 900x-tall card with the hunter's Facebook
+ * photo in the corner, so the reply is a picture first and a paragraph second.
+ *
+ * @param {object} opts
+ * @param {string} opts.title
+ * @param {string} opts.emoji
+ * @param {string} [opts.subtitle]
+ * @param {string} opts.body the lines under the header, joined with \n
+ * @param {string} [opts.footer]
+ * @param {object} [opts.user] the hunter document, for the avatar
+ * @param {object} [opts.api] ws3-fca client
+ * @param {number} [opts.accent] accent colour, defaults to gold
+ * @returns {Promise<string|null>} PNG data URL, or null when canvas is missing
+ */
+async function textCard({ title, emoji = '', subtitle = '', body = '', footer = '', user, api, accent = theme.gold }) {
+  if (!canvasKit.available()) return null;
+  try {
+    const lines = String(body || '').split('\n').filter(Boolean);
+    const lineH = 30;
+    const h = 230 + Math.max(1, lines.length) * lineH + 72;
+    const cv = canvasKit.create(W, h);
+    const ctx = cv.ctx;
+
+    paintBackground(ctx, h);
+    ctx.fillStyle = accent;
+    ctx.fillRect(0, 0, W, 8);
+
+    paintHeader(ctx, emoji, title, subtitle);
+
+    const pic = user ? await thumbBuffer(await profile.picture(user.uid, api)) : null;
+    await drawAvatar(ctx, pic, 92, 208, 112);
+
+    const name = await realName(user || {}, api);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 34px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(fit(ctx, name, W - 260), 172, 208);
+
+    let y = 268;
+    for (const line of lines) {
+      ctx.font = '22px sans-serif';
+      ctx.fillStyle = '#c8ccd6';
+      ctx.textAlign = 'left';
+      const wrapped = wrapText(ctx, line, W - 96);
+      for (const wline of wrapped) {
+        ctx.fillText(wline, 48, y);
+        y += lineH;
+      }
+    }
+
+    if (footer) {
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillStyle = accent;
+      ctx.textAlign = 'left';
+      ctx.fillText(fit(ctx, footer, W - 96), 48, h - 36);
+    }
+
+    ctx.font = '20px sans-serif';
+    ctx.fillStyle = 'rgba(154,160,181,0.75)';
+    ctx.textAlign = 'center';
+    ctx.fillText('iKON-BOT v2 Ultra', W / 2, h - 12);
+
+    return cv.canvas.toDataURL('image/png');
+  } catch (err) {
+    error(`[CARD] textCard failed: ${err.message}`);
+    return null;
+  }
+}
+
+/** Wrap a single line of text to fit within maxWidth, returning an array. */
+function wrapText(ctx, text, maxWidth) {
+  const words = String(text || '').split(/\s+/);
+  const out = [];
+  let line = '';
+  for (const w of words) {
+    const test = line ? `${line} ${w}` : w;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      out.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) out.push(line);
+  return out.length ? out : [''];
+}
+
 module.exports = {
   arrivalCard,
   botCard,
@@ -1008,4 +1102,6 @@ module.exports = {
   fit,
   roundRect,
   helpCard,
+  textCard,
+  wrapText,
 };
