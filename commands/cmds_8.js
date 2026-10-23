@@ -2623,7 +2623,15 @@ const commands = [];
         messageID: event.messageID,
       });
       if (!answer) return;
-      await reply(`🤖 **${q.slice(0, 80)}**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ask)}`, event.messageID);
+      const body = `🤖 **${q.slice(0, 80)}**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ask)}`;
+      const subtitle = `\`${q.slice(0, 80)}\``;
+      const foot = `💸 ${kc(FEES.ask)}`;
+      const card = await captionCard({ title: 'ASK', subtitle, body, footer: foot, accent: canvasKit.theme.accent2 });
+      if (card) {
+        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      } else {
+        await reply(body, event.messageID);
+      }
     }),
   });
 
@@ -2657,7 +2665,15 @@ const commands = [];
         messageID: event.messageID,
       });
       if (!answer) return;
-      await reply(`⚡ **PRO MODE**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ai)}`, event.messageID);
+      const body = `⚡ **PRO MODE**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ai)}`;
+      const subtitle = 'PRO MODE';
+      const foot = `💸 ${kc(FEES.ai)}`;
+      const card = await captionCard({ title: 'AI', subtitle, body, footer: foot, accent: canvasKit.theme.accent2 });
+      if (card) {
+        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      } else {
+        await reply(body, event.messageID);
+      }
     }),
   });
 
@@ -3641,14 +3657,15 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         userDoc.lang || 'en',
       );
 
-      await reply(
-        `🌦️ **${String(spot && spot.name ? spot.name : place).toUpperCase()}**\n`
-        + '· · · · · · ·\n'
-        + `🌡️ Now: ${cur.temperature_2m ?? '—'}C · High ${max}C / Low ${min}C\n`
-        + `💨 Wind: ${cur.wind_speed_10 ?? '—'} km/h\n\n`
-        + `${read}\n💸 ${kc(FEES.weatherai)}`,
-        event.messageID,
-      );
+      const body =         `🌦️ **${String(spot && spot.name ? spot.name : place).toUpperCase()}**\n`;
+      const subtitle = 'String(spot && spot.name ? spot.name : place).toUpperCase()';
+      const foot = `💸 ${kc(FEES.weatherai)}`;
+      const card = await captionCard({ title: 'WEATHERAI', subtitle, body, footer: foot, accent: canvasKit.theme.accent2 });
+      if (card) {
+        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      } else {
+        await reply(body, event.messageID);
+      }
     }),
   });
 
@@ -3773,7 +3790,15 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         messageID: event.messageID,
       });
       if (!brief) return;
-      await reply(`📋 **THE SHORT VERSION**\n· · · · · · ·\n${brief}\n💸 ${kc(FEES.summarize)}`, event.messageID);
+      const body = `📋 **THE SHORT VERSION**\n· · · · · · ·\n${brief}\n💸 ${kc(FEES.summarize)}`;
+      const subtitle = 'THE SHORT VERSION';
+      const foot = `💸 ${kc(FEES.summarize)}`;
+      const card = await captionCard({ title: 'SUMMARIZE', subtitle, body, footer: foot, accent: canvasKit.theme.accent2 });
+      if (card) {
+        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      } else {
+        await reply(body, event.messageID);
+      }
     }),
   });
 
