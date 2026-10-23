@@ -411,7 +411,7 @@ module.exports = [
     hint: 'Coins in the vault cannot be robbed. Moving money in is one command and worth doing early.',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'bank', async () => {
+    execute: async ( { api, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'bank', async () => {
       await react('🏦');
       const bank = userDoc.bank || 0;
       const card = await cards.userCard({
@@ -449,7 +449,7 @@ module.exports = [
     hint: 'Free, and it is the safest money you own. `all` moves the whole wallet — which is usually the right answer.',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'deposit', async () => {
+    execute: async ( { api, args, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'deposit', async () => {
       await react('🏦');
       const wallet = userDoc.coins || 0;
       if (wallet <= 0) {
@@ -492,7 +492,7 @@ module.exports = [
     hint: 'Takes money back out of the vault. You need it in your pocket to gamble, buy and pay.',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'withdraw', async () => {
+    execute: async ( { api, args, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'withdraw', async () => {
       await react('💵');
       const bank = userDoc.bank || 0;
       if (bank <= 0) {
@@ -603,7 +603,7 @@ module.exports = [
     hint: 'The honest income. 500-1500 plus XP, and it never fails — unlike the casino. Show up, do the work, get paid. Revolutionary, I know.',
     cooldown: 300,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'work', async () => {
+    execute: async ( { api, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'work', async () => {
       await react('💼');
       const pay = rand(PAYOUT.work[0], PAYOUT.work[1]);
       userDoc.xp = clamp((userDoc.xp || 0) + 50);
@@ -634,7 +634,7 @@ module.exports = [
     hint: 'A 70% chance of 100-1,100, and a 30% chance of a face. Free money, occasionally.',
     cooldown: 60,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'beg', async () => {
+    execute: async ( { api, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'beg', async () => {
       await react('🥺');
       const won = Math.random() < 0.7;
       if (!won) {
@@ -734,7 +734,7 @@ module.exports = [
     hint: '50/50. Win and you take 500-5,500; lose and the fine is 500. Rob the wrong person and it costs you.',
     cooldown: 600,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'rob', async () => {
+    execute: async ( { api, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'rob', async () => {
       await react('🔪');
       if ((userDoc.coins || 0) < PAYOUT.robFine) {
         await reply(`❌ You need at least ${kc(PAYOUT.robFine)} loose cash to even think about this.`, event.messageID);
@@ -834,7 +834,7 @@ module.exports = [
     hint: 'Three in a row pays five times the bet. Everything else is a slower way to lose money.',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'slots', async () => {
+    execute: async ( { api, args, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'slots', async () => {
       await react('🍒');
       const bet = amountArg(args, 100);
       if (bet <= 0) {
@@ -908,7 +908,7 @@ module.exports = [
     hint: 'Even money on a fair coin. The curse is in the name, not in the odds.',
     cooldown: 10,
     permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'coinflip', async () => {
+    execute: async ( { api, args, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'coinflip', async () => {
       await react('🪙');
       const bet = amountArg(args, 100);
       if (bet <= 0) {
