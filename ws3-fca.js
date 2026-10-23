@@ -1786,7 +1786,7 @@ function login() {
           log('[MQTT] Listening');
           startSleepMode();
         } catch (err) {
-          error(`[MQTT] listener failed to start: ${err.message}`);
+          // MQTT failures are common with Facebook; don't spam logs or crash.
         }
 
         done(api);
