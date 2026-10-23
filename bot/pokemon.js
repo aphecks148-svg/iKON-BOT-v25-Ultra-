@@ -8,7 +8,7 @@
 /**
  * Wild Pokemon for the chat.
  *
- * A Pokemon spawns in a group every fifteen minutes as a picture, and the first
+ * A Pokemon spawns in a group every twenty minutes as a picture, and the first
  * person to REPLY to that message with its name catches it. Replying rather than
  * typing a command is the whole point: the message it answers is the lock, so
  * two people cannot claim the same spawn, and the spawn's own message id is the
@@ -22,7 +22,7 @@
 const SPRITES = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork';
 
 /** How often a group gets a new spawn, in milliseconds. */
-const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
+const DEFAULT_INTERVAL_MS = 20 * 60 * 1000;
 
 /**
  * How long a spawn survives if nobody catches it.
@@ -31,10 +31,10 @@ const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
  * interval holds the group's slot — `hasLiveSpawn` says there is still one on
  * the table — so a Pokemon nobody wanted used to push the next one out by five
  * minutes, and a chat that ignored one at 14:00 saw nothing again until 14:20.
- * The fifteen-minute promise is the one players are told about, so an ignored
+ * The twenty-minute promise is the one players are told about, so an ignored
  * spawn has to expire before it can break it.
  */
-const DEFAULT_TTL_MS = 12 * 60 * 1000;
+const DEFAULT_TTL_MS = 16 * 60 * 1000;
 
 /** What each rarity is worth when caught. Rarer is fatter. */
 const BOUNTY = {
@@ -1946,7 +1946,7 @@ function nextDue(pokemon, now = Date.now(), intervalMs = DEFAULT_INTERVAL_MS) {
     .map((d) => new Date(d).getTime())
     .filter(Number.isFinite);
   const lastAt = stamps.length ? Math.max(...stamps) : 0;
-  // Never spawned: due on the next tick, not in fifteen minutes.
+  // Never spawned: due on the next tick, not in twenty minutes.
   if (!lastAt) return { dueAt: null, isDue: true, overdueMs: 0, intervalMs: interval, lastAt: 0 };
 
   const raw = lastAt + interval;

@@ -73,7 +73,7 @@ const GroupSchema = new mongoose.Schema(
       // group nobody had hand-configured. An admin turns it off with
       // `!pokemon off`.
       enabled: { type: Boolean, default: true },
-      intervalMs: { type: Number, default: 15 * 60 * 1000 },
+      intervalMs: { type: Number, default: 20 * 60 * 1000 },
       lastSpawnAt: { type: Date, default: null },
       // A spawn that was tried and failed — sprite 404, send timeout. Counted
       // alongside lastSpawnAt when deciding whether a group is due, so a dead

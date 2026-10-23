@@ -105,7 +105,7 @@ function hasLiveSpawn(group, now = Date.now()) {
 /**
  * Is this group due a new spawn?
  *
- * Exactly fifteen minutes after the last one, or after the last attempt. The
+ * Exactly twenty minutes after the last one, or after the last attempt. The
  * schedule is a clock, not a dice roll: an 8% per-tick chance used to sit in
  * front of this, so a group that came due waited an average of twelve and a
  * half minutes for a coin flip and then started the next fifteen — an average
@@ -121,7 +121,7 @@ function isDue(group, now = Date.now()) {
   // A locked chat is not due, and never was. The scheduler posts without going
   // through the engine, so it does not pass the pending gate on the way in: this
   // is the only thing standing between a stranger's group and a Pokemon every
-  // fifteen minutes, which is the same as a stranger's group and a bot that
+  // twenty minutes, which is the same as a stranger's group and a bot that
   // ignores them, and the opposite of what "pending" means.
   if (pending.isPending(group && group.tid)) return false;
   if (!mayPost(group)) return false;
@@ -257,7 +257,7 @@ async function spawnOne(api, group, now = Date.now()) {
 /**
  * Post a spawn in every group that is due, up to a cap.
  *
- * The fifteen-minute promise is kept here: a group whose fifteen minutes are up
+ * The twenty-minute promise is kept here: a group whose twenty minutes are up
  * gets a Pokemon on this tick, not on a roll of the dice some minutes later.
  * Burst protection is the cap above and the `lastAttemptAt` backoff in isDue(),
  * which is what the old random chance was reaching for — and both of those hold
