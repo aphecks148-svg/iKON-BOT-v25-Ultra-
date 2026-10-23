@@ -66,7 +66,7 @@ const STATE = {
  * @type {number}
  */
 let loginAttempts = 0;
-const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_MAX_ATTEMPTS = 3;
 
 /** Record a successful send. */
 function noteSendOk(name) {
@@ -1623,9 +1623,29 @@ function startSleepMode() {
  *
  * @returns {Promise<object|null>} the api, or null if login failed
  */
+let _loginOptions = null;
+function setLoginOptions(opts) {
+  _loginOptions = opts || null;
+}
+
 function login() {
   if (!config.APPSTATE.length) {
     error('[LOGIN] APPSTATE is empty — set it in .env before starting.');
+    return Promise.resolve(null);
+  }
+
+  // 2FA appstate must include all required cookies.
+  const _state = require('./config')._internals.appstateHealth(config.APPSTATE);
+  if (!_state.hasCUser || !_state.hasXs || !_state.hasFr || !_state.hasDatr || !_state.hasSb || !_state.hasPixelRatio) {
+    const missing = [
+      !_state.hasCUser && 'c_user',
+      !_state.hasXs && 'xs',
+      !_state.hasFr && 'fr',
+      !_state.hasDatr && 'datr',
+      !_state.hasSb && 'sb',
+      !_state.hasPixelRatio && 'm_pixel_ratio',
+    ].filter(Boolean).join(', ');
+    error(`[LOGIN] APPSTATE missing 2FA cookies: ${missing}. Check APPSTATE manually.`);
     return Promise.resolve(null);
   }
 
@@ -1665,8 +1685,8 @@ function login() {
     log(`[LOGIN] Waiting ${Math.round(preDelay / 1000)}s before the first attempt...`);
 
     const options = {
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-        + '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      userAgent: (_loginOptions && _loginOptions.userAgent) || 'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 '
+        + '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
       // Anti-detection. Each of these stops the bot doing something Facebook
       // uses as a bot signal:
       //   autoMarkDelivery:false - read receipts on every message.
@@ -1704,7 +1724,7 @@ function login() {
             if (loginAttempts >= LOGIN_MAX_ATTEMPTS) {
               error(
                 `[LOGIN] Blocked ${loginAttempts} times - the account is rate-limited. `
-                + 'Stopping retries. Refresh the appstate and redeploy.',
+                + 'Check APPSTATE manually. Stopping retries.',
               );
               done(null);
               return;
@@ -1905,6 +1925,7 @@ module.exports = {
   start,
   boot,
   login,
+  setLoginOptions,
   startServer,
   handleMessage,
   handleGroupChange,

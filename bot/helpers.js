@@ -53,6 +53,9 @@ async function reply(api, threadID, msg, messageID = null, isGroup = undefined) 
   if (!api || typeof api.sendMessage !== 'function') return null;
   if (threadID === undefined || threadID === null) return null;
 
+  // Anti-ban: random 2-5s delay between messages to mimic human typing.
+  await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 3000) + 2000));
+
   const payload = typeof msg === 'string' ? { body: msg } : { ...(msg || {}) };
   if (!payload.body && !payload.attachment) return null;
 

@@ -106,6 +106,10 @@ function appstateHealth(state) {
     ok: arr.length > 0,
     hasCUser: names.includes('c_user'),
     hasXs: names.includes('xs'),
+    hasFr: names.includes('fr'),
+    hasDatr: names.includes('datr'),
+    hasSb: names.includes('sb'),
+    hasPixelRatio: names.includes('m_pixel_ratio'),
     count: arr.length,
   };
 }
@@ -215,9 +219,17 @@ const _exp = appstateExpiry(config.APPSTATE);
 if (!config.APPSTATE.length) {
   console.warn('[CONFIG] APPSTATE missing — bot cannot log into Facebook.');
 } else if (!_state.hasCUser || !_state.hasXs) {
+  const missing = [
+    !_state.hasCUser && 'c_user',
+    !_state.hasXs && 'xs',
+    !_state.hasFr && 'fr',
+    !_state.hasDatr && 'datr',
+    !_state.hasSb && 'sb',
+    !_state.hasPixelRatio && 'm_pixel_ratio',
+  ].filter(Boolean).join(', ');
   console.warn(
-    `[CONFIG] APPSTATE loaded ${_state.count} cookie(s) but is missing ${!_state.hasCUser ? 'c_user ' : ''}${!_state.hasXs ? 'xs' : ''} — `
-    + 'the session is expired. Refresh the cookie jar and redeploy.',
+    `[CONFIG] APPSTATE loaded ${_state.count} cookie(s) but is missing ${missing} — `
+    + 'the session is expired. Refresh the cookie jar with 2FA cookies and redeploy.',
   );
 } else {
   console.log(`[LOGIN] Loaded ${_state.count} cookies from ENV (c_user + xs present)`);

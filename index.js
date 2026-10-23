@@ -5,16 +5,21 @@
  *
  * Everything lives in ws3-fca.js (the engine); this file only starts it, so
  * Render's `node index.js` and `npm start` both boot the same bot.
- *
- * This file used to hold the whole bot and did `new (require('ws3-fca'))(...)`.
- * ws3-fca@3 exports a single `login` function and is not a constructor, so that
- * threw "fca is not a constructor" and the process crash-looped on every boot.
- * The engine now calls `login(credentials, options, callback)` correctly — see
- * ws3-fca.js `login()`.
  */
+
+const loginOptions = {
+  appState: null, // loaded from APPSTATE env var at runtime
+  userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+  autoMarkDelivery: false,
+  autoMarkRead: false,
+  selfListen: false,
+  listenEvents: true,
+  updatePresence: false,
+};
 
 const engine = require('./ws3-fca');
 
+engine.setLoginOptions(loginOptions);
 engine.start();
 
 module.exports = engine;
