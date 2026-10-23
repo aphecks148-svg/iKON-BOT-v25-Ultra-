@@ -970,145 +970,6 @@ async function botCard(opts) {
 }
 
 /**
- * The `!help` deck page as a picture.
- *
- * A deck of 40+ commands is a wall of text on a phone, and Messenger's own
- * preview truncates it with a download arrow — the user sees the title and
- * nothing else. This draws the same page on an 800×1200 vertical card:
- * two columns, bold monospace command names, a category header band, and a
- * page footer that says how to reach the next page. Nothing gets cut.
- *
- * @param {object} opts
- * @param {object} opts.cat category metadata
- * @param {object[]} opts.commands the slice for THIS page
- * @param {string} opts.prefix
- * @param {number} opts.page 1-based
- * @param {number} opts.pages total pages
- * @param {boolean} opts.collidesWith
- * @param {number} opts.total total commands in the deck
- * @param {number} opts.totalAliases
- * @param {string} opts.botName
- * @returns {Promise<string|null>} PNG data URL, or null when canvas is missing
- */
-async function helpCard({ cat, commands, prefix, page = 1, pages = 1, collidesWith = false, total = 0, totalAliases = 0, botName = 'iKON-BOT' }) {
-  try {
-    const W = 800;
-    const H = 1200;
-    const cv = canvasKit.create(W, H);
-    const ctx = cv.ctx;
-
-    // Dark purple gradient with a star field and neon grid.
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, '#0a0a1a');
-    grad.addColorStop(0.5, '#1a0a3a');
-    grad.addColorStop(1, '#0d0618');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    for (let i = 0; i < 60; i += 1) {
-      const x = (i * 97) % W;
-      const y = (i * 53) % H;
-      const r = (i % 3) + 1;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.strokeStyle = 'rgba(0,212,255,0.08)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x < W; x += 45) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, H);
-      ctx.stroke();
-    }
-    for (let y = 0; y < H; y += 45) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
-      ctx.stroke();
-    }
-
-    // Header band.
-    ctx.fillStyle = 'rgba(0,212,255,0.10)';
-    roundRect(ctx, 24, 24, W - 48, 96, 24);
-    ctx.fill();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 30px sans-serif';
-    ctx.fillStyle = '#7fe6ff';
-    ctx.fillText(`${cat.emoji || '📚'}  ${cat.symbol || ''} ${cat.label}`, W / 2, 60);
-    ctx.font = '20px sans-serif';
-    ctx.fillStyle = '#9aa0b5';
-    ctx.fillText(`${total} commands${totalAliases ? ` · ${totalAliases} aliases` : ''}`, W / 2, 88);
-
-    // Two columns of commands.
-    const pad = 36;
-    const colW = (W - pad * 2 - 16) / 2;
-    const rowH = 46;
-    const startY = 148;
-    const half = Math.ceil(commands.length / 2);
-    const cols = [commands.slice(0, half), commands.slice(half)];
-
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    for (let c = 0; c < 2; c += 1) {
-      const x = pad + c * (colW + 16);
-      commands.slice(c * half, c * half + half).forEach((cmd, r) => {
-        const y = startY + r * rowH;
-        // Name cell.
-        ctx.font = 'bold 19px sans-serif';
-        ctx.fillStyle = '#ffcc00';
-        const name = fit(ctx, `!${cmd.name}`, colW - 28);
-        ctx.fillText(name, x, y + 4);
-        // Emoji badge.
-        const emoji = (cmd.aliases && cmd.aliases.length) ? '🔗' : '•';
-        ctx.font = '15px sans-serif';
-        ctx.fillStyle = '#00d4ff';
-        ctx.fillText(emoji, x + colW - 14, y + 8);
-        // Description under the name, truncated.
-        ctx.font = '15px sans-serif';
-        ctx.fillStyle = '#9aa0b5';
-        const desc = fit(ctx, String(cmd.description || '').slice(0, 42), colW - 28);
-        ctx.fillText(desc, x, y + 26);
-      });
-    }
-
-    // Footer: page number + how to reach the next page.
-    const footerY = H - 60;
-    ctx.fillStyle = 'rgba(0,212,255,0.08)';
-    roundRect(ctx, 24, footerY - 16, W - 48, 52, 16);
-    ctx.fill();
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 20px sans-serif';
-    ctx.fillStyle = '#7fe6ff';
-    ctx.fillText(`📄 Page ${page} of ${pages}`, W / 2, footerY + 2);
-    ctx.font = '16px sans-serif';
-    ctx.fillStyle = '#9aa0b5';
-    const next = pages > 1 ? ` · \`${prefix}help ${cat.key} ${page + 1}\`` : '';
-    ctx.fillText(`↩️ \`${prefix}help\` — all decks${next}`, W / 2, footerY + 24);
-
-    if (collidesWith) {
-      ctx.font = '15px sans-serif';
-      ctx.fillStyle = '#ffcc00';
-      ctx.fillText(`⚠️ \`${prefix}${cat.key}\` is also a command`, W / 2, footerY + 48);
-    }
-
-    return await canvasKit.toBuffer(cv.canvas);
-  } catch (err) {
-    error(`[CARD] helpCard failed: ${err.message}`);
-    return null;
-  }
-}
-
-/**
- * A free-form text card for economy commands: work, beg, deposit, withdraw,
- * rob, crime, coinflip, slots, dice.
- *
- * These used to be plain paragraphs, which is why a factory shift — "you
- * earned 1,200" — arrived as a wall of text with no picture of who got paid.
- * This draws the same lines on a 900x-tall card with the hunter's Facebook
- * photo in the corner, so the reply is a picture first and a paragraph second.
- *
  * @param {object} opts
  * @param {string} opts.title
  * @param {string} opts.emoji
@@ -1130,19 +991,8 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
     const ctx = cv.ctx;
 
     paintBackground(ctx, h);
-
-    // Neon glow border.
-    ctx.save();
-    ctx.shadowColor = accent;
-    ctx.shadowBlur = 16;
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 2;
-    roundRect(ctx, 8, 8, W - 16, h - 16, 28);
-    ctx.stroke();
-    ctx.restore();
-
     ctx.fillStyle = accent;
-    ctx.fillRect(0, 0, W, 6);
+    ctx.fillRect(0, 0, W, 8);
 
     paintHeader(ctx, emoji, title, subtitle);
 
@@ -1219,7 +1069,6 @@ module.exports = {
   realName,
   fit,
   roundRect,
-  helpCard,
   textCard,
   wrapText,
 };
