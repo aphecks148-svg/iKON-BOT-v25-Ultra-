@@ -1786,7 +1786,8 @@ function login() {
           log('[MQTT] Listening');
           startSleepMode();
         } catch (err) {
-          // MQTT failures are common with Facebook; don't spam logs or crash.
+          // MQTT failures are common with Facebook; try to continue without listener
+          // The bot can still send messages via API
         }
 
         done(api);
