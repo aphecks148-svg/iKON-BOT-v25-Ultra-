@@ -41,37 +41,86 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-/** Paint the shared dark gradient background. */
+/** Paint the shared dark gradient background with stars. */
 function paintBackground(ctx, h) {
   const grad = ctx.createLinearGradient(0, 0, W, h);
-  grad.addColorStop(0, '#0f0f1a');
-  grad.addColorStop(1, '#1a1030');
+  grad.addColorStop(0, '#0a0a1a');
+  grad.addColorStop(0.5, '#1a0a3a');
+  grad.addColorStop(1, '#0d0618');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, h);
+
+  // Star field for depth.
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  for (let i = 0; i < 50; i++) {
+    const x = (i * 137) % W;
+    const y = (i * 89) % h;
+    const r = (i % 3) + 1;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Neon grid lines for the cyberpunk feel.
+  ctx.strokeStyle = 'rgba(0,212,255,0.08)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 45) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+  }
+  for (let y = 0; y < h; y += 45) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
 }
 
-/** Paint a header band with a title. */
+/** Paint a header band with a title and neon glow. */
 function paintHeader(ctx, emoji, title, subtitle) {
-  ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  roundRect(ctx, 24, 24, W - 48, 108, 22);
+  // Neon glow behind header.
+  ctx.save();
+  ctx.shadowColor = '#00d4ff';
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = 'rgba(0,212,255,0.12)';
+  roundRect(ctx, 20, 20, W - 40, 116, 24);
   ctx.fill();
+  ctx.restore();
+
+  // Header band with gradient.
+  const hGrad = ctx.createLinearGradient(24, 24, W - 24, 132);
+  hGrad.addColorStop(0, 'rgba(0,212,255,0.15)');
+  hGrad.addColorStop(1, 'rgba(177,75,255,0.15)');
+  ctx.fillStyle = hGrad;
+  roundRect(ctx, 24, 24, W - 48, 112, 22);
+  ctx.fill();
+
+  // Top accent line.
+  ctx.fillStyle = '#00d4ff';
+  ctx.shadowColor = '#00d4ff';
+  ctx.shadowBlur = 12;
+  roundRect(ctx, 24, 24, W - 48, 6, 3);
+  ctx.fill();
+  ctx.shadowBlur = 0;
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
 
-  // The emoji is drawn in the emoji face and the title in the text face.
-  // @napi-rs/canvas picks ONE font for a run of text and does not fall back
-  // per glyph, so an emoji in a text face is a tofu box.
-  const size = 44;
-  const emojiWidth = canvasKit.drawEmoji(ctx, emoji, 48, 66, size);
+  const size = 46;
+  const emojiWidth = canvasKit.drawEmoji(ctx, emoji, 48, 68, size);
   ctx.font = `bold ${size}px sans-serif`;
-  ctx.fillText(String(title), 48 + emojiWidth + 14, 66);
+  ctx.shadowColor = '#00d4ff';
+  ctx.shadowBlur = 8;
+  ctx.fillText(String(title), 48 + emojiWidth + 14, 68);
+  ctx.shadowBlur = 0;
 
   if (subtitle) {
-    ctx.font = '22px sans-serif';
-    ctx.fillStyle = '#9aa0b5';
-    ctx.fillText(subtitle, 48, 104);
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillStyle = '#b14bff';
+    ctx.fillText(subtitle, 48, 108);
   }
 }
 
@@ -470,6 +519,17 @@ async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
     const ctx = cv.ctx;
 
     paintBackground(ctx, h);
+
+    // Neon glow border.
+    ctx.save();
+    ctx.shadowColor = '#00d4ff';
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = '#00d4ff';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 8, 8, W - 16, h - 16, 28);
+    ctx.stroke();
+    ctx.restore();
+
     paintHeader(ctx, emoji, title, subtitle);
 
     // Avatar + name block on the left of the body. A Pokemon card has no
@@ -542,6 +602,17 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
     const ctx = cv.ctx;
 
     paintBackground(ctx, h);
+
+    // Neon glow border.
+    ctx.save();
+    ctx.shadowColor = '#00d4ff';
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = '#00d4ff';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 8, 8, W - 16, h - 16, 28);
+    ctx.stroke();
+    ctx.restore();
+
     paintHeader(ctx, emoji, title, subtitle);
 
     // Resolve names and pictures together, once, in parallel.
@@ -646,6 +717,17 @@ async function pairCard({ title, emoji, subtitle, pairs, api, value, limit = 8 }
     const ctx = cv.ctx;
 
     paintBackground(ctx, h);
+
+    // Neon glow border.
+    ctx.save();
+    ctx.shadowColor = '#00d4ff';
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = '#00d4ff';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 8, 8, W - 16, h - 16, 28);
+    ctx.stroke();
+    ctx.restore();
+
     paintHeader(ctx, emoji, title, subtitle);
 
     const resolved = await Promise.all(shown.map(async (p) => {
@@ -907,18 +989,35 @@ async function helpCard({ cat, commands, prefix, page = 1, pages = 1, collidesWi
     const cv = canvasKit.create(W, H);
     const ctx = cv.ctx;
 
-    // Dark purple gradient with a faint star field — the house background.
+    // Dark purple gradient with a star field and neon grid.
     const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, '#0f0f1a');
-    grad.addColorStop(0.5, '#1a0a2e');
+    grad.addColorStop(0, '#0a0a1a');
+    grad.addColorStop(0.5, '#1a0a3a');
     grad.addColorStop(1, '#0d0618');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
     for (let i = 0; i < 60; i += 1) {
       const x = (i * 97) % W;
       const y = (i * 53) % H;
-      ctx.fillRect(x, y, 2, 2);
+      const r = (i % 3) + 1;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(0,212,255,0.08)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 45) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+    }
+    for (let y = 0; y < H; y += 45) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
     }
 
     // Header band.
@@ -1023,8 +1122,19 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
     const ctx = cv.ctx;
 
     paintBackground(ctx, h);
+
+    // Neon glow border.
+    ctx.save();
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 16;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
+    roundRect(ctx, 8, 8, W - 16, h - 16, 28);
+    ctx.stroke();
+    ctx.restore();
+
     ctx.fillStyle = accent;
-    ctx.fillRect(0, 0, W, 8);
+    ctx.fillRect(0, 0, W, 6);
 
     paintHeader(ctx, emoji, title, subtitle);
 
