@@ -148,16 +148,16 @@ function isDue(group, now = Date.now()) {
  * first — which is how an admin turned the feature off and kept getting
  * pictures.
  *
- * An absent `pokemon` block is not an opt-out. It reads as "no opinion yet",
- * which matches the schema default: a group nobody has configured is a group
- * that wants Pokemon. Only an explicit `false` turns it off.
+ * Pokemon spawns are OFF by default. A group must explicitly opt in with
+ * `!pokemon on` before the scheduler will post anything. An absent `pokemon`
+ * block (or `enabled !== true`) means "do not spawn".
  *
  * @param {object} group
  * @returns {boolean}
  */
 function mayPost(group) {
   if (!group || !group.tid) return false;
-  if (group.pokemon && group.pokemon.enabled === false) return false;
+  if (!group.pokemon || group.pokemon.enabled !== true) return false;
   if (config.MAINTENANCE_MODE) return false;
   return toggles.evaluateGroup(group, SWITCH.cmdName, SWITCH.category).allowed;
 }
@@ -337,7 +337,7 @@ async function attemptCatch(api, event, deps = {}) {
   if (!mongo.isReady()) return null;
 
   const group = await loadGroup({ tid: String(event.threadID) }).catch(() => null);
-  if (!group || !group.pokemon || group.pokemon.enabled === false) return null;
+  if (!group || !group.pokemon || group.pokemon.enabled !== true) return null;
   // The same switches the scheduler honours before it posts. A paused chat or a
   // disabled module stops the catch as well as the spawn: paying out for a
   // Pokemon nobody is allowed to see is the worse half of the bug.

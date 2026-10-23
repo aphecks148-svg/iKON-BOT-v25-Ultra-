@@ -3200,7 +3200,7 @@ ${currentLine(group)}`,
         await reply(
           want
             ? `🌿 **POKEMON ARE ON.**
-One every 15 minutes. Reply to its message with its name to catch it.
+One every 20 minutes. Reply to its message with its name to catch it.
 First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT_INTERVAL_MS) / 60000)} minutes.`
             : '🚫 Pokemon are off in this chat. Nothing will spawn.',
           event.messageID,

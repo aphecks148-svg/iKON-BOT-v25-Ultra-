@@ -68,11 +68,10 @@ const GroupSchema = new mongoose.Schema(
     // Two people replying within the same second both pass the same checks, so
     // the write is the lock, not the read that precedes it.
     pokemon: {
-      // ON by default. This was false, which combined with a spawner that only
-      // queried opted-in groups to mean a wild Pokemon never appeared in any
-      // group nobody had hand-configured. An admin turns it off with
-      // `!pokemon off`.
-      enabled: { type: Boolean, default: true },
+      // OFF by default. A bot admin must turn it on per group with
+      // `!pokemon on`. This prevents wild Pokemon from spawning in groups
+      // that have not explicitly opted in.
+      enabled: { type: Boolean, default: false },
       intervalMs: { type: Number, default: 20 * 60 * 1000 },
       lastSpawnAt: { type: Date, default: null },
       // A spawn that was tried and failed — sprite 404, send timeout. Counted
