@@ -411,7 +411,7 @@ module.exports = [
     hint: 'Coins in the vault cannot be robbed. Moving money in is one command and worth doing early.',
     cooldown: 5,
     permission: 'all',
-    execute: async ( { api, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'bank', async () => {
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'bank', async () => {
       await react('🏦');
       const bank = userDoc.bank || 0;
       const card = await cards.userCard({
@@ -449,7 +449,7 @@ module.exports = [
     hint: 'Free, and it is the safest money you own. `all` moves the whole wallet — which is usually the right answer.',
     cooldown: 5,
     permission: 'all',
-    execute: async ( { api, args, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'deposit', async () => {
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'deposit', async () => {
       await react('🏦');
       const wallet = userDoc.coins || 0;
       if (wallet <= 0) {
@@ -467,16 +467,13 @@ module.exports = [
       await debit(userDoc, moved, 'deposit');
       await ledger(userDoc.uid, 'deposit', 0, userDoc.coins, { toBank: moved, bank: userDoc.bank });
 
-      const body =         `🏦 Vaulted ${kc(moved)}.\n`;
-      const card = await cards.textCard({
-        title: 'DEPOSIT', emoji: '🏦', subtitle: `'+'+kc(moved)+' to vault'`, body,
-        footer: `'SECURED · ROBBERS CANNOT TOUCH IT'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(
+        `🏦 Vaulted ${kc(moved)}.\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `🔐 Vault: ${kc(userDoc.bank)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
     }),
   },
 
@@ -492,7 +489,7 @@ module.exports = [
     hint: 'Takes money back out of the vault. You need it in your pocket to gamble, buy and pay.',
     cooldown: 5,
     permission: 'all',
-    execute: async ( { api, args, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'withdraw', async () => {
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'withdraw', async () => {
       await react('💵');
       const bank = userDoc.bank || 0;
       if (bank <= 0) {
@@ -509,16 +506,14 @@ module.exports = [
       userDoc.bank = clamp(userDoc.bank - moved);
       await credit(userDoc, moved, 'withdraw', { fromBank: moved });
 
-      const body =         `💵 Withdrew ${kc(moved)}.\n`;
-      const card = await cards.textCard({
-        title: 'WITHDRAW', emoji: '💵', subtitle: `'+'+kc(moved)+' cash'`, body,
-        footer: `'LOOSE CASH ONLY · VAULT IS SAFE'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(
+        `💵 Withdrew ${kc(moved)}.\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `🔐 Vault: ${kc(userDoc.bank)}\n`
+        + `⚠️ Loose cash CAN be robbed. Spend wisely.\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
     }),
   },
 
@@ -603,22 +598,19 @@ module.exports = [
     hint: 'The honest income. 500-1500 plus XP, and it never fails — unlike the casino. Show up, do the work, get paid. Revolutionary, I know.',
     cooldown: 300,
     permission: 'all',
-    execute: async ( { api, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'work', async () => {
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'work', async () => {
       await react('💼');
       const pay = rand(PAYOUT.work[0], PAYOUT.work[1]);
       userDoc.xp = clamp((userDoc.xp || 0) + 50);
       await credit(userDoc, pay, 'work', { xp: 50 });
 
-      const body =         `💼 You clocked in at the iKON factory. Boss Aphecks threw ${kc(pay)} at you like spare change. ${savage()}\n`;
-      const card = await cards.textCard({
-        title: 'WORK', emoji: '💼', subtitle: `'+'+kc(pay)+' K-Cash'`, body,
-        footer: `'HONEST INCOME · NO TAX'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(
+        `💼 You clocked in at the iKON factory. Boss Aphecks threw ${kc(pay)} at you like spare change. ${savage()}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `⭐ XP: +50 (total ${Number(userDoc.xp).toLocaleString('en-US')})\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
     }),
   },
 
@@ -634,20 +626,16 @@ module.exports = [
     hint: 'A 70% chance of 100-1,100, and a 30% chance of a face. Free money, occasionally.',
     cooldown: 60,
     permission: 'all',
-    execute: async ( { api, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'beg', async () => {
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'beg', async () => {
       await react('🥺');
       const won = Math.random() < 0.7;
       if (!won) {
-      const body =         `🥺 You held out your hat for an hour. A security guard walked past without looking. ${savage()}\n`;
-      const card = await cards.textCard({
-        title: 'BEG', emoji: '🥺', subtitle: `'0 '+CASH`, body,
-        footer: `'NOBODY PITIED YOU'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+        await reply(
+          `🥺 You held out your hat for an hour. A security guard walked past without looking. ${savage()}\n`
+          + `💸 0 ${CASH}. The city is cruel tonight.\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
         return;
       }
       const amount = rand(PAYOUT.beg[0], PAYOUT.beg[1]);
@@ -659,16 +647,13 @@ module.exports = [
         'The Klerk office window slides open a crack.',
         'Someone in a hooded jacket says "get some food, hunter".',
       ]);
-      const body =         `🥺 ${line}\n`;
-      const card = await cards.textCard({
-        title: 'BEG', emoji: '🥺', subtitle: `'+'+kc(amount)`, body,
-        footer: `'SOMEONE PITIED YOU'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(
+        `🥺 ${line}\n`
+        + `💰 +${kc(amount)}. Somebody actually pitied you. ${savage()}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
     }),
   },
 
@@ -734,7 +719,7 @@ module.exports = [
     hint: '50/50. Win and you take 500-5,500; lose and the fine is 500. Rob the wrong person and it costs you.',
     cooldown: 600,
     permission: 'all',
-    execute: async ( { api, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'rob', async () => {
+    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'rob', async () => {
       await react('🔪');
       if ((userDoc.coins || 0) < PAYOUT.robFine) {
         await reply(`❌ You need at least ${kc(PAYOUT.robFine)} loose cash to even think about this.`, event.messageID);
@@ -744,30 +729,23 @@ module.exports = [
       if (Math.random() < 0.5) {
         const haul = rand(PAYOUT.rob[0], PAYOUT.rob[1]);
         await credit(userDoc, haul, 'rob');
-      const body =         `🔪 Clean get. You lifted ${kc(haul)} off an unmarked van.\n`;
-      const card = await cards.textCard({
-        title: 'ROB', emoji: '🔪', subtitle: `'+'+kc(haul)+' off an unmarked van'`, body,
-        footer: `'RUN. NOW RUN.'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+        await reply(
+          `🔪 Clean get. You lifted ${kc(haul)} off an unmarked van.\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `🏃 Run. Now run. ${story()}`,
+          event.messageID,
+        );
         return;
       }
 
       await debit(userDoc, PAYOUT.robFine, 'rob_fail', { caught: true });
-      const body =         `🚨 CAUGHT! An iKON guard knew your face. Fine: ${kc(PAYOUT.robFine)}.\n`;
-      const card = await cards.textCard({
-        title: 'ROB', emoji: '🔪', subtitle: `'CAUGHT! Fine: '+kc(PAYOUT.robFine)'`, body,
-        footer: `'THE GUARD KNEW YOUR FACE.'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(
+        `🚨 CAUGHT! An iKON guard knew your face. Fine: ${kc(PAYOUT.robFine)}.\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `🏦 Robbers never carry money in the vault. Lesson learned.\n`
+        + `📖 ${story()}`,
+        event.messageID,
+      );
     }),
   },
 
@@ -809,16 +787,12 @@ module.exports = [
       }
 
       await debit(userDoc, bet, 'gamble', { bet, lost: true });
-      const body =         `🎰 House takes ${kc(bet)}.\n`;
-      const card = await cards.textCard({
-        title: 'SLOTS', emoji: '🎰', subtitle: `'HOUSE TAKES '+kc(bet)`, body,
-        footer: `'THE MACHINE LAUGHS.'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(
+        `🎰 House takes ${kc(bet)}.\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `🎭 The dealer does not look up. ${story()}`,
+        event.messageID,
+      );
     }),
   },
 
@@ -834,7 +808,7 @@ module.exports = [
     hint: 'Three in a row pays five times the bet. Everything else is a slower way to lose money.',
     cooldown: 10,
     permission: 'all',
-    execute: async ( { api, args, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'slots', async () => {
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'slots', async () => {
       await react('🍒');
       const bet = amountArg(args, 100);
       if (bet <= 0) {
@@ -858,31 +832,24 @@ module.exports = [
       if (triple) {
         const win = bet * 5;
         await credit(userDoc, win, 'slots', { bet, reels, win });
-      const body =         `🍒 ${reels.join(' ')} — TRIPLE!\n`;
-      const card = await cards.textCard({
-        title: 'SLOTS', emoji: '🎰', subtitle: `'5x JACKPOT on '+kc(bet)`, body,
-        footer: `'THE WHOLE BAR STOPS TO WATCH.'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+        await reply(
+          `🍒 ${reels.join(' ')} — TRIPLE!\n`
+          + `🎰 Jackpot: ${kc(win)} (5x on ${kc(bet)})\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `📖 The whole bar stops to watch. ${story()}`,
+          event.messageID,
+        );
         return;
       }
       if (pair) {
         const win = Math.floor(bet * 2);
         await credit(userDoc, win, 'slots', { bet, reels, win });
-      const body =         `🍒 ${reels.join(' ')} — pair!\n`;
-      const card = await cards.textCard({
-        title: 'SLOTS', emoji: '🎰', subtitle: `'PAIR! '+kc(win)+' on '+kc(bet)`, body,
-        footer: `'A SMALL WIN. CLAIM IT.'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+        await reply(
+          `🍒 ${reels.join(' ')} — pair!\n`
+          + `🎰 Paid ${kc(win)} (stake ${kc(bet)} back with it)\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}`,
+          event.messageID,
+        );
         return;
       }
 
@@ -908,7 +875,7 @@ module.exports = [
     hint: 'Even money on a fair coin. The curse is in the name, not in the odds.',
     cooldown: 10,
     permission: 'all',
-    execute: async ( { api, args, userDoc, reply, react, event } ) => guard(reply, event.messageID, 'coinflip', async () => {
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'coinflip', async () => {
       await react('🪙');
       const bet = amountArg(args, 100);
       if (bet <= 0) {
@@ -931,29 +898,23 @@ module.exports = [
       if (landed === guess) {
         const win = bet * 2;
         await credit(userDoc, win, 'coinflip', { bet, guess, landed, win });
-      const body =         `🪙 ${landed.toUpperCase()}! You called it.\n`;
-      const card = await cards.textCard({
-        title: 'COINFLIP', emoji: '🪙', subtitle: `'WON '+kc(win)+' on '+kc(bet)`, body,
-        footer: `'YOUR STAKE RIDES AGAIN.'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+        await reply(
+          `🪙 ${landed.toUpperCase()}! You called it.\n`
+          + `💰 Won ${kc(win)} (your ${kc(bet)} stake rides again)\n`
+          + `👛 Wallet: ${kc(userDoc.coins)}\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
         return;
       }
 
-      const body =         `🪙 ${landed.toUpperCase()}. You called ${guess}. Wrong.\n`;
-      const card = await cards.textCard({
-        title: 'COINFLIP', emoji: '🪙', subtitle: `'LOST '+kc(bet)`, body,
-        footer: `'FORTUNE FLIPPED.'`, user: userDoc, api,
-      });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(
+        `🪙 ${landed.toUpperCase()}. You called ${guess}. Wrong.\n`
+        + `💸 Lost ${kc(bet)}\n`
+        + `👛 Wallet: ${kc(userDoc.coins)}\n`
+        + `🪙 The cursed coin whispers "next time". ${story()}`,
+        event.messageID,
+      );
     }),
   },
 
