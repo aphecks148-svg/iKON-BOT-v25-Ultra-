@@ -411,7 +411,7 @@ module.exports = [
     hint: 'Coins in the vault cannot be robbed. Moving money in is one command and worth doing early.',
     cooldown: 5,
     permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'bank', async () => {
+    execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, 'bank', async () => {
       await react('🏦');
       const bank = userDoc.bank || 0;
       const card = await cards.userCard({
