@@ -19,7 +19,7 @@ const profile = require('./profile');
 const dex = require('./pokemon');
 const { error } = require('./helpers');
 
-const W = 900;
+const W = 800;
 
 /**
  * The join/leave card is a different shape from the boards on purpose: 1200x600
@@ -283,7 +283,7 @@ async function duoCard({ title, emoji = '', subtitle = '', threadID, chatName = 
   if (!canvasKit.available()) return null;
   if (!left) return null;
 
-  const W2 = 900;
+  const W2 = 800;
   const H = 510;
   const solo = !right;
 
@@ -541,7 +541,7 @@ async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
     const name = await realName(user || {}, api);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 34px sans-serif';
+    ctx.font = 'bold 36px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText(fit(ctx, name, W - 260), 172, 208);
 
@@ -985,8 +985,8 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
   if (!canvasKit.available()) return null;
   try {
     const lines = String(body || '').split('\n').filter(Boolean);
-    const lineH = 30;
-    const h = 230 + Math.max(1, lines.length) * lineH + 72;
+    const lineH = 32;
+    const h = 240 + Math.max(1, lines.length) * lineH + 76;
     const cv = canvasKit.create(W, h);
     const ctx = cv.ctx;
 
@@ -1002,14 +1002,14 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
     const name = await realName(user || {}, api);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 34px sans-serif';
+    ctx.font = 'bold 36px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText(fit(ctx, name, W - 260), 172, 208);
 
     let y = 268;
     for (const line of lines) {
-      ctx.font = '22px sans-serif';
-      ctx.fillStyle = '#c8ccd6';
+      ctx.font = 'bold 24px sans-serif';
+      ctx.fillStyle = '#e0e0e8';
       ctx.textAlign = 'left';
       const wrapped = wrapText(ctx, line, W - 96);
       for (const wline of wrapped) {
@@ -1019,7 +1019,7 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
     }
 
     if (footer) {
-      ctx.font = 'bold 20px sans-serif';
+      ctx.font = 'bold 22px sans-serif';
       ctx.fillStyle = accent;
       ctx.textAlign = 'left';
       ctx.fillText(fit(ctx, footer, W - 96), 48, h - 36);
