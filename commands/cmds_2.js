@@ -375,15 +375,6 @@ module.exports = [
         : coins + bank >= 250000 ? '👑 TYCOON'
           : coins + bank >= 50000 ? '🏙️ ELITE' : '🧱 STREET';
 
-      const card = await cards.userCard({
-        emoji: '💳', title: 'BALANCE', subtitle: `${tier} · Level ${userDoc.level || 1}`,
-        user: userDoc, api,
-        rows: [
-          ['Wallet', kc(coins)],
-          ['Vault', kc(bank)],
-          ['Net worth', kc(coins + bank)],
-        ],
-      });
       const body = `💳 **${userDoc.name || 'Hunter'}**\n`
         + '· · · · · · ·\n'
         + `👛 Wallet: ${kc(coins)}\n`
@@ -391,10 +382,6 @@ module.exports = [
         + `💎 Net worth: ${kc(coins + bank)}\n`
         + `${tier} · Level ${userDoc.level || 1}\n`
         + `📖 ${story()}`;
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
       await reply(body, event.messageID);
     }),
   },
