@@ -2744,7 +2744,7 @@ commands.push({
         await reply({ body: '🌾 **THE FARM**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('🌾 **THE FARM**\n· · · · · · ·\n' + userDoc.name + '\n📖 Canvas unavailable — text fallback', event.messageID);
+      await reply('🌾 **THE FARM**\n· · · · · · ·\n' + userDoc.name + '\n📖 (no picture this time)', event.messageID);
     }),
   });
 
@@ -2776,7 +2776,7 @@ commands.push({
         await reply({ body: '🎣 **THE TACKLE BOX**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('🎣 **THE TACKLE BOX**\n· · · · · · ·\n' + userDoc.name + '\n📖 Canvas unavailable — text fallback', event.messageID);
+      await reply('🎣 **THE TACKLE BOX**\n· · · · · · ·\n' + userDoc.name + '\n📖 (no picture this time)', event.messageID);
     }),
   });
 
@@ -2808,7 +2808,7 @@ commands.push({
         await reply({ body: '⛏️ **THE MINE**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('⛏️ **THE MINE**\n· · · · · · ·\n' + userDoc.name + '\n📖 Canvas unavailable — text fallback', event.messageID);
+      await reply('⛏️ **THE MINE**\n· · · · · · ·\n' + userDoc.name + '\n📖 (no picture this time)', event.messageID);
     }),
   });
 

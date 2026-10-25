@@ -2532,7 +2532,7 @@ commands.push({
         await reply({ body: '🃏 **THE ARCADE**\n· · · · · · ·\n' + kc(userDoc.coins) + ' on hand · ' + num(userDoc.gambleStreak || 0) + ' win streak', attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('🃏 **THE ARCADE**\n· · · · · · ·\nBalance: ' + kc(userDoc.coins) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+      await reply('🃏 **THE ARCADE**\n· · · · · · ·\nBalance: ' + kc(userDoc.coins) + '\n📖 (no picture this time)', event.messageID);
     }),
   });
 
@@ -2568,7 +2568,7 @@ commands.push({
         await reply({ body: '⚔️ **' + target.name + ' — DUEL RECORD**\n· · · · · · ·\n' + wins + 'W ' + losses + 'L · ' + rate + '%', attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('⚔️ **' + target.name + ' — DUEL RECORD**\n· · · · · · ·\nWins: ' + num(wins) + '\nLosses: ' + num(losses) + '\nRate: ' + rate + '%\n📖 Canvas unavailable — text fallback', event.messageID);
+      await reply('⚔️ **' + target.name + ' — DUEL RECORD**\n· · · · · · ·\nWins: ' + num(wins) + '\nLosses: ' + num(losses) + '\nRate: ' + rate + '%\n📖 (no picture this time)', event.messageID);
     }),
   });
 

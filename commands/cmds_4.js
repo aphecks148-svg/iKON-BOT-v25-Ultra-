@@ -1399,7 +1399,7 @@ module.exports = [
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petbattle', async () => {
       await react('⚔️');
       if (!mongo.isReady()) {
-        await reply('💾 The pet arena is closed — database offline.', event.messageID);
+        await reply('💾 The pet arena is closed — The city grid is down right now.', event.messageID);
         return;
       }
 
@@ -1479,7 +1479,7 @@ module.exports = [
     execute: async ({ event, userDoc, reply, react }) => guard(reply, event.messageID, 'petaccept', async () => {
       await react('✅');
       if (!mongo.isReady()) {
-        await reply('💾 The pet arena is closed — database offline.', event.messageID);
+        await reply('💾 The pet arena is closed — The city grid is down right now.', event.messageID);
         return;
       }
 
@@ -1568,7 +1568,7 @@ module.exports = [
     execute: async ({ event, userDoc, reply, react }) => guard(reply, event.messageID, 'petfight', async () => {
       await react('🔪');
       if (!mongo.isReady()) {
-        await reply('💾 The arena is closed — database offline.', event.messageID);
+        await reply('💾 The arena is closed — The city grid is down right now.', event.messageID);
         return;
       }
 
@@ -1703,7 +1703,7 @@ module.exports = [
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'petrevive', async () => {
       await react('💀');
       if (!mongo.isReady()) {
-        await reply('💾 The resurrection desk is closed — database offline.', event.messageID);
+        await reply('💾 The resurrection desk is closed — The city grid is down right now.', event.messageID);
         return;
       }
 
@@ -1881,7 +1881,7 @@ module.exports = [
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'petrank', async () => {
       await react('🏆');
       if (!mongo.isReady()) {
-        await reply('💾 The bestiary is sealed — database offline.', event.messageID);
+        await reply('💾 The bestiary is sealed — The city grid is down right now.', event.messageID);
         return;
       }
 
@@ -3201,7 +3201,7 @@ module.exports = [
     execute: async ({ api, args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'petduel', async () => {
       await react('🤺');
       if (!mongo.isReady()) {
-        await reply('💾 The arena is closed — database offline.', event.messageID);
+        await reply('💾 The arena is closed — The city grid is down right now.', event.messageID);
         return;
       }
 
@@ -3511,7 +3511,7 @@ module.exports = [
     execute: async ({ event, userDoc, reply, react }) => guard(reply, event.messageID, 'petgym', async () => {
       await react('🏋️🏽');
       if (!mongo.isReady()) {
-        await reply('💾 The gym is locked — database offline.', event.messageID);
+        await reply('💾 The gym is locked — The city grid is down right now.', event.messageID);
         return;
       }
 
@@ -3648,7 +3648,7 @@ module.exports = [
         + `Level: ${pet.level || 1}\n`
         + `Power: ${num(power)}\n`
         + `Mood: ${mood.emoji} ${mood.label}\n`
-        + '📖 Canvas unavailable — text fallback',
+        + '📖 (no picture this time)',
         event.messageID,
       );
     }),

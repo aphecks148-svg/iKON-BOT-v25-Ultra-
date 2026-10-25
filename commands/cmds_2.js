@@ -920,7 +920,7 @@ module.exports = [
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'leaderboard', async () => {
       await react('🏆');
       if (!mongo.isReady()) {
-        await reply('💾 Database offline — the ledger of the city is unavailable.', event.messageID);
+        await reply('📖 The city grid is down right now — the ledger of the city is unavailable.', event.messageID);
         return;
       }
 
@@ -1000,7 +1000,7 @@ module.exports = [
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'richest', async () => {
       await react('🏦');
       if (!mongo.isReady()) {
-        await reply('💾 Database offline — vault records are sealed.', event.messageID);
+        await reply('📖 The city grid is down right now — vault records are sealed.', event.messageID);
         return;
       }
       // uid is selected explicitly: the canvas card needs it to fetch the real
@@ -1865,7 +1865,7 @@ module.exports = [
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'economy', async () => {
       await react('🌐');
       if (!mongo.isReady()) {
-        await reply('💾 Database offline — the city census cannot be taken.', event.messageID);
+        await reply('📖 The city grid is down right now — the city census cannot be taken.', event.messageID);
         return;
       }
 
@@ -1915,7 +1915,7 @@ module.exports = [
     execute: async ({ args, userDoc, reply, react, event, config }) => guard(reply, event.messageID, 'lottery', async () => {
       await react('🎫');
       if (!mongo.isReady()) {
-        await reply('💾 Database offline — the lottery board is unavailable.', event.messageID);
+        await reply('📖 The city grid is down right now — the lottery board is unavailable.', event.messageID);
         return;
       }
       const group = await Group.findOne({ gid: String(event.threadID) });
@@ -2127,7 +2127,7 @@ module.exports = [
         + `Owes: ${kc(owes)}\n`
         + `Is owed: ${kc(isOwed)}\n`
         + `Net: ${kc(isOwed - owes)}\n`
-        + `📖 Canvas unavailable — text fallback`,
+        + `📖 (no picture this time)`,
         event.messageID,
 );
     }),
@@ -2176,7 +2176,7 @@ module.exports = [
         + `Cash: ${kc(cash)}\n`
         + `Vault: ${kc(bank)}\n`
         + `Net worth: ${kc(net)}\n`
-        + '📖 Canvas unavailable — text fallback',
+        + '📖 (no picture this time)',
         event.messageID,
       );
     }),

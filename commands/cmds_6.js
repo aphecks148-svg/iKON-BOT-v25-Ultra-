@@ -194,7 +194,7 @@ async function groupName(api, event) {
  */
 async function save(doc) {
   if (!doc) return '⚠️ Nothing to save.';
-  if (doc.transient) return '⚠️ Database is offline — this is TEMPORARY and resets on restart.';
+  if (doc.transient) return '⚠️ The city grid is down right now — this is TEMPORARY and resets on restart.';
   try {
     await doc.save();
     // The message path reads a group's moderation settings from a short cache,
@@ -2986,7 +2986,7 @@ commands.push({
         await reply({ body: '🏛️ **' + (g.threadName || 'Group') + '**\n· · · · · · ·\nLevel ' + (g.gcLevel || 1) + ' · ' + num(g.gcXp || 0) + ' XP', attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('🏛️ **' + (g.threadName || 'Group') + '**\n· · · · · · ·\nLevel: ' + (g.gcLevel || 1) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+      await reply('🏛️ **' + (g.threadName || 'Group') + '**\n· · · · · · ·\nLevel: ' + (g.gcLevel || 1) + '\n📖 (no picture this time)', event.messageID);
     }),
   });
 
@@ -3019,7 +3019,7 @@ commands.push({
         await reply({ body: '🔒 **LOCKDOWN STATE**\n· · · · · · ·\n' + (g ? (g.isEnabled ? 'running' : 'paused') : 'unknown'), attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 Canvas unavailable — text fallback', event.messageID);
+await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 (no picture this time)', event.messageID);
     }),
   });
 

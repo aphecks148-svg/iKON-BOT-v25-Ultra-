@@ -2814,7 +2814,7 @@ commands.push({
         await reply({ body: '🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no car') + ' · ' + kc(userDoc2.coins), attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-await reply('🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no car') + '\n📖 Canvas unavailable — text fallback', event.messageID);
+await reply('🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no car') + '\n📖 (no picture this time)', event.messageID);
     }),
   });
 

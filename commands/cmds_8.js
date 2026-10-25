@@ -1783,7 +1783,7 @@ const commands = [];
         return;
       }
 
-      await reply('🔎 Fetching it...', event.messageID);
+      await reply('🔎 Looking...', event.messageID);
       const resolved = await media.resolve(link, { mode: 'video' });
 
       // Groq writes the caption whether or not the file came back, so the
@@ -1833,7 +1833,7 @@ const commands = [];
         return;
       }
 
-      await reply('🔎 Fetching it...', event.messageID);
+      await reply('🔎 Looking...', event.messageID);
       const resolved = await media.resolve(link, { mode: 'video' });
 
       const roast = await askGroq(
@@ -1881,7 +1881,7 @@ const commands = [];
         return;
       }
 
-      await reply('🔎 Fetching it...', event.messageID);
+      await reply('🔎 Looking...', event.messageID);
       const resolved = await media.resolve(link, { mode: 'video' });
 
       // Instagram has no free public endpoint that stays up. The caption is
@@ -2096,7 +2096,7 @@ const commands = [];
         return;
       }
 
-      await reply('🔎 Fetching it...', event.messageID);
+      await reply('🔎 Looking...', event.messageID);
       const resolved = await media.resolve(link, { mode: 'video' });
       const statusId = (link.match(/\/status\/(\d+)/) || [])[1] || '';
 
@@ -2145,7 +2145,7 @@ const commands = [];
         return;
       }
 
-      await reply('🔎 Fetching it...', event.messageID);
+      await reply('🔎 Looking...', event.messageID);
       const pin = await media.pinImage(link);
 
       if (!pin) {
@@ -2652,7 +2652,7 @@ const commands = [];
         return;
       }
 
-      await reply('⚡ Thinking...', event.messageID);
+      await reply('⚡ Hold on...', event.messageID);
       const answer = await aiPaid({
         userDoc,
         prompt: `Answer this properly. State the answer in the first line, then give the reasoning in at most 4 short lines. `
@@ -4022,7 +4022,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         await reply({ body: '📥 **DOWNLOADER**\n· · · · · · ·\nSix sites, one command', attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('📥 **DOWNLOADER**\n· · · · · · ·\n📖 Canvas unavailable — text fallback', event.messageID);
+      await reply('📥 **DOWNLOADER**\n· · · · · · ·\n📖 (no picture this time)', event.messageID);
     }),
   });
 

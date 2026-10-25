@@ -2653,7 +2653,7 @@ commands.push({
         await reply({ body: '❤️ **SHIP**\n· · · · · · ·\n' + userDoc.name + ' + ' + target.name + ' — ' + comp + '%', attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('❤️ **SHIP**\n· · · · · · ·\n' + userDoc.name + ' + ' + target.name + ' — ' + comp + '%\n📖 Canvas unavailable — text fallback', event.messageID);
+      await reply('❤️ **SHIP**\n· · · · · · ·\n' + userDoc.name + ' + ' + target.name + ' — ' + comp + '%\n📖 (no picture this time)', event.messageID);
     }),
   });
 
@@ -2704,7 +2704,7 @@ commands.push({
           await reply({ body: `${v.emoji} **${v.title}**\n· · · · · · ·\n${target.name}\n${verdict}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
           return;
         }
-        await reply(`${v.emoji} **${v.title}**\n· · · · · · ·\n${target.name}\n${verdict}\n📖 Canvas unavailable — text fallback`, event.messageID);
+        await reply(`${v.emoji} **${v.title}**\n· · · · · · ·\n${target.name}\n${verdict}\n📖 (no picture this time)`, event.messageID);
       }),
     });
   }

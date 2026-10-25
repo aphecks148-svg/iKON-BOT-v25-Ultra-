@@ -1437,7 +1437,7 @@ kingdomCommands.push({
         await reply({ body: '👑 **' + k.name + '**\n· · · · · · ·\nTreasury: ' + kc(k.treasury || 0) + ' · ' + num(members.length) + ' members', attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('👑 **' + k.name + '**\n· · · · · · ·\nTreasury: ' + kc(k.treasury || 0) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+      await reply('👑 **' + k.name + '**\n· · · · · · ·\nTreasury: ' + kc(k.treasury || 0) + '\n📖 (no picture this time)', event.messageID);
     }),
   });
 
@@ -1466,7 +1466,7 @@ kingdomCommands.push({
         await reply({ body: '⚔️ **WAR**\n· · · · · · ·\n' + w.kingdom + ' vs ' + (w.opponent || '—') + ' · stake ' + kc(w.stake || 0), attachment: { type: 'image', data: { url: card } } }, event.messageID);
         return;
       }
-      await reply('⚔️ **WAR**\n· · · · · · ·\n' + w.kingdom + ' vs ' + (w.opponent || '—') + ' · stake ' + kc(w.stake || 0) + '\n📖 Canvas unavailable — text fallback', event.messageID);
+      await reply('⚔️ **WAR**\n· · · · · · ·\n' + w.kingdom + ' vs ' + (w.opponent || '—') + ' · stake ' + kc(w.stake || 0) + '\n📖 (no picture this time)', event.messageID);
     }),
   });
 
@@ -1612,7 +1612,7 @@ module.exports = [
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'rank', async () => {
       await react('🏅');
       if (!mongo.isReady()) {
-        await reply('💾 Academy records are sealed — database offline.', event.messageID);
+        await reply('💾 Academy records are sealed — The city grid is down right now.', event.messageID);
         return;
       }
       const board = await User.find({}).sort({ level: -1, xp: -1 }).limit(10).select('uid name level xp prestige').lean();
@@ -2896,7 +2896,7 @@ module.exports = [
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'topwins', async () => {
       await react('🥇');
       if (!mongo.isReady()) {
-        await reply('💾 Academy records are sealed — database offline.', event.messageID);
+        await reply('💾 Academy records are sealed — The city grid is down right now.', event.messageID);
         return;
       }
       const board = await User.find({ 'rpg.stats.wins': { $gt: 0 } })
@@ -2956,7 +2956,7 @@ module.exports = [
     execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'topxp', async () => {
       await react('🌟');
       if (!mongo.isReady()) {
-        await reply('💾 Academy records are sealed — database offline.', event.messageID);
+        await reply('💾 Academy records are sealed — The city grid is down right now.', event.messageID);
         return;
       }
 // uid is projected so the card can fetch each hunter's real photo.
@@ -3106,7 +3106,7 @@ module.exports = [
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'rpgstats', async () => {
       await react('🌐');
       if (!mongo.isReady()) {
-        await reply('💾 Academy census unavailable — database offline.', event.messageID);
+        await reply('💾 Academy census unavailable — The city grid is down right now.', event.messageID);
         return;
       }
 
@@ -3221,7 +3221,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
         }
         const p = await pokemonSpawn.spawnNow(api, group);
         if (!p) {
-          await reply('❌ Could not post a spawn. Check the logs.', event.messageID);
+          await reply('❌ Could not post a spawn. Try again in a moment.', event.messageID);
           return;
         }
         await reply(`🌿 Posted a **${p.name}** on request.`, event.messageID);
@@ -3361,7 +3361,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
         + `Tier: ${dex.tier(p).symbol} ${dex.tier(p).label}\n`
         + `Weakness: ${p.weaknesses ? p.weaknesses.join(' · ') : '—'}\n`
         + `Height: ${p.height ? `${p.height}m` : '—'} · Weight: ${p.weight ? `${p.weight}kg` : '—'}\n`
-        + '📖 Canvas unavailable — text fallback',
+        + '📖 (no picture this time)',
         event.messageID,
       );
     }),
@@ -3409,7 +3409,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
         + `Role: ${cls.role}\n`
         + `Power: ${num(cls.power)}\n`
         + `Skill: ${tdoc.skill ? tdoc.skill.name : '—'}\n`
-        + `📖 Canvas unavailable — text fallback`,
+        + `📖 (no picture this time)`,
         event.messageID,
       );
     }),
@@ -3455,7 +3455,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
         + '· · · · · · ·\n'
         + `Level: ${tdoc.level}\n`
         + `XP: ${num(tdoc.xp)}\n`
-        + `📖 Canvas unavailable — text fallback`,
+        + `📖 (no picture this time)`,
         event.messageID,
       );
     }),
@@ -3499,7 +3499,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
         `🐉 **BOSS BOARD** — ${bosses.length} bosses\n`
         + '· · · · · · ·\n'
         + `${lines}\n`
-        + `📖 Canvas unavailable — text fallback`,
+        + `📖 (no picture this time)`,
         event.messageID,
       );
     }),

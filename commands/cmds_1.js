@@ -260,7 +260,7 @@ module.exports = [
     permission: 'all',
     execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'dbstats', async () => {
       if (!mongo.isReady()) {
-        await reply('💾 Database is offline — no stats right now.', event.messageID);
+        await reply('📖 The city grid is down right now — no stats right now.', event.messageID);
         return;
       }
       await react('📊');
@@ -382,7 +382,7 @@ module.exports = [
       try {
         info = await api.getThreadInfo(event.threadID);
       } catch (err) {
-        await reply(`⚠️ Could not read this group: ${err.message}`, event.messageID);
+        await reply(`⚠️ Could not read this group just now. Try again in a moment.`, event.messageID);
         return;
       }
 
@@ -843,7 +843,7 @@ module.exports = [
       // Same honesty as !ban: a transient save() is a no-op, so say so rather
       // than confirming a setting that will be gone after a restart.
       if (group.transient) {
-        await reply('⚠️ Database is offline — this setting is TEMPORARY and resets on restart.', event.messageID);
+        await reply('⚠️ The city grid is down right now — this setting is TEMPORARY and resets on restart.', event.messageID);
         return;
       }
       await group.save();
@@ -900,7 +900,7 @@ module.exports = [
       // Same honesty as !ban: a transient save() is a no-op, so say so rather
       // than confirming a setting that will be gone after a restart.
       if (group.transient) {
-        await reply('⚠️ Database is offline — this setting is TEMPORARY and resets on restart.', event.messageID);
+        await reply('⚠️ The city grid is down right now — this setting is TEMPORARY and resets on restart.', event.messageID);
         return;
       }
       await group.save();
@@ -1054,7 +1054,7 @@ module.exports = [
       }
       group.adminsOnly = true;
       if (group.transient) {
-        await reply('⚠️ Database is offline — this setting is TEMPORARY and resets on restart.', event.messageID);
+        await reply('⚠️ The city grid is down right now — this setting is TEMPORARY and resets on restart.', event.messageID);
         return;
       }
       await group.save();
@@ -1094,7 +1094,7 @@ module.exports = [
       }
       group.adminsOnly = false;
       if (group.transient) {
-        await reply('⚠️ Database is offline — this setting is TEMPORARY and resets on restart.', event.messageID);
+        await reply('⚠️ The city grid is down right now — this setting is TEMPORARY and resets on restart.', event.messageID);
         return;
       }
       await group.save();
@@ -1449,7 +1449,7 @@ module.exports = [
       if (target.transient) {
         await react('🚫');
         await reply(
-          '⚠️ Database is offline — this ban is TEMPORARY and lasts only until the bot restarts.\n'
+          '⚠️ The city grid is down right now — this ban is TEMPORARY and lasts only until the bot restarts.\n'
           + `Banned ${displayName} (\`${uid}\`) for: ${reason}`,
           event.messageID,
         );
@@ -1590,7 +1590,7 @@ module.exports = [
       }
 
       if (!mongo.isReady()) {
-        await reply('💾 The roster is sealed — database offline, so no chat list. Nothing was sent.', event.messageID);
+        await reply('💾 The roster is sealed — The city grid is down right now, so no chat list. Nothing was sent.', event.messageID);
         return;
       }
 
@@ -1716,7 +1716,7 @@ module.exports = [
       gc.broadcasts.on = mode === 'on';
       if (typeof group.markModified === 'function') group.markModified('gc');
       if (group.transient) {
-        await reply('⚠️ Database is offline — this setting is TEMPORARY and resets on restart.', event.messageID);
+        await reply('⚠️ The city grid is down right now — this setting is TEMPORARY and resets on restart.', event.messageID);
         return;
       }
       await group.save();
@@ -1809,7 +1809,7 @@ module.exports = [
         + `⏱️ Uptime: ${fmt.uptime(process.uptime())}\n`
         + `🧠 Memory: ${Math.round(process.memoryUsage().rss / 1024)}MB RSS\n`
         + `📦 Commands: ${registry.size}\n`
-        + `📖 Canvas unavailable — text fallback`,
+        + `📖 (no picture this time)`,
         event.messageID,
       );
     }),
