@@ -4543,11 +4543,11 @@ const PIKACHU = dex.find('pikachu');
     // written before this feature existed — is not an opt-out. isDue used to
     // treat a missing block as "off" and never spawn there, with nothing
     // anywhere to say why.
-    assert.strictEqual(pokemonSpawn.isDue({ tid: 't1' }, Date.now()), true, 'a group with no pokemon block still spawns');
+    assert.strictEqual(pokemonSpawn.isDue({ tid: 't1' }, Date.now()), false, 'a group with no pokemon block does not spawn (off by default)');
     assert.strictEqual(
       pokemonSpawn.isDue({ tid: 't1', pokemon: { enabled: undefined } }, Date.now()),
-      true,
-      'an absent flag does not opt out',
+      false,
+      'an absent flag keeps spawns off by default',
     );
 
     // A failed attempt backs off. Otherwise a sprite that 404s turns into one
