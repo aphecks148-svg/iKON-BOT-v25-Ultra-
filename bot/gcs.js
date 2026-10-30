@@ -519,6 +519,38 @@ async function approveAll(api) {
 }
 
 /**
+ * Turn wild Pokemon spawns off in every group the bot already knows about.
+ *
+ * Runs on every boot so a deploy flips every existing chat to off, not just
+ * groups added from now on. New groups already default to `enabled: false` in
+ * the schema; this sweeps the ones written before that default existed, or
+ * that an admin previously turned on with `!pokemon on`. It is idempotent:
+ * setting false on a chat that is already false is a no-op.
+ *
+ * @returns {Promise<number>} how many chats were flipped
+ */
+async function disablePokemonEverywhere() {
+  try {
+    // Imported here rather than at the top: models/Group is required by
+    // bot/toggles.js, which the engine requires — a top-level require here
+    // would create a circular dependency.
+    // eslint-disable-next-line global-require
+    const Group = require('../models/Group');
+    const result = await Group.updateMany(
+      { 'pokemon.enabled': true },
+      { 'pokemon.enabled': false }
+    );
+    if (result.modifiedCount) {
+      log(`[GCS] Disabled Pokemon spawns in ${result.modifiedCount} group chat(s).`);
+    }
+    return result.modifiedCount;
+  } catch (err) {
+    error(`[GCS] disable-pokemon sweep failed: ${err.message}`);
+    return 0;
+  }
+}
+
+/**
  * Write every thread Facebook hands back, so the group list survives.
  *
  * `!gclist` and the boot sweep ask Facebook for the chats the bot is in, and
@@ -593,4 +625,5 @@ module.exports = {
   cleanup,
   approveAll,
   cacheThreadsOnLogin,
+  disablePokemonEverywhere,
 };

@@ -1517,7 +1517,9 @@ function attachClient(api) {
     .then(() => gcs.cacheThreadsOnLogin(api))
     .catch((err) => error(`[GCS] thread cache at login failed: ${err.message}`))
     .then(() => gcs.approveAll(api))
-    .catch((err) => error(`[GCS] boot enable sweep failed: ${err.message}`));
+    .catch((err) => error(`[GCS] boot enable sweep failed: ${err.message}`))
+    .then(() => gcs.disablePokemonEverywhere())
+    .catch((err) => error(`[GCS] boot disable-pokemon sweep failed: ${err.message}`));
 }
 
 /**
@@ -1855,6 +1857,7 @@ async function boot() {
   if (api) {
     try { await gcs.cacheThreadsOnLogin(api); } catch (err) { error(`[GCS] thread cache at login failed: ${err.message}`); }
     await gcs.approveAll(api).catch((err) => error(`[GCS] boot enable sweep failed: ${err.message}`));
+    await gcs.disablePokemonEverywhere().catch((err) => error(`[GCS] boot disable-pokemon sweep failed: ${err.message}`));
   }
 
   // 8. HOUSEKEEPING
