@@ -1636,19 +1636,27 @@ function login() {
     return Promise.resolve(null);
   }
 
-  // 2FA appstate must include all required cookies.
+  // ws3-fca only requires c_user and xs to login. The others (fr, datr, sb,
+  // m_pixel_ratio) help with anti-bot detection but are not required — Facebook
+  // often logs in fine with just the two auth cookies. Warn about missing ones
+  // rather than blocking login.
   const _state = require('./config')._internals.appstateHealth(config.APPSTATE);
-  if (!_state.hasCUser || !_state.hasXs || !_state.hasFr || !_state.hasDatr || !_state.hasSb || !_state.hasPixelRatio) {
+  if (!_state.hasCUser || !_state.hasXs) {
     const missing = [
       !_state.hasCUser && 'c_user',
       !_state.hasXs && 'xs',
+    ].filter(Boolean).join(', ');
+    error(`[LOGIN] APPSTATE missing required auth cookies: ${missing}. Check APPSTATE manually.`);
+    return Promise.resolve(null);
+  }
+  if (!_state.hasFr || !_state.hasDatr || !_state.hasSb || !_state.hasPixelRatio) {
+    const optional = [
       !_state.hasFr && 'fr',
       !_state.hasDatr && 'datr',
       !_state.hasSb && 'sb',
       !_state.hasPixelRatio && 'm_pixel_ratio',
     ].filter(Boolean).join(', ');
-    error(`[LOGIN] APPSTATE missing 2FA cookies: ${missing}. Check APPSTATE manually.`);
-    return Promise.resolve(null);
+    log(`[LOGIN] APPSTATE missing optional cookies: ${optional} — login will still attempt.`);
   }
 
   let fcaLogin;
