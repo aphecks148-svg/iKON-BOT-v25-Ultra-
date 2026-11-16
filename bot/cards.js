@@ -41,28 +41,97 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+/** Paint a glassmorphic panel with optional border. */
+function glassPanel(ctx, x, y, w, h, r, opts = {}) {
+  const { fill = 'rgba(255,255,255,0.04)', stroke = 'rgba(255,255,255,0.08)', glow = null } = opts;
+  ctx.save();
+  if (glow) {
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 16;
+  }
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.restore();
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1;
+    roundRect(ctx, x, y, w, h, r);
+    ctx.stroke();
+  }
+}
+
+/** Draw corner accent brackets. */
+function cornerAccents(ctx, x, y, w, h, size = 16, color = '#00d4ff') {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 6;
+  const c = size;
+  // Top-left.
+  ctx.beginPath(); ctx.moveTo(x, y + c); ctx.lineTo(x, y); ctx.lineTo(x + c, y); ctx.stroke();
+  // Top-right.
+  ctx.beginPath(); ctx.moveTo(x + w - c, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + c); ctx.stroke();
+  // Bottom-left.
+  ctx.beginPath(); ctx.moveTo(x, y + h - c); ctx.lineTo(x, y + h); ctx.lineTo(x + c, y + h); ctx.stroke();
+  // Bottom-right.
+  ctx.beginPath(); ctx.moveTo(x + w - c, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - c); ctx.stroke();
+  ctx.restore();
+}
+
+/** Draw a thin gradient accent bar. */
+function accentBar(ctx, x, y, w, color1 = '#00d4ff', color2 = '#b14bff') {
+  const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+  grad.addColorStop(0, color1);
+  grad.addColorStop(0.5, color2);
+  grad.addColorStop(1, color1);
+  ctx.fillStyle = grad;
+  ctx.shadowColor = color1;
+  ctx.shadowBlur = 8;
+  roundRect(ctx, x, y, w, 4, 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
 /** Paint the shared dark gradient background with stars. */
 function paintBackground(ctx, h) {
   const grad = ctx.createLinearGradient(0, 0, W, h);
   grad.addColorStop(0, '#0a0a1a');
-  grad.addColorStop(0.5, '#1a0a3a');
+  grad.addColorStop(0.4, '#12082a');
+  grad.addColorStop(0.7, '#1a0a3a');
   grad.addColorStop(1, '#0d0618');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, h);
 
-  // Star field for depth.
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  for (let i = 0; i < 50; i++) {
-    const x = (i * 137) % W;
-    const y = (i * 89) % h;
-    const r = (i % 3) + 1;
+  // Radial glow behind the centre for depth.
+  const glow = ctx.createRadialGradient(W / 2, h * 0.35, 0, W / 2, h * 0.35, Math.max(W, h) * 0.6);
+  glow.addColorStop(0, 'rgba(0,212,255,0.08)');
+  glow.addColorStop(0.5, 'rgba(177,75,255,0.03)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, h);
+
+  // Star field with varying brightness.
+  for (let i = 0; i < 60; i++) {
+    const x = (i * 137 + (i % 7) * 23) % W;
+    const y = (i * 89 + (i % 5) * 17) % h;
+    const r = (i % 3) + 0.5;
+    ctx.fillStyle = `rgba(255,255,255,${0.15 + (i % 5) * 0.08})`;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
+    // Brighter stars get a subtle glow.
+    if (i % 4 === 0) {
+      ctx.fillStyle = 'rgba(0,212,255,0.15)';
+      ctx.beginPath();
+      ctx.arc(x, y, r + 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   // Neon grid lines for the cyberpunk feel.
-  ctx.strokeStyle = 'rgba(0,212,255,0.08)';
+  ctx.strokeStyle = 'rgba(0,212,255,0.06)';
   ctx.lineWidth = 1;
   for (let x = 0; x < W; x += 45) {
     ctx.beginPath();
@@ -76,32 +145,50 @@ function paintBackground(ctx, h) {
     ctx.lineTo(W, y);
     ctx.stroke();
   }
+
+  // Vignette for depth.
+  const vig = ctx.createRadialGradient(W / 2, h / 2, h * 0.3, W / 2, h / 2, Math.max(W, h) * 0.75);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.3)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, h);
 }
 
 /** Paint a header band with a title and neon glow. */
 function paintHeader(ctx, emoji, title, subtitle) {
-  // Neon glow behind header.
+  // Outer neon glow.
   ctx.save();
   ctx.shadowColor = '#00d4ff';
-  ctx.shadowBlur = 20;
-  ctx.fillStyle = 'rgba(0,212,255,0.12)';
+  ctx.shadowBlur = 24;
+  ctx.fillStyle = 'rgba(0,212,255,0.08)';
   roundRect(ctx, 20, 20, W - 40, 116, 24);
   ctx.fill();
   ctx.restore();
 
-  // Header band with gradient.
+  // Glassmorphic header panel.
   const hGrad = ctx.createLinearGradient(24, 24, W - 24, 132);
-  hGrad.addColorStop(0, 'rgba(0,212,255,0.15)');
-  hGrad.addColorStop(1, 'rgba(177,75,255,0.15)');
+  hGrad.addColorStop(0, 'rgba(0,212,255,0.18)');
+  hGrad.addColorStop(0.5, 'rgba(177,75,255,0.10)');
+  hGrad.addColorStop(1, 'rgba(0,212,255,0.06)');
   ctx.fillStyle = hGrad;
   roundRect(ctx, 24, 24, W - 48, 112, 22);
   ctx.fill();
 
-  // Top accent line.
-  ctx.fillStyle = '#00d4ff';
+  // Subtle inner border.
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, 24, 24, W - 48, 112, 22);
+  ctx.stroke();
+
+  // Top accent line with gradient.
+  const accentGrad = ctx.createLinearGradient(24, 0, W - 24, 0);
+  accentGrad.addColorStop(0, '#00d4ff');
+  accentGrad.addColorStop(0.5, '#b14bff');
+  accentGrad.addColorStop(1, '#00d4ff');
+  ctx.fillStyle = accentGrad;
   ctx.shadowColor = '#00d4ff';
-  ctx.shadowBlur = 12;
-  roundRect(ctx, 24, 24, W - 48, 6, 3);
+  ctx.shadowBlur = 14;
+  roundRect(ctx, 24, 24, W - 48, 5, 2.5);
   ctx.fill();
   ctx.shadowBlur = 0;
 
@@ -109,17 +196,20 @@ function paintHeader(ctx, emoji, title, subtitle) {
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
 
-  const size = 46;
+  const size = 44;
   const emojiWidth = canvasKit.drawEmoji(ctx, emoji, 48, 68, size);
   ctx.font = `bold ${size}px sans-serif`;
-  ctx.shadowColor = '#00d4ff';
-  ctx.shadowBlur = 8;
-  ctx.fillText(String(title), 48 + emojiWidth + 14, 68);
+  ctx.shadowColor = 'rgba(0,212,255,0.6)';
+  ctx.shadowBlur = 10;
+  ctx.fillText(String(title), 48 + emojiWidth + 14, 66);
   ctx.shadowBlur = 0;
 
   if (subtitle) {
-    ctx.font = 'bold 24px sans-serif';
-    ctx.fillStyle = '#b14bff';
+    ctx.font = '22px sans-serif';
+    const subGrad = ctx.createLinearGradient(48, 0, W - 48, 0);
+    subGrad.addColorStop(0, '#b14bff');
+    subGrad.addColorStop(1, '#00d4ff');
+    ctx.fillStyle = subGrad;
     ctx.fillText(subtitle, 48, 108);
   }
 }
@@ -197,6 +287,18 @@ async function thumbBuffer(url) {
 async function drawAvatar(ctx, buf, x, y, d) {
   const img = await loadImage(buf);
   const r = d / 2;
+
+  // Outer glow ring.
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,212,255,0.6)';
+  ctx.shadowBlur = 18;
+  ctx.beginPath();
+  ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,212,255,0.08)';
+  ctx.fill();
+  ctx.restore();
+
+  // Clip to circle and draw image.
   ctx.save();
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -213,12 +315,23 @@ async function drawAvatar(ctx, buf, x, y, d) {
   }
   ctx.restore();
 
-  // Ring so a pale photo still reads against the dark card.
+  // Inner ring (bright).
   ctx.save();
   ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(0,212,255,0.65)';
+  ctx.arc(x, y, r - 1, 0, Math.PI * 2);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(0,212,255,0.7)';
+  ctx.shadowColor = 'rgba(0,212,255,0.4)';
+  ctx.shadowBlur = 8;
+  ctx.stroke();
+  ctx.restore();
+
+  // Outer ring (dim).
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r + 3, 0, Math.PI * 2);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(177,75,255,0.3)';
   ctx.stroke();
   ctx.restore();
 }
@@ -348,6 +461,11 @@ async function duoCard({ title, emoji = '', subtitle = '', threadID, chatName = 
       ctx.fillText('→', W2 / 2, cy);
     }
 
+    // Glass panel behind the body text.
+    if (body) {
+      glassPanel(ctx, 40, 408, W2 - 80, 56, 14, { fill: 'rgba(255,255,255,0.04)', stroke: 'rgba(255,255,255,0.06)' });
+    }
+
     // The body often arrives with hard newlines (a coin total, a rank, a pet
     // line). fillText does not honour \n, so it is wrapped by hand into at most
     // two lines — the alternative is a single ellipsised line that throws away
@@ -375,6 +493,8 @@ async function duoCard({ title, emoji = '', subtitle = '', threadID, chatName = 
         ctx.fillText(fit(ctx, l, maxW), W2 / 2, 424 + i * 26);
       });
     }
+
+    cornerAccents(ctx, 8, 8, W2 - 16, H - 16, 18);
 
     // Footer: the disclaimer, and the thread this all belongs to.
     ctx.textAlign = 'left';
@@ -453,11 +573,10 @@ async function pokemonCard(pokemon) {
     ctx.stroke();
 
     paintHeader(ctx, '🌿', 'WILD ENCOUNTER', 'A Pokemon appeared in this chat');
+    accentBar(ctx, 24, 148, W - 48);
 
     // Keep the official artwork uncropped: the sprite is the point of the card.
-    ctx.fillStyle = 'rgba(255,255,255,0.045)';
-    roundRect(ctx, 32, 154, 340, 330, 24);
-    ctx.fill();
+    glassPanel(ctx, 32, 154, 340, 330, 24, { fill: 'rgba(255,255,255,0.045)', stroke: 'rgba(255,255,255,0.06)' });
     ctx.beginPath();
     ctx.arc(202, 317, 126, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0,212,255,0.09)';
@@ -482,6 +601,9 @@ async function pokemonCard(pokemon) {
     ctx.fillStyle = '#9aa0b5';
     ctx.fillText('#' + String(id).padStart(3, '0') + '  ·  ' + dex.typeLabel(pokemon), 414, 252);
 
+    // Glass panel behind tier badge and catch instructions.
+    glassPanel(ctx, 402, 276, 362, 180, 18);
+
     roundRect(ctx, 414, 286, 238, 56, 16);
     ctx.fillStyle = accent;
     ctx.fill();
@@ -497,6 +619,8 @@ async function pokemonCard(pokemon) {
     ctx.font = '21px sans-serif';
     ctx.fillStyle = '#9aa0b5';
     ctx.fillText('First correct reply wins · disappears after ' + Math.round(dex.DEFAULT_TTL_MS / 60000) + ' min', 414, 426);
+
+    cornerAccents(ctx, 8, 8, W - 16, height - 16, 18, accent);
 
     ctx.font = '19px sans-serif';
     ctx.fillStyle = 'rgba(154,160,181,0.85)';
@@ -531,6 +655,7 @@ async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
     ctx.restore();
 
     paintHeader(ctx, emoji, title, subtitle);
+    accentBar(ctx, 24, 148, W - 48);
 
     // Avatar + name block on the left of the body. A Pokemon card has no
     // Facebook avatar to draw, so the caller hands in the sprite URL instead
@@ -545,8 +670,23 @@ async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
     ctx.fillStyle = '#ffffff';
     ctx.fillText(fit(ctx, name, W - 260), 172, 208);
 
-    let y = 268;
-    for (const [label, value] of rows) {
+    // Glass panel behind the stat rows.
+    const panelY = 252;
+    const panelH = Math.max(1, rows.length) * rowH + 16;
+    glassPanel(ctx, 32, panelY, W - 64, panelH, 16);
+
+    let y = panelY + rowH;
+    for (let i = 0; i < rows.length; i++) {
+      const [label, value] = rows[i];
+      // Subtle separator line between rows.
+      if (i > 0) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(48, y - rowH + 8);
+        ctx.lineTo(W - 48, y - rowH + 8);
+        ctx.stroke();
+      }
       ctx.font = '24px sans-serif';
       ctx.fillStyle = '#9aa0b5';
       ctx.textAlign = 'left';
@@ -558,6 +698,8 @@ async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
       ctx.fillText(fit(ctx, value, W - 300), W - 48, y);
       y += rowH;
     }
+
+    cornerAccents(ctx, 8, 8, W - 16, h - 16, 18);
 
     ctx.font = '20px sans-serif';
     ctx.fillStyle = 'rgba(154,160,181,0.75)';
@@ -614,6 +756,7 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
     ctx.restore();
 
     paintHeader(ctx, emoji, title, subtitle);
+    accentBar(ctx, 24, 148, W - 48);
 
     // Resolve names and pictures together, once, in parallel.
     const [names, pics] = await Promise.all([
@@ -624,11 +767,14 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
     const medals = ['🥇', '🥈', '🥉'];
     let y = 172 + rowH / 2;
 
+    // Glass panel behind all rows.
+    glassPanel(ctx, 24, 156, W - 48, shown.length * rowH + 8, 18);
+
     for (let i = 0; i < shown.length; i += 1) {
       const row = shown[i];
       if (i % 2 === 0) {
         ctx.fillStyle = 'rgba(255,255,255,0.035)';
-        roundRect(ctx, 24, y - rowH / 2 + 4, W - 48, rowH - 8, 14);
+        roundRect(ctx, 32, y - rowH / 2 + 4, W - 64, rowH - 8, 14);
         ctx.fill();
       }
 
@@ -729,6 +875,7 @@ async function pairCard({ title, emoji, subtitle, pairs, api, value, limit = 8 }
     ctx.restore();
 
     paintHeader(ctx, emoji, title, subtitle);
+    accentBar(ctx, 24, 148, W - 48);
 
     const resolved = await Promise.all(shown.map(async (p) => {
       const [na, nb, pa, pb] = await Promise.all([
@@ -742,13 +889,16 @@ async function pairCard({ title, emoji, subtitle, pairs, api, value, limit = 8 }
 
     let y = 172 + rowH / 2;
 
+    // Glass panel behind all rows.
+    glassPanel(ctx, 24, 156, W - 48, shown.length * rowH + 8, 18);
+
     for (let i = 0; i < shown.length; i += 1) {
       const pair = shown[i];
       const r = resolved[i];
 
       if (i % 2 === 0) {
         ctx.fillStyle = 'rgba(255,255,255,0.035)';
-        roundRect(ctx, 24, y - rowH / 2 + 4, W - 48, rowH - 8, 14);
+        roundRect(ctx, 32, y - rowH / 2 + 4, W - 64, rowH - 8, 14);
         ctx.fill();
       }
 
@@ -820,10 +970,20 @@ async function arrivalCard({ kind, uid, name, threadName, threadID, picUrl = '',
     // House gradient with star field and neon grid.
     const grad = ctx.createLinearGradient(0, 0, ARRIVAL_W, ARRIVAL_H);
     grad.addColorStop(0, '#0a0a1a');
-    grad.addColorStop(0.5, '#1a0a3a');
+    grad.addColorStop(0.4, '#12082a');
+    grad.addColorStop(0.7, '#1a0a3a');
     grad.addColorStop(1, '#0d0618');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, ARRIVAL_W, ARRIVAL_H);
+
+    // Radial glow for depth.
+    const glow = ctx.createRadialGradient(ARRIVAL_W / 2, ARRIVAL_H * 0.4, 0, ARRIVAL_W / 2, ARRIVAL_H * 0.4, ARRIVAL_H * 0.7);
+    glow.addColorStop(0, leaving ? 'rgba(255,100,150,0.10)' : 'rgba(0,212,255,0.10)');
+    glow.addColorStop(0.5, 'rgba(177,75,255,0.03)');
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, ARRIVAL_W, ARRIVAL_H);
+
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     for (let i = 0; i < 60; i += 1) {
       const x = (i * 137) % ARRIVAL_W;
@@ -832,19 +992,44 @@ async function arrivalCard({ kind, uid, name, threadName, threadID, picUrl = '',
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
+      if (i % 4 === 0) {
+        ctx.fillStyle = leaving ? 'rgba(255,100,150,0.15)' : 'rgba(0,212,255,0.15)';
+        ctx.beginPath();
+        ctx.arc(x, y, r + 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      }
     }
     ctx.fillStyle = 'rgba(6,6,14,0.46)';
     ctx.fillRect(0, 0, ARRIVAL_W, ARRIVAL_H);
 
-    // A band of brand colour behind the headline, so the words are not floating
-    // in a photo-less middle.
-    ctx.fillStyle = 'rgba(0,212,255,0.10)';
+    // Glassmorphic band behind the headline.
+    const bandColor = leaving ? 'rgba(255,100,150,0.12)' : 'rgba(0,212,255,0.12)';
+    ctx.fillStyle = bandColor;
     roundRect(ctx, 60, 56, ARRIVAL_W - 120, 104, 28);
     ctx.fill();
+    ctx.strokeStyle = leaving ? 'rgba(255,100,150,0.2)' : 'rgba(0,212,255,0.2)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, 60, 56, ARRIVAL_W - 120, 104, 28);
+    ctx.stroke();
+
+    // Accent bar.
+    const barColor = leaving ? '#ff6496' : '#00d4ff';
+    const barGrad = ctx.createLinearGradient(60, 0, ARRIVAL_W - 60, 0);
+    barGrad.addColorStop(0, barColor);
+    barGrad.addColorStop(0.5, '#b14bff');
+    barGrad.addColorStop(1, barColor);
+    ctx.fillStyle = barGrad;
+    ctx.shadowColor = barColor;
+    ctx.shadowBlur = 10;
+    roundRect(ctx, 60, 56, ARRIVAL_W - 120, 5, 2.5);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 26px sans-serif';
-    ctx.fillStyle = '#7fe6ff';
+    ctx.fillStyle = leaving ? '#ffb4c8' : '#7fe6ff';
     ctx.fillText(
       leaving ? '🚪  GOODBYE' : '👋  WELCOME',
       ARRIVAL_W / 2,
@@ -867,6 +1052,12 @@ async function arrivalCard({ kind, uid, name, threadName, threadID, picUrl = '',
     const shown = liveName
       || (name && !profile.isPlaceholderName(name) ? String(name) : '')
       || `Hunter ${id.slice(-4)}`;
+
+    // Glass panel behind the name and subtitle.
+    glassPanel(ctx, 80, 430, ARRIVAL_W - 160, 130, 22, {
+      fill: 'rgba(255,255,255,0.05)',
+      stroke: 'rgba(255,255,255,0.08)',
+    });
 
     // "WELCOME Ada Lovelace" — the two words the chat is about, as one line.
     ctx.font = 'bold 46px sans-serif';
@@ -912,10 +1103,10 @@ async function botCard(opts) {
     const ctx = cv.ctx;
     paintBackground(ctx, 320);
 
-    // Header band.
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    roundRect(ctx, 24, 24, W - 48, 110, 22);
-    ctx.fill();
+    // Glassmorphic header band with accent bar.
+    glassPanel(ctx, 24, 24, W - 48, 110, 22, { fill: 'rgba(255,255,255,0.06)', stroke: 'rgba(255,255,255,0.08)' });
+    accentBar(ctx, 24, 24, W - 48);
+
     ctx.font = 'bold 46px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'left';
@@ -923,24 +1114,33 @@ async function botCard(opts) {
     const botEmoji = canvasKit.drawEmoji(ctx, '🤖', 48, 72, 40);
     ctx.fillText(String(o.botName || 'iKON-BOT'), 48 + botEmoji + 14, 72);
     ctx.font = '24px sans-serif';
-    ctx.fillStyle = '#9aa0b5';
+    const verGrad = ctx.createLinearGradient(48, 0, 300, 0);
+    verGrad.addColorStop(0, '#b14bff');
+    verGrad.addColorStop(1, '#00d4ff');
+    ctx.fillStyle = verGrad;
     ctx.fillText('v' + (o.version || '2.0.0'), 48, 104);
 
-    // Four stat boxes.
+    // Four stat boxes with glassmorphic styling.
     const stats = [
-      { label: 'UPTIME', value: String(o.uptime || '—') },
-      { label: 'COMMANDS', value: String(o.commands || 0) },
-      { label: 'ALIASES', value: String(o.aliases || 0) },
-      { label: 'CHATS', value: String(o.chats || 0) },
+      { label: 'UPTIME', value: String(o.uptime || '—'), color: '#00d4ff' },
+      { label: 'COMMANDS', value: String(o.commands || 0), color: '#b14bff' },
+      { label: 'ALIASES', value: String(o.aliases || 0), color: '#00d4ff' },
+      { label: 'CHATS', value: String(o.chats || 0), color: '#b14bff' },
     ];
     const boxW = (W - 72) / 4;
     const boxH = 120;
     const boxY = 168;
     stats.forEach((s, i) => {
       const x = 24 + i * (boxW + 8);
-      ctx.fillStyle = 'rgba(255,255,255,0.04)';
-      roundRect(ctx, x, boxY, boxW, boxH, 16);
+      glassPanel(ctx, x, boxY, boxW, boxH, 16, { fill: 'rgba(255,255,255,0.04)', stroke: 'rgba(255,255,255,0.06)' });
+      // Top accent bar per box.
+      const barGrad = ctx.createLinearGradient(x, 0, x + boxW, 0);
+      barGrad.addColorStop(0, s.color);
+      barGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = barGrad;
+      roundRect(ctx, x, boxY, boxW, 3, 1.5);
       ctx.fill();
+
       ctx.fillStyle = '#9aa0b5';
       ctx.font = '16px sans-serif';
       ctx.textAlign = 'center';
@@ -950,6 +1150,8 @@ async function botCard(opts) {
       ctx.fillText(String(s.value).slice(0, 12), x + boxW / 2, boxY + 72);
       ctx.textAlign = 'left';
     });
+
+    cornerAccents(ctx, 8, 8, W - 16, 304, 18);
 
     // Footer: memory + pending.
     const mem = o.memory || {};
@@ -991,10 +1193,16 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
     const ctx = cv.ctx;
 
     paintBackground(ctx, h);
-    ctx.fillStyle = accent;
+    // Gradient accent bar at top.
+    const topBarGrad = ctx.createLinearGradient(0, 0, W, 0);
+    topBarGrad.addColorStop(0, accent);
+    topBarGrad.addColorStop(0.5, '#00d4ff');
+    topBarGrad.addColorStop(1, accent);
+    ctx.fillStyle = topBarGrad;
     ctx.fillRect(0, 0, W, 8);
 
     paintHeader(ctx, emoji, title, subtitle);
+    accentBar(ctx, 24, 148, W - 48);
 
     const pic = user ? await thumbBuffer(await profile.picture(user.uid, api)) : null;
     await drawAvatar(ctx, pic, 92, 208, 112);
@@ -1006,7 +1214,12 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
     ctx.fillStyle = '#ffffff';
     ctx.fillText(fit(ctx, name, W - 260), 172, 208);
 
-    let y = 268;
+    // Glass panel behind the body text.
+    const bodyPanelY = 252;
+    const bodyPanelH = Math.max(1, lines.length) * lineH + 32;
+    glassPanel(ctx, 32, bodyPanelY, W - 64, bodyPanelH, 16);
+
+    let y = bodyPanelY + lineH;
     for (const line of lines) {
       ctx.font = 'bold 24px sans-serif';
       ctx.fillStyle = '#e0e0e8';
@@ -1020,10 +1233,15 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
 
     if (footer) {
       ctx.font = 'bold 22px sans-serif';
-      ctx.fillStyle = accent;
+      const footGrad = ctx.createLinearGradient(48, 0, W - 48, 0);
+      footGrad.addColorStop(0, accent);
+      footGrad.addColorStop(1, '#00d4ff');
+      ctx.fillStyle = footGrad;
       ctx.textAlign = 'left';
       ctx.fillText(fit(ctx, footer, W - 96), 48, h - 36);
     }
+
+    cornerAccents(ctx, 8, 8, W - 16, h - 16, 18);
 
     ctx.font = '20px sans-serif';
     ctx.fillStyle = 'rgba(154,160,181,0.75)';
@@ -1069,6 +1287,9 @@ module.exports = {
   realName,
   fit,
   roundRect,
+  glassPanel,
+  cornerAccents,
+  accentBar,
   textCard,
   wrapText,
 };
