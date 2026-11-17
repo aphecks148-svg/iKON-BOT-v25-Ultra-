@@ -66,7 +66,7 @@ const STATE = {
  * @type {number}
  */
 let loginAttempts = 0;
-const LOGIN_MAX_ATTEMPTS = 3;
+const LOGIN_MAX_ATTEMPTS = Infinity;
 
 /** Record a successful send. */
 function noteSendOk(name) {
@@ -161,14 +161,14 @@ function scheduleRetry() {
 }
 
 /**
- * Exponential backoff for login retries: 30s, 45s, 67s, 100s, 150s, 225s…
- * capped at 10 minutes. Each failure is counted once a login actually happens,
- * so a boot that never reaches the login step does not inflate the counter.
+ * Wait 10 minutes between login retries. A fast retry loop after a rate-limit
+ * or blocked login is how a bot gets permanently banned; 10 minutes is a safe
+ * backoff that keeps the process (and /health) alive without hammering Facebook.
  *
  * @returns {number} milliseconds to wait
  */
 function getRetryDelay() {
-  return Math.min(30000 * Math.pow(1.5, loginAttempts), 600000);
+  return 600000; // 10 minutes
 }
 
 // ─────────────────────────────────────────────────────────────
