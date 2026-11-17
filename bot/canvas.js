@@ -151,6 +151,9 @@ function emojiFont() {
  * The width matters: the text after the emoji has to be placed beside it
  * rather than on top of it, and the two are in different faces.
  *
+ * Falls back to drawing a styled symbol/badge when no emoji font is available,
+ * so cards still look good on servers without emoji font support.
+ *
  * @param {object} ctx the 2D context
  * @param {string} emoji the character
  * @param {number} x
@@ -161,26 +164,93 @@ function emojiFont() {
 function drawEmoji(ctx, emoji, x, y, size = 32) {
   if (!ctx || !emoji) return 0;
   const family = emojiFont();
-  if (!family) return 0;
-  const before = ctx.font;
-  const align = ctx.textAlign;
-  const baseline = ctx.textBaseline;
-  try {
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.font = `${size}px "${family}"`;
-    ctx.fillText(String(emoji), x, y);
-    const w = ctx.measureText(String(emoji)).width;
-    ctx.font = before;
-    ctx.textAlign = align;
-    ctx.textBaseline = baseline;
-    return w;
-  } catch {
-    ctx.font = before;
-    ctx.textAlign = align;
-    ctx.textBaseline = baseline;
-    return 0;
+  if (family) {
+    const before = ctx.font;
+    const align = ctx.textAlign;
+    const baseline = ctx.textBaseline;
+    try {
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = `${size}px "${family}"`;
+      ctx.fillText(String(emoji), x, y);
+      const w = ctx.measureText(String(emoji)).width;
+      ctx.font = before;
+      ctx.textAlign = align;
+      ctx.textBaseline = baseline;
+      return w;
+    } catch {
+      ctx.font = before;
+      ctx.textAlign = align;
+      ctx.textBaseline = baseline;
+    }
   }
+  // Fallback: draw a simple decorative badge/symbol so the card doesn't lose
+  // its visual accent when emoji fonts are unavailable.
+  return drawEmojiFallback(ctx, emoji, x, y, size);
+}
+
+function drawEmojiFallback(ctx, emoji, x, y, size = 32) {
+  const r = size * 0.45;
+  const cx = x + r;
+  const cy = y;
+  const e = String(emoji);
+
+  // Medal fallbacks.
+  const medals = { '🥇': '#FFD700', '🥈': '#C0C0C0', '🥉': '#CD7F32' };
+  if (medals[e]) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = medals[e];
+    ctx.shadowColor = medals[e];
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#1a1a2e';
+    ctx.font = `bold ${Math.round(size * 0.5)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const rank = e === '🥇' ? '1' : e === '🥈' ? '2' : '3';
+    ctx.fillText(rank, cx, cy + 1);
+    ctx.restore();
+    return size * 1.05;
+  }
+
+  // Generic fallback: draw a glowing accent dot/badge with the first letter or symbol hint.
+  const accentMap = {
+    '🌿': { color: '#5dd39e', label: '★' },
+    '🤖': { color: '#00d4ff', label: '◆' },
+    '👋': { color: '#00d4ff', label: '◆' },
+    '🚪': { color: '#ff6496', label: '◆' },
+    '📊': { color: '#00d4ff', label: '◆' },
+    '🏆': { color: '#FFD700', label: '★' },
+    '💰': { color: '#ffcc00', label: '$' },
+    '👤': { color: '#b14bff', label: '●' },
+    '⚔️': { color: '#ff5577', label: '⚔' },
+    '🎮': { color: '#b14bff', label: '◆' },
+  };
+  const info = accentMap[e] || { color: '#00d4ff', label: '◆' };
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  const grad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
+  grad.addColorStop(0, info.color);
+  grad.addColorStop(1, 'rgba(0,0,0,0.3)');
+  ctx.fillStyle = grad;
+  ctx.shadowColor = info.color;
+  ctx.shadowBlur = 10;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${Math.round(size * 0.45)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(info.label, cx, cy + 1);
+  ctx.restore();
+  return size * 1.05;
 }
 
 /** All font files on this machine, bundled fonts first. */
