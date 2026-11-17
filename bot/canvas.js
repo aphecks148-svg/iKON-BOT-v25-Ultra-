@@ -149,17 +149,21 @@ function drawEmoji(ctx, emoji, x, y, size = 32) {
   if (!family) return 0;
   const before = ctx.font;
   const align = ctx.textAlign;
+  const baseline = ctx.textBaseline;
   try {
     ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
     ctx.font = `${size}px "${family}"`;
     ctx.fillText(String(emoji), x, y);
     const w = ctx.measureText(String(emoji)).width;
     ctx.font = before;
     ctx.textAlign = align;
+    ctx.textBaseline = baseline;
     return w;
   } catch {
     ctx.font = before;
     ctx.textAlign = align;
+    ctx.textBaseline = baseline;
     return 0;
   }
 }
