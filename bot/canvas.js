@@ -90,16 +90,31 @@ function ensureFonts() {
     }
   }
 
-  if (!ok) {
-    // A build whose canvas cannot alias: register a font FILE under the names
-    // the cards use instead.
-    const file = firstFontFile();
-    if (file && typeof gf.registerFromPath === 'function') {
-      for (const alias of ['sans-serif', 'iKonSans', 'monospace']) {
-        try {
-          gf.registerFromPath(file, alias);
-          ok = true;
-        } catch { /* try the next alias */ }
+  // Always try to register a bundled font file as a fallback, even if aliases
+  // were set — on some hosts the aliased family name isn't actually renderable.
+  // Register under the exact family names the cards use so text always draws.
+  if (!ok || !sans) {
+    const files = allFontFiles();
+    if (files.length && typeof gf.registerFromPath === 'function') {
+      for (const file of files) {
+        const base = path.basename(file, path.extname(file)).replace(/[-_]/g, ' ');
+        for (const alias of [base, 'sans-serif', 'iKonSans', 'DejaVu Sans', 'Roboto', 'Arial', 'monospace']) {
+          try {
+            gf.registerFromPath(file, alias);
+            ok = true;
+          } catch { /* try next */ }
+        }
+      }
+    } else {
+      // Last resort: try the old single-file path.
+      const file = firstFontFile();
+      if (file && typeof gf.registerFromPath === 'function') {
+        for (const alias of ['sans-serif', 'iKonSans', 'DejaVu Sans', 'Roboto', 'Arial', 'monospace']) {
+          try {
+            gf.registerFromPath(file, alias);
+            ok = true;
+          } catch { /* try next */ }
+        }
       }
     }
   }
@@ -168,8 +183,8 @@ function drawEmoji(ctx, emoji, x, y, size = 32) {
   }
 }
 
-/** A font file on this machine, if there is one. */
-function firstFontFile() {
+/** All font files on this machine, bundled fonts first. */
+function allFontFiles() {
   const dirs = [
     path.join(__dirname, 'fonts'),
     '/system/fonts',
@@ -177,16 +192,27 @@ function firstFontFile() {
     '/usr/local/share/fonts',
     'C:\\Windows\\Fonts',
   ];
+  const out = [];
   for (const dir of dirs) {
     let names = [];
     try {
       names = fs.readdirSync(dir).filter((f) => /\.(ttf|otf)$/i.test(f));
     } catch { continue; }
-    // A sans face is the one wanted; a mono file is better than nothing.
-    const pick = names.find((f) => /sans(?!-?mono)|roboto|droid/i.test(f)) || names[0];
-    if (pick) return path.join(dir, pick);
+    for (const name of names) out.push(path.join(dir, name));
   }
-  return '';
+  // Prefer sans/regular faces first.
+  out.sort((a, b) => {
+    const sa = /sans(?!-?mono)|roboto|droid|dejavu/i.test(a) ? 0 : 1;
+    const sb = /sans(?!-?mono)|roboto|droid|dejavu/i.test(b) ? 0 : 1;
+    return sa - sb;
+  });
+  return out;
+}
+
+/** A font file on this machine, if there is one. */
+function firstFontFile() {
+  const files = allFontFiles();
+  return files[0] || '';
 }
 
 /** Load the library on first use so a missing binary never breaks startup. */
