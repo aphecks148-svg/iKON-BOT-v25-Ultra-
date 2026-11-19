@@ -1964,50 +1964,7 @@ const commands = [];
 // already exist, so a meter can be wrong but it cannot be a lie.
 // ───────────────────────────────────────────────────────────
 
-  commands.push({
-    name: 'toxicmeter',
-    // `sus` is the spelling the retired sus-meter answered to. This is the
-    // meter that survived the cleanup, so it keeps the word.
-    aliases: ['toxic', 'sus'],
-    category: 'fun',
-    description: '☣️ Toxicity read straight off the activity tracker. Commands run is the proxy',
-    usage: '!toxicmeter @user',
-    hint: 'Read straight off the activity tracker. Commands run is the proxy, and it is a rough one.',
-    cooldown: 10,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'toxicmeter', async () => {
-      await react('☣️');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'toxicmeter', api) : userDoc;
-      if (!who) {
-        // No target resolved. A command that answers nothing reads as broken,
-        // so say why instead of returning in silence.
-        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
-        return;
-      }
-
-      const gc = who.gc || {};
-      const msgs = clamp(gc.msgs);
-      const tox = clamp(gc.toxicity);
-      const fines = clamp(gc.fines);
-      // toxicity is commands run and msgs is messages, so the ratio is roughly
-      // "how much of their chat is aimed at the bot".
-      const perMsg = msgs > 0 ? Math.round((tox / msgs) * 100) : 0;
-      const level = perMsg > 60 ? '☣️ TOXIC' : perMsg > 30 ? '🟠 SPICY' : perMsg > 10 ? '🟡 A BIT MUCH' : '🟢 MOSTLY FINE';
-      const pet = await petOf(who);
-
-      await reply(
-        `☣️ **${who.name} — TOXICITY**\n`
-        + '· · · · · · ·\n'
-        + `${meter(perMsg, level)}\n`
-        + `💬 Group messages tracked: ${num(msgs)}\n`
-        + `⌨️ Commands run: ${num(tox)}\n`
-        + `💸 Fines: ${num(fines)}\n`
-        + `🐾 Pet contribution: ${pet ? `${pet.emoji || '🐾'} ${pet.name} makes it worse` : 'no pet to blame'}\n`
-        + '📖 _Read from the activity tracker. Nothing here is generated._',
-        event.messageID,
-      );
-    }),
-  });
+  commands.push();
 
   
   
@@ -2053,44 +2010,7 @@ const commands = [];
     }),
   });
 
-  commands.push({
-    name: 'cringe',
-    category: 'fun',
-    description: '😬 Cringe meter — net worth against how much you have spent on being funny',
-    usage: '!cringe @user',
-    hint: 'Your net worth against what you have spent on being funny. The ratio is the joke.',
-    cooldown: 10,
-    permission: 'all',
-    execute: async ({ args, api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'cringe', async () => {
-      await react('😬');
-      const who = args[0] ? await pick(reply, event.messageID, userDoc, args, event, 'cringe', api) : userDoc;
-      if (!who) {
-        // No target resolved. A command that answers nothing reads as broken,
-        // so say why instead of returning in silence.
-        await reply('⚠️ I could not work out who this is for. Tag somebody, or run it again in a moment.', event.messageID);
-        return;
-      }
-
-      const t = f(who);
-      const attempts = clamp(t.roasts) + clamp(t.compliments) + clamp(t.flexes) + clamp(t.kills) + clamp(t.yeets);
-      // Cringe is volume of public attempts against what it has actually earned.
-      // Spending money on attention with an empty wallet is the worst case.
-      const broke = clamp(who.coins) < 1000 ? 30 : 0;
-      const scorePct = Math.max(0, Math.min(100, attempts * 5 + broke));
-      const verdict = scorePct > 70 ? 'PHYSICALLY PAINFUL' : scorePct > 45 ? 'VERY CRINGE' : scorePct > 20 ? 'A LITTLE CRINGE' : 'BARELY CRINGE';
-
-      await reply(
-        `😬 **${who.name} — CRINGE METER**\n`
-        + '· · · · · · ·\n'
-        + `${meter(scorePct, verdict)}\n`
-        + `🎭 Public attempts: ${num(attempts)}\n`
-        + `🔥 Roasts ${num(t.roasts)} · 🪞 Compliments ${num(t.compliments)} · 💪 Flexes ${num(t.flexes)} · 💀 Kills ${num(t.kills)} · 🚀 Yeets ${num(t.yeets)}\n`
-        + `👛 Wallet: ${kc(who.coins)}${broke ? ' — broke, which is +30' : ''}\n`
-        + '📖 _Counted, not judged. The number is real even if the verdict is not._',
-        event.messageID,
-      );
-    }),
-  });
+  commands.push();
 
   
   commands.push({

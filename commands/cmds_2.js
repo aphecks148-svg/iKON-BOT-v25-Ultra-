@@ -1685,42 +1685,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 31
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'networth',
-    aliases: ['nw'],
-    category: 'economy',
-    description: '💎 True wealth - Coins + Bank + Inventory value, your real power',
-    usage: '!networth',
-    hint: 'Wallet plus vault plus what your gear is worth. The only number that says how strong you actually are.',
-    cooldown: 10,
-    permission: 'all',
-    execute: async ({ userDoc, reply, react, event }) => guard(reply, event.messageID, 'networth', async () => {
-      await react('💎');
-      const coins = userDoc.coins || 0;
-      const bank = userDoc.bank || 0;
-      const inv = await getInv(userDoc.uid);
-      const gear = invValue(inv);
-      const total = coins + bank + gear;
-
-      const rank = total >= 1000000 ? '💎 iKON LEGEND'
-        : total >= 500000 ? '👑 CITY TYCOON'
-          : total >= 100000 ? '🏙️ VAULT OWNER'
-            : total >= 25000 ? '🏪 STREET BOSS'
-              : total >= 5000 ? '🧱 STREET HUNTER' : '🌱 ROOKIE';
-
-      await reply(
-        `💎 **NET WORTH — ${userDoc.name || 'Hunter'}**\n`
-        + '· · · · · · ·\n'
-        + `👛 Wallet: ${kc(coins)}\n`
-        + `🏦 Vault: ${kc(bank)}\n`
-        + `🎒 Gear: ${kc(gear)}\n`
-        + `💠 Total: ${kc(total)}\n`
-        + `${rank} · Level ${userDoc.level || 1}\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
-    }),
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 32

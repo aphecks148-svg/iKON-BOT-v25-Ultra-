@@ -59,26 +59,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 1$
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'ping',
-    aliases: ['p'],
-    category: 'system',
-    description: '⚡ Test the full chain: LOGIN -> DB -> LOADER -> MESSAGE -> PARSER -> COMMAND -> REPLY',
-    usage: '!ping',
-    hint: 'The full chain test. If the bot answers, it is alive. If it does not, it is dead — and so is your hope of a quick reply.',
-    cooldown: 3,
-    permission: 'all',
-    execute: async ({ reply, react, event }) => {
-      await react('⚡');
-      const s = process.uptime();
-      await reply(
-        `I am breathing. ${savage()}\n`
-        + `Uptime: ${dur(s)}\n`
-        + `Started: ${new Date(Date.now() - s * 1000).toUTCString()}`,
-        event.messageID,
-      );
-    },
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 2$
@@ -310,51 +291,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 7$
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'userinfo',
-    aliases: ['whois', 'ui'],
-    category: 'system',
-    description: '👤 Show your RPG profile and live Facebook name',
-    usage: '!userinfo',
-    hint: 'Your id, your live Facebook name and what this bot has on file. The name is read from Facebook, so it is right even when the stored record is old.',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'userinfo', async () => {
-      await react('👤');
-
-      // Through the profile module, so the name comes from the same ten-minute
-      // cache every other command reads it from.
-      //
-      // This used to call api.getUserInfo directly and read `first_name` — a
-      // key ws3-fca has never returned. It sends `firstName`, so the fallback
-      // was dead code and the live name came back blank whenever the API did
-      // not send a full `name` either.
-      let liveName = null;
-      try {
-        liveName = await realProfile.fetchRealName(event.senderID, api);
-      } catch { /* offline — fall back to the stored name */ }
-
-      const u = userDoc || {};
-      const real = u.transient ? 'offline (not saved)' : 'saved';
-      await reply(
-        `👤 Profile\n`
-        + '· · · · · · ·\n'
-        + `Name: ${liveName || u.name || 'Unknown'}\n`
-        + `ID: ${event.senderID}\n`
-        + `⭐ Level: ${u.level ?? 1}\n`
-        + `✨ XP: ${u.xp ?? 0}\n`
-        + `💰 Coins: ${fmt.n(u.coins ?? 0)}\n`
-        + `🏦 Bank: ${fmt.n(u.bank ?? 0)}\n`
-        + `🎖 Reputation: ${u.reputation ?? 0}\n`
-        + `👑 Prestige: ${u.prestige ?? 0}\n`
-        + `💬 Messages: ${fmt.n(u.stats?.messages ?? 0)}\n`
-        + `🎮 Commands used: ${fmt.n(u.stats?.commandsUsed ?? 0)}\n`
-        + `🕒 Last seen: ${u.lastSeen ? new Date(u.lastSeen).toUTCString() : 'unknown'}\n`
-        + `💾 Profile: ${real}`,
-        event.messageID,
-      );
-    }),
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 8$
@@ -775,37 +712,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 18$
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'listmods',
-    aliases: ['lsm'],
-    category: 'system',
-    description: '📦 Show all 10 command modules and how many commands each holds',
-    usage: '!listmods',
-    hint: 'Which of the ten modules are loaded, and how many commands each holds.',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ event, registry, reply }) => guard(reply, event.messageID, 'listmods', async () => {
-      const all = [...registry.values()];
-      const disabled = new Set();
-      if (event.isGroup) {
-        const group = await toggles.findGroup(event.threadID);
-        (group ? group.disabledModules || [] : []).forEach((m) => disabled.add(m));
-      }
-
-      const lines = ['📦 Modules (target 35 each)', '· · · · · · ·'];
-      let total = 0;
-      for (let i = 1; i <= 10; i += 1) {
-        const key = `cmds_${i}`;
-        const count = all.filter((c) => c.module === key).length;
-        total += count;
-        const bar = '█'.repeat(Math.min(10, Math.round((count / 35) * 10))) + '░'.repeat(Math.max(0, 10 - Math.round((count / 35) * 10)));
-        const flag = disabled.has(key) ? ' 🔇' : '';
-        lines.push(`${key.padEnd(8)} ${String(count).padStart(2)}/35  ${bar}${flag}`);
-      }
-      lines.push('', `Total: ${total} commands loaded`);
-      await reply(lines.join('\n'), event.messageID);
-    }),
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 19$
@@ -1151,71 +1058,12 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 25$
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'botstatus',
-    aliases: ['status', 'health'],
-    category: 'system',
-    description: '🩺 Detailed health check: engine, database and image support',
-    usage: '!botstatus',
-    hint: 'Owner only. The engine, the database, and whether images can be drawn at all.',
-    cooldown: 10,
-    permission: 'owner',
-    execute: async ({ config, reply, react, event }) => guard(reply, event.messageID, 'botstatus', async () => {
-      const ik = require('../ws3-fca');
-      const status = mongo.status();
-      const dbLatency = mongo.isReady() ? await measure(() => User.estimatedDocumentCount()) : null;
-      const mem = process.memoryUsage();
-
-      const ok = ik.STATE.loggedIn && mongo.isReady();
-      await react(ok ? '✅' : '⚠️');
-
-      await reply(
-        `🩺 ${config.BOT_NAME} status: ${ok ? 'HEALTHY' : 'DEGRADED'}\n`
-        + '· · · · · · ·\n'
-        + `🔌 Facebook login: ${ik.STATE.loggedIn ? 'connected' : 'not logged in'}\n`
-        + `💾 Database: ${mongo.isReady() ? `ready (${dbLatency}ms)` : 'offline'}\n`
-        + `📚 Commands: ${ik.registry.size} loaded, ${ik.aliases.size} aliases\n`
-        + `🎬 Canvas: ${canvas.available() ? 'ready' : 'unavailable'}\n`
-        + `⏱ Uptime: ${dur(process.uptime())}\n`
-        + `📨 Messages seen: ${ik.STATE.messagesSeen}\n`
-        + `⚡ Commands run: ${ik.STATE.commandsRun}\n`
-        + `⚠️ Errors: ${ik.STATE.errors}\n`
-        + `🧠 Memory: ${Math.round(mem.heapUsed / 1048576)}MB / ${Math.round(mem.rss / 1048576)}MB`,
-        event.messageID,
-      );
-    }),
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 26$
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'version',
-    aliases: ['ver', 'v'],
-    category: 'system',
-    description: '🏷 Show the running bot version',
-    usage: '!version',
-    hint: 'The running version and when it started. If somebody asks what you are running, this is the answer.',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ config, reply, react, event }) => guard(reply, event.messageID, 'version', async () => {
-      await react('🏷');
-      let pkg = { version: config.VERSION, dependencies: {} };
-      try {
-        pkg = require('../package.json');
-      } catch { /* fall back to config */ }
-      const deps = Object.entries(pkg.dependencies || {}).slice(0, 6)
-        .map(([k, v]) => `${k} ${String(v).replace(/^[\^~]/, '')}`)
-        .join('\n');
-      await reply(
-        `🏷 ${config.BOT_NAME} v${pkg.version}\n`
-        + `Engine: node >=20 | ${process.version}\n`
-        + '📦 dependencies\n'
-        + deps,
-        event.messageID,
-      );
-    }),
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 27$
@@ -1274,27 +1122,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 29$
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'restart',
-    aliases: ['reboot'],
-    category: 'system',
-    description: '🔄 Ask the host platform to restart the bot process',
-    usage: '!restart',
-    hint: 'Owner only. Asks Render to restart the process. The database survives it; the in-memory cooldowns and cache do not.',
-    cooldown: 30,
-    permission: 'owner',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'restart', async () => {
-      await react('🔄');
-      await reply(
-        '🔄 Restart requested.\n'
-        + 'The bot will be back online in about 10 seconds.\n'
-        + 'Note: unsaved state in memory (cooldowns, cache) is lost.',
-        event.messageID,
-      );
-      // Render watches for a crashed process and restarts it.
-      setTimeout(() => process.exit(1), 1500);
-    }),
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 30$
@@ -1322,36 +1150,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 31$
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'check',
-    aliases: ['registry', 'checkreg'],
-    category: 'system',
-    description: '🔍 Validate every command against the required contract',
-    usage: '!check',
-    hint: 'Owner only. Every command against the contract it has to satisfy — the shape of it, not what it does.',
-    cooldown: 15,
-    permission: 'owner',
-    execute: async ({ reply, react, event }) => guard(reply, event.messageID, 'check', async () => {
-      await react('🔍');
-      const checker = require('../bot/check');
-      const ik = require('../ws3-fca');
-      const { problems, categories } = checker.validate(ik.registry);
-      const modules = checker.perModule(ik.registry);
-
-      const lines = [
-        '🔍 Registry check',
-        '· · · · · · ·',
-        `Commands: ${ik.registry.size}`,
-        `Aliases: ${ik.aliases.size}`,
-        `Categories: ${categories}`,
-        `Contract: ${problems.length ? `❌ ${problems.length} problem(s)` : '✅ all valid'}`,
-        '',
-        ...modules.map(({ key, count }) => `\`${key}\` ${count}/${checker.TARGET_PER_MODULE}`),
-      ];
-      if (problems.length) lines.push('', ...problems.slice(0, 8));
-      await reply(lines.join('\n'), event.messageID);
-    }),
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 32$
@@ -1543,24 +1342,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 36$
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'echo',
-    aliases: ['repeat', 'sayit'],
-    category: 'system',
-    description: '🔊 Echo your message back',
-    usage: '!echo <text>',
-    hint: 'Says exactly what you said. Useful for checking that a message reaches the bot intact.',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ args, reply, event }) => guard(reply, event.messageID, 'echo', async () => {
-      const text = args.join(' ').trim();
-      if (!text) {
-        await reply('❌ Usage: `!echo <text>` — nothing to echo.', event.messageID);
-        return;
-      }
-      await reply(`🔊 ${text}`, event.messageID);
-    }),
-  },
+  
 // ─────────────────────────────────────────────────────────
   // BROADCAST — one message, every group
   // ─────────────────────────────────────────────────────────
@@ -1818,127 +1600,12 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 36b$  — operator broadcast (owner only)
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'notify',
-    aliases: ['notifyall', 'opmsg', 'staffmsg'],
-    category: 'system',
-    description: '📢 Send a one-line notice to every chat that asked for broadcasts',
-    usage: '!notify <message>',
-    hint: 'Owner only. One line to every chat that asked for broadcasts. It spends the fan-out budget.',
-    cooldown: 30,
-    permission: 'owner',
-    execute: async ({ api, args, reply, react, event, config }) => guard(reply, event.messageID, 'notify', async () => {
-      await react('📢');
-      // `all` reaches the chats that did not ask for it. It is the override and
-      // it spends the same budget the safe path does.
-      const all = String(args[0] || '').toLowerCase() === 'all';
-      const text = (all ? args.slice(1) : args).join(' ').trim();
-      if (!text) {
-        await reply('📖 Usage: `!notify <message>` or `!notify all <message>`', event.messageID);
-        return;
-      }
-      // The broadcast path is shared with !broadcast, which is admin-scoped.
-      // This is the owner-only variant: it reaches every chat including ones
-      // nobody in this chat can manage, which is why it stays owner-only.
-      if (!mongo.isReady()) {
-        await reply('❌ The chat list is offline — nothing to broadcast to.', event.messageID);
-        return;
-      }
-      const query = all
-        ? { isEnabled: true }
-        : { isEnabled: true, 'gc.broadcasts.on': true };
-      const groups = await Group.find(query).select('tid').lean().catch(() => []);
-      if (!groups.length) {
-        await reply(
-          all
-            ? '❌ No chats recorded yet.'
-            : '❌ No chat has asked for broadcasts.\n'
-            + '· · · · · · ·\n'
-            + 'An admin turns them on with `!broadcasts on`. '
-            + 'Use `!notify all <message>` to override and send to every chat anyway.',
-          event.messageID,
-        );
-        return;
-      }
-
-      // The same all-or-nothing budget check the broadcast does. A notice that
-      // half went out is still the signal, and the half that did not is not
-      // worth the risk.
-      const left = compliance.fanoutRemaining();
-      if (!compliance.canFanout(groups.length)) {
-        await reply(
-          '🛑 **Refusing to send.**\n'
-          + '· · · · · · ·\n'
-          + `This would push ${groups.length} messages at once, and the budget has room for `
-          + `${Math.min(left.hour, left.day)}.\n`
-          + `Hourly limit: ${left.hour}/${left.hourMax} left · Daily limit: ${left.day}/${left.dayMax} left.`,
-          event.messageID,
-        );
-        return;
-      }
-      compliance.takeFanoutSlots(groups.length);
-
-      const body = `📢 **${config.BOT_NAME}** — ${text}`;
-      let sent = 0;
-      const failed = [];
-      let elapsed = 0;
-      for (const g of groups) {
-        const tid = String(g.tid);
-        const wait = compliance.broadcastDelayMs();
-        elapsed += wait;
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((r) => setTimeout(r, wait));
-        // eslint-disable-next-line no-await-in-loop
-        const res = await helpersReply(api, tid, body, null, true).catch(() => null);
-        if (res) sent += 1;
-        else failed.push(tid);
-      }
-      await reply(
-        `📢 **NOTICE SENT**\n`
-        + '· · · · · · ·\n'
-        + `✅ Delivered to ${sent} of ${groups.length} chats\n`
-        + (failed.length ? `⚠️ Failed: ${failed.length}\n` : '')
-        + `⏱️ About ${Math.ceil(elapsed / 1000)}s of pacing.`,
-        event.messageID,
-      );
-    }),
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 36c$  — operator shutdown (owner only)
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'shutdown',
-    aliases: ['killbot', 'stopbot', 'die'],
-    category: 'system',
-    description: '🛑 Shut the bot down gracefully (owner only)',
-    usage: '!shutdown [delay seconds]',
-    hint: 'Owner only. Stops the bot after an optional delay, so a deploy can be taken down in an orderly way.',
-    cooldown: 60,
-    permission: 'owner',
-    execute: async ({ args, reply, react, event }) => guard(reply, event.messageID, 'shutdown', async () => {
-      await react('🛑');
-      const arg = String(args[0] || '').trim();
-      const delay = /^\d+$/.test(arg) ? Math.min(300, Math.max(0, Number(arg))) : 0;
-      if (delay > 0) {
-        await reply(
-          `🛑 **SHUTDOWN SCHEDULED**\n`
-          + '· · · · · · ·\n'
-          + `⏱️ Dying in ${delay}s. The bot is leaving — say goodbye.`,
-          event.messageID,
-        );
-        setTimeout(() => process.exit(0), delay * 1000);
-        return;
-      }
-      await reply(
-        `🛑 **SHUTTING DOWN**\n`
-        + '· · · · · · ·\n'
-        + '📖 Good night, iKON City. The bot is leaving.',
-        event.messageID,
-      );
-      setImmediate(() => process.exit(0));
-    }),
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 37$  — anti-ban safe mode (owner only)
@@ -1983,54 +1650,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 38$ — find a command by what it does
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'search',
-    aliases: ['findcmd', 'cmdsearch'],
-    category: 'system',
-    description: '🔎 Search every command by keyword — name, alias or description',
-    usage: '!search <keyword>',
-    hint: 'Four hundred commands is too many to hold in your head. `!search coin` finds the ones that touch money.',
-    cooldown: 10,
-    permission: 'all',
-    execute: async ({ args, registry, reply, react, event }) => guard(reply, event.messageID, 'search', async () => {
-      await react('🔎');
-      const q = String(args.join(' ')).trim().toLowerCase();
-      if (!q) {
-        await reply('❌ Usage: `!search <keyword>`\nExample: `!search coin`', event.messageID);
-        return;
-      }
-
-      // The registry is the whole bot: name, alias and description are the three
-      // things a person actually remembers about a command.
-      const hits = [];
-      for (const cmd of registry.values()) {
-        const name = String(cmd.name || '');
-        const aliases = (cmd.aliases || []).map((a) => String(a));
-        const desc = String(cmd.description || '').toLowerCase();
-        if (name.includes(q) || aliases.some((a) => a.includes(q)) || desc.includes(q)) hits.push(cmd);
-      }
-
-      if (!hits.length) {
-        await reply(
-          `🔎 Nothing matches \`${q}\`.\n`
-          + '· · · · · · ·\n'
-          + '📖 `!help` opens the decks, `!listcmds` prints every name.',
-          event.messageID,
-        );
-        return;
-      }
-
-      const shown = hits.slice(0, 12);
-      const lines = shown.map((c) => `• \`${c.usage}\` — ${c.description}`);
-      await reply(
-        `🔎 **${hits.length} command(s) match "${q}"**\n`
-        + '· · · · · · ·\n'
-        + lines.join('\n')
-        + (hits.length > shown.length ? `\n…and ${hits.length - shown.length} more. \`!help\` opens the full deck.` : ''),
-        event.messageID,
-      );
-    }),
-  },
+  
 
   // ─────────────────────────────────────────────────────────
   // 39$ — the clock, anywhere on earth

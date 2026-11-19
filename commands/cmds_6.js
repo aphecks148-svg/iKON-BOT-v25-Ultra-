@@ -2990,38 +2990,7 @@ commands.push({
     }),
   });
 
-  commands.push({
-    name: 'lockdowncard',
-    aliases: ['seal', 'gclockdown'],
-    category: 'group',
-    description: '🔒 Render the lockdown state of this chat as a picture',
-    usage: '!lockdowncard',
-    hint: 'The lockdown state of this chat as a picture — what is on, and what is holding it.',
-    cooldown: 30,
-    permission: 'groupAdmin',
-    execute: async ({ api, event, reply, react, userDoc, config }) => guard(reply, event.messageID, 'lockdowncard', async () => {
-      await react('🔒');
-      const Group = require('../models/Group');
-      const g = await Group.findOne({ tid: String(event.threadID) }).lean().catch(() => null);
-      const rows = [
-        ['Chat', g ? (g.threadName || String(g.tid)) : '—'],
-        ['Enabled', g ? (g.isEnabled ? '✅ yes' : '⏸️ paused') : '—'],
-        ['Maintenance', g ? (g.maintenance ? '🛑 yes' : '✅ no') : '—'],
-        ['Admins only', g ? (g.adminsOnly ? '🔒 yes' : '🔓 no') : '—'],
-        ['Pending', g ? (g.pendingApproval ? '⏳ yes' : '✅ no') : '—'],
-      ];
-      const card = await cards.userCard({
-        emoji: '🔒', title: 'LOCKDOWN', subtitle: 'the chat under test', api,
-        user: { uid: String(event.threadID), name: 'Chat', level: 1, xp: 0 },
-        rows,
-      });
-      if (card) {
-        await reply({ body: '🔒 **LOCKDOWN STATE**\n· · · · · · ·\n' + (g ? (g.isEnabled ? 'running' : 'paused') : 'unknown'), attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-await reply('🔒 **LOCKDOWN STATE**\n· · · · · · ·\n📖 (no picture this time)', event.messageID);
-    }),
-  });
+  commands.push();
 
   // ── LEAVE A GROUP CHAT ──────────────────────────────────────
   // The one thing `!gclist` always promised and never delivered: a way to
