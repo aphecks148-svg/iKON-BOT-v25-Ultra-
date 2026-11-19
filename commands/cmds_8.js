@@ -2216,10 +2216,35 @@ const commands = [];
     }),
   });
 
-  
+  commands.push({
+    name: 'ikon',
+    aliases: ['ik', 'ikonai'],
+    category: 'downloader',
+    description: '🤖 AI assistant — mention @ikon or reply to its messages',
+    usage: '!ikon <prompt>',
+    hint: 'Chat with the AI assistant. Mention @ikon or reply to its messages to continue the conversation.',
+    cooldown: 5,
+    permission: 'all',
+    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'ikon', async () => {
+      await react('⚡');
+      const q = args.join(' ').trim();
+      if (!q) {
+        await reply('❌ Usage: `!ikon <prompt>`\n💡 Mention @ikon or reply to its messages to chat with it!', event.messageID);
+        return;
+      }
+      const answer = await askGroq(q, `Style: iKON AI assistant. Be helpful, witty, and concise. Owner is ${OWNER}.`, userDoc.lang || 'en');
+      const body = `🤖 **IKON AI**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ai)}`;
+      const card = await captionCard({ title: 'IKON AI', subtitle: 'Chat', body, footer: `${OWNER} · Groq`, accent: canvasKit.theme.accent2 });
+      if (card) {
+        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
+      } else {
+        await reply(body, event.messageID);
+      }
+    }),
+  });
+
   commands.push({
     name: 'translate',
-    aliases: ['tr', 'trultra'],
     category: 'downloader',
     description: '🌐 Translate anything and keep the slang intact',
     usage: '!translate <lang> <text>',

@@ -529,8 +529,15 @@ async function handleMessage(api, event) {
   // merely starts with a name is not affected. A user called "help" is only
   // swallowed when somebody genuinely tags them.
   if (parsed && compliance.isMentionToken(parsed.name, event)) {
-    log(`[PARSE] "${parsed.name}" is a mention, not a command — staying quiet`);
-    parsed = null;
+    // If the mentioned name is "ikon" (case-insensitive), route to the AI assistant
+    if (parsed.name.toLowerCase() === 'ikon' || parsed.name.toLowerCase() === 'ik') {
+      // Treat it as the !ikon command with the message body as the prompt
+      parsed.name = 'ikon';
+      parsed.commandName = 'ikon';
+    } else {
+      log(`[PARSE] "${parsed.name}" is a mention, not a command — staying quiet`);
+      parsed = null;
+    }
   }
 
   const spam = await spamGate(event, { body, parsed, say });
