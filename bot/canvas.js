@@ -219,17 +219,17 @@ function drawEmojiFallback(ctx, emoji, x, y, size = 32) {
   // Generic fallback: draw a glowing accent dot/badge with the first letter or symbol hint.
   const accentMap = {
     '🌿': { color: '#5dd39e', label: '★' },
-    '🤖': { color: '#00d4ff', label: '◆' },
-    '👋': { color: '#00d4ff', label: '◆' },
+    '🤖': { color: theme.accent, label: '◆' },
+    '👋': { color: theme.accent, label: '◆' },
     '🚪': { color: '#ff6496', label: '◆' },
-    '📊': { color: '#00d4ff', label: '◆' },
-    '🏆': { color: '#FFD700', label: '★' },
-    '💰': { color: '#ffcc00', label: '$' },
-    '👤': { color: '#b14bff', label: '●' },
+    '📊': { color: theme.accent, label: '◆' },
+    '🏆': { color: theme.gold, label: '★' },
+    '💰': { color: theme.gold, label: '$' },
+    '👤': { color: theme.accent2, label: '●' },
     '⚔️': { color: '#ff5577', label: '⚔' },
-    '🎮': { color: '#b14bff', label: '◆' },
+    '🎮': { color: theme.accent2, label: '◆' },
   };
-  const info = accentMap[e] || { color: '#00d4ff', label: '◆' };
+  const info = accentMap[e] || { color: theme.accent, label: '◆' };
   ctx.save();
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -413,17 +413,21 @@ async function sendImage(api, threadID, canvasObj, messageID, isGroup = undefine
   }
 }
 
-/** Common brand colours. */
+/** Common brand colours - rich, vibrant, attractive */
 const FONT = 'iKonSans';
 
 const theme = {
-  bg1: '#0f0f1a',
-  bg2: '#1a1030',
-  accent: '#00d4ff',
-  accent2: '#b14bff',
-  gold: '#ffcc00',
-  text: '#ffffff',
-  muted: '#9aa0b5',
+  bg1: '#1a0a2e',           // Deep purple-black
+  bg2: '#2d0f3a',           // Dark purple
+  accent: '#ff4d8c',        // Hot pink (vibrant, attractive)
+  accent2: '#4dff4d',       // Bright green (energetic)
+  gold: '#ff9900',          // Orange-gold (warm, inviting)
+  text: '#ffffff',          // Pure white
+  muted: '#c0a8d0',         // Soft lavender
+  pink: '#ffb3e6',          // Soft pink
+  green: '#ccffcc',         // Light green
+  coral: '#ff9999',         // Warm coral
+  lavender: '#e6ccff',      // Purple-lavender
 };
 
 module.exports = {
