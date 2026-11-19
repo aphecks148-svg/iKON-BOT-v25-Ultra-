@@ -39,6 +39,7 @@ const flood = require('./flood');
 const cache = require('./cache');
 const permissions = require('./permissions');
 const toggles = require('./toggles');
+const gcs = require('./gcs');
 
 /**
  * A link, conservatively.
@@ -249,25 +250,27 @@ function kc(n) {
  * @param {object} gc the chat's gc block, to avoid a second settings read
  * @returns {Promise<{taken: number, held: number}>}
  */
-async function punishLink(threadID, uid, gc) {
-  const taken = await charge(uid, clamp(gc.antiLink && gc.antiLink.fine), 'antilink_fine');
-
+async function punishLink(threadID, uid, gc, api) {
+  // Don't take money - just warn the person
+  // We'll track offenses in gc.links and remove the person after 3 offenses
+  
   let held = 0;
   try {
     const userDoc = await cache.getUser(uid);
-    if (!userDoc) return { taken, held };
+    if (!userDoc) return { taken: 0, held: 0 };
     if (!userDoc.gc || typeof userDoc.gc !== 'object') userDoc.gc = {};
     if (!Number.isFinite(userDoc.gc.links)) userDoc.gc.links = 0;
     userDoc.gc.links += 1;
+    
+    // Count offenses - first 2 are warnings, third is removal
     if (userDoc.gc.links >= 3) {
-      // Growing hold, capped, so somebody who never stops can still come back.
-      held = flood.hold(threadID, uid, Math.min(900, 30 * (userDoc.gc.links - 2)));
-      userDoc.gc.links = 0;
+      // Remove the person after 3 offenses
+      await gcs.kick(api, uid, threadID);
+      userDoc.gc.links = 0;  // Reset counter after removal
     }
-    await userDoc.save();
-  } catch { /* the fine already landed; the counter is the nice part */ }
-
-  return { taken, held };
+  } catch { /* ignore errors */ }
+  
+  return { taken: 0, held: 0 };
 }
 
 /**
@@ -314,7 +317,7 @@ async function collectTax(uid, gc) {
  *     'link'   drop it, fine the sender, say `text`
  */
 async function inspect({
-  threadID, uid, body = '', command = '', isGroup = true, exempt = false,
+  threadID, uid, body = '', command = '', isGroup = true, exempt = false, api = null
 } = {}) {
   const who = String(uid || '');
   const out = { action: 'allow' };
@@ -390,23 +393,23 @@ async function inspect({
   }
 
   // ── 6. Anti-link ──
-  // For a command, only the ARGUMENTS are tested: the command word is never a
-  // link, and fining somebody for typing a command the bot does not have would
-  // be charging them for talking to it.
-  const haystack = command
-    ? String(body || '').slice(String(command).length + 1)
-    : String(body || '');
-  if (gc.antiLink && gc.antiLink.on && LINK.test(haystack)) {
-    const { taken, held } = await punishLink(threadID, uid, gc);
-    out.action = 'link';
+// For a command, only the ARGUMENTS are tested: the command word is never a
+// link, and fining somebody for typing a command the bot does not have would
+// be charging them for talking to it.
+const haystack = command
+  ? String(body || '').slice(String(command).length + 1)
+  : String(body || '');
+if (gc.antiLink && gc.antiLink.on && LINK.test(haystack)) {
+    const { taken, held } = await punishLink(threadID, uid, gc, api);
+    out.action = 'refuse';  // or 'warn' - this tells the bot to send a refusal message
     out.reason = 'antilink';
-    out.taken = taken;
-    out.held = held;
+    out.taken = 0;  // no money taken
+    out.held = 0;  // no hold, but maybe a kick
     const roast = LINK_ROASTS[Math.floor(Math.random() * LINK_ROASTS.length)];
-    out.text = `${roast}\n💸 Fine: ${taken > 0 ? kc(taken) : 'nothing, you are already broke'}`
-      + (held ? `\n⏳ Too many links — you are paused for ${held}s.` : '');
+    out.text = `${roast}\n💸 Warning: You have been warned for sharing links.`
+      + (out.held ? `\n🚫 You have been removed from this chat.` : '');
     return out;
-  }
+}
 
   // ── 7. Warzone tax ──
   // Runs last and replies to nothing: it is a tax, not a conversation.
