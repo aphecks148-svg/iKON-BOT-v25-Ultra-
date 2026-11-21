@@ -1553,7 +1553,7 @@ const commands = [];
     category: 'fun',
     description: '💑 Everybody coupled up - the married ones and the ones this chat shipped',
     usage: '!couple',
-    hint: 'Marriages are global. !ship pairs are this matchmaker's. Both show here.',
+    hint: 'Marriages are global. !ship pairs are this matchmaker\'s. Both show here.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'couple', async () => {
