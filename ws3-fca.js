@@ -506,17 +506,51 @@ async function handleMessage(api, event) {
   // and without this line there is no way to tell it apart from a dead listener.
   const prefix = await resolvePrefix(threadID);
 
-  // ── SPAM AND MODERATION ───────────────────────────────────
-  // Ahead of everything below, including the pokemon catch: a reply-to is still
-  // a message somebody sent, and a muted or flooded member must not be able to
-  // make the bot answer them by replying to a spawn.
+  // ── IKON AI ASSISTANT ─────────────────────────────────────
+  // The AI assistant responds when:
+  // 1. The message starts with "ikon" (case-insensitive) without a prefix
+  // 2. The message is a reply to ikon's previous message
+  // This allows natural conversation with the AI assistant.
+  const ikonPrefixMatch = body.match(/^ikon(?:\s+|$)(.*)/i);
+  const isReplyToIkon = event.messageReply && 
+    (String(event.messageReply.senderID) === String(await api.getCurrentUserID()));
+
+  let parsed = null;
+  if (ikonPrefixMatch) {
+    // Treat "ikon <prompt>" as the !ikon command
+    const prompt = ikonPrefixMatch[1] || '';
+    parsed = { name: 'ikon', commandName: 'ikon', args: prompt.trim() ? prompt.trim().split(/\s+/) : [], body: body };
+  } else if (isReplyToIkon && body.trim() && !body.trim().startsWith(prefix)) {
+    // Reply to ikon's message - treat as !ikon with the reply body
+    parsed = { name: 'ikon', commandName: 'ikon', args: body.trim().split(/\s+/), body: body };
+  } else {
+    // Normal prefix-based parsing
+    parsed = router.parse(body, prefix);
+  }
+
+  // ── A TAG IS NOT A COMMAND ─────────────────────────────────
+  // With `@` as the prefix, `@name` is how people address each other. When
+  // Facebook turns that into a real mention, the word after the prefix is a
+  // person's name, not a command — and answering it would be the bot posting to
+  // a person who never addressed it.
   //
-  // router.parse is called here rather than further down purely so both gates
-  // can tell a command from ordinary chatter — lockdown and anti-link both have
-  // to let commands through. It is a pure string operation with no side effects,
-  // so the result is reused verbatim below and nothing about the message changes;
-  // only the moment the word is first recognised moves earlier.
-  let parsed = router.parse(body, prefix);
+  // The check is exact rather than a guess: `event.mentions` only holds the
+  // mentions somebody actually picked from the autocomplete, so plain text that
+  // merely starts with a name is not affected. A user called "help" is only
+  // swallowed when somebody genuinely tags them.
+  if (parsed && parsed.name === 'ikon') {
+    // Already handled as ikon command, skip mention check
+  } else if (parsed && compliance.isMentionToken(parsed.name, event)) {
+    // If the mentioned name is "ikon" (case-insensitive), route to the AI assistant
+    if (parsed.name.toLowerCase() === 'ikon' || parsed.name.toLowerCase() === 'ik') {
+      // Treat it as the !ikon command with the message body as the prompt
+      parsed.name = 'ikon';
+      parsed.commandName = 'ikon';
+    } else {
+      log(`[PARSE] "${parsed.name}" is a mention, not a command — staying quiet`);
+      parsed = null;
+    }
+  }
 
   // ── A TAG IS NOT A COMMAND ─────────────────────────────────
   // With `@` as the prefix, `@name` is how people address each other. When
