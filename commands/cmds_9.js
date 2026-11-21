@@ -1502,7 +1502,7 @@ const commands = [];
         return;
       }
 
-      // Charged BEFORE the marriage is cleared, so a bot crash halfway through
+      // Charged BEFORE the marriage is cleared, so a crash halfway through
       // cannot leave somebody divorced for free.
       const paid = await fee(userDoc, 10000, 'fun:divorce');
       if (!paid.ok) {
@@ -1530,7 +1530,7 @@ const commands = [];
         threadID: event.threadID,
         left: { uid: userDoc.uid, name: userDoc.name },
         right: { uid: who.uid, name: who.name },
-        footer: 'THE BOT DOES NOT RECORD WHO WAS AT FAULT.',
+        footer: 'THE MATCHMAKER DOES NOT RECORD WHO WAS AT FAULT.',
       });
       if (!sent) {
         await reply(
@@ -1539,7 +1539,7 @@ const commands = [];
           + `💸 -10,000\n`
           + `📅 It lasted ${num(years)} day(s).\n`
           + `👛 Your wallet: ${kc(userDoc.coins)}\n`
-          + `📖 _The bot does not record who was at fault. It is not that kind of bot._`,
+          + `📖 _The matchmaker does not record who was at fault. It is not that kind of matchmaker._`,
           event.messageID,
         );
       }
@@ -1553,7 +1553,7 @@ const commands = [];
     category: 'fun',
     description: '💑 Everybody coupled up - the married ones and the ones this chat shipped',
     usage: '!couple',
-    hint: 'Marriages are global. `!ship` pairs are this chat\'s. Both show here.',
+    hint: 'Marriages are global. !ship pairs are this matchmaker's. Both show here.',
     cooldown: 15,
     permission: 'all',
     execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'couple', async () => {
@@ -1580,7 +1580,7 @@ const commands = [];
       // read it: a chat full of shipped couples answered "Nobody is married",
       // which is true of the registry and a lie about the chat. The subtitle
       // used to promise "every married couple in this chat" and the registry
-      // holds marriages from every chat the bot is in.
+      // holds marriages from every chat the matchmaker is in.
       const group = await groupOf(event);
       const ships = group && Array.isArray(group.fun.ships) ? group.fun.ships : [];
 
@@ -1707,9 +1707,9 @@ const commands = [];
     name: 'pair',
     aliases: ['pairup', 'matchmake', 'shipme', 'pairme', 'pair2'],
     category: 'fun',
-    description: '💘 Let the bot pair two people in this chat — it picks, you find out',
+    description: "💘 Let the matchmaker pair two people in this chat — it picks, you find out",
     usage: '!pair',
-    hint: 'Needs a group with two members other than the bot. The pair it makes is a real `!ship`, so `!couple` shows it.',
+    hint: "Needs a group with two members other than the matchmaker. The pair it makes is a real `!ship`, so `!couple` shows it.",
     cooldown: 20,
     permission: 'all',
     execute: async ({ api, event, userDoc, reply, react }) => guard(reply, event.messageID, 'pair', async () => {
@@ -1729,7 +1729,7 @@ const commands = [];
         ...new Set([...((info && info.participantIDs) || [])].map(String).filter(Boolean)),
       ];
 
-      // The bot is not eligible to be paired with itself, and neither is a DM.
+    // The matchmaker is not eligible to be paired with itself, and neither is a DM.
       const exempt = new Set(await gcs.exemptIds(api, event.threadID));
       const pool = everyone.filter((uid) => !exempt.has(uid));
 
@@ -1737,7 +1737,7 @@ const commands = [];
         await reply(
           `💘 **NOBODY TO PAIR.**\n`
           + '· · · · · · ·\n'
-          + `This chat has ${pool.length} member${pool.length === 1 ? '' : 's'} other than the bot, and pairing needs two.\n`
+          + `This chat has ${pool.length} member${pool.length === 1 ? "" : "s"} other than the matchmaker, and pairing needs two.\n`
           + 'Get more people in here, or tag them yourself with `!ship @a @b`.',
           event.messageID,
         );
@@ -1779,25 +1779,25 @@ const commands = [];
 
       await react('💞');
       const sent = await art(reply, event.messageID, {
-        title: '💘 THE BOT HAS SPOKEN',
+      title: "💘 THE MATCHMAKER SAID SOME SHIT",
         subtitle: `${a.name} + ${b.name}`,
         api,
         threadID: event.threadID,
         left: { uid: a.uid, name: a.name },
         right: { uid: b.uid, name: b.name },
         body: `Ship score ${num(scored.score)}. It counts now, same as any other pair in here.`,
-        footer: 'PAIRED BY THE BOT · NOT BY EITHER OF THEM',
+        footer: "PAIRED BY THE MATCHMAKER · NOT BY EITHER OF THEM",
         accent: canvasKit.theme.accent2,
       });
       if (!sent) {
         await reply(
-          `💘 **THE BOT HAS SPOKEN**\n`
+          `💘 **THE MATCHMAKER SAID SOME SHIT**\n`
           + '· · · · · · ·\n'
           + `**${a.name}** + **${b.name}**\n`
           + `💘 Ship score: ${num(scored.score)}${scored.score > added ? ` (+${num(added)})` : ''}\n`
           + (married.length ? `⚠️ ${married.join(' · ')}\n` : '')
           + (userDoc.uid === aUid || userDoc.uid === bUid
-            ? '📖 _You are in this one. The bot does not take requests._\n'
+            ? "📖 _You are in this one. The matchmaker does not take requests._\n"
             : '📖 _Two strangers to each other five seconds ago._'),
           event.messageID,
         );
@@ -2282,7 +2282,7 @@ const commands = [];
         const winner = one === two ? null : one > two ? 1 : 2;
         const pct = Math.round((Math.max(one, two) / total) * 100);
         await reply(
-          `📊 **THE CHAT HAS SPOKEN**\n`
+          `📊 **THE CHAT SAID SOME SHIT**\n`
           + '· · · · · · ·\n'
           + `1️⃣ ${open.pair[0]} — ${num(one)} vote(s)\n`
           + `2️⃣ ${open.pair[1]} — ${num(two)} vote(s)\n\n`
@@ -2304,7 +2304,7 @@ const commands = [];
         + `2️⃣ ${pair[1]}\n\n`
         + `👤 ${userDoc.name} started it. 2 minutes. Neither option is safe.\n`
         + '▶️ Reply with just `1` or `2`, then run `!wouldyourather` again to close it.\n'
-        + '📖 _The bot does not record who voted._',
+        + '📖 _The matchmaker does not record who voted._',
         event.messageID,
       );
     }),
@@ -2334,7 +2334,7 @@ const commands = [];
           + `❓ *${open.item}*\n`
           + `🙋 ${num(answered)} people said they were still here.\n\n`
           + `${answered === 0 ? 'The silence is the answer.' : 'And the chat continues regardless.'}\n`
-          + '📖 _This bot does not collect or store who pressed what._',
+          + '📖 _The matchmaker does not collect or store who pressed what._',
           event.messageID,
         );
         return;
@@ -2380,7 +2380,7 @@ const commands = [];
       ];
       const picked = [...truths].sort(() => Math.random() - 0.5).slice(0, 2);
       const lies = [
-        'You have never been married in this bot. (Probably a lie.)',
+        'You have never been married in this matchmaker. (Probably a lie.)',
         'You have never slapped anybody. (Nobody believes this.)',
         'You have never cuddled a pet in this chat.',
         'You have never flexed. (Deeply implausible.)',
@@ -2632,7 +2632,7 @@ commands.push({
   // ── THE POLL ───────────────────────────────────────────────
   // A question the chat can answer, and the answers counted where everybody
   // can see them. It lives on the group document, so it survives a restart —
-  // a poll that vanishes when the bot restarts is a poll nobody voted in.
+  // a poll that vanishes when the matchmaker restarts is a poll nobody voted in.
 
   commands.push({
     name: 'poll',
