@@ -20,6 +20,7 @@ const dex = require('./pokemon');
 const { error } = require('./helpers');
 
 const W = 800;
+const theme = canvasKit.theme;
 
 /**
  * The join/leave card is a different shape from the boards on purpose: 1200x600
