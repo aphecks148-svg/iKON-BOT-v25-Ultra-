@@ -1411,6 +1411,7 @@ commands.push({
       rows: top, value: (doc) => `Lv ${clamp(doc.farm && doc.farm.level)}`,
       detail: (doc) => `${num(clamp(doc.farm && doc.farm.totalHarvest))} harvested`,
       api, limit: 10,
+      design: { bg1: '#0b1a0b', bg2: '#162a16', accent: '#4dff4d', accent2: '#ccffcc', border: '#4dff4d' },
     });
     if (card) {
       await reply({ body: `🏆 **Top farmers**\n\n${lines.join('\n')}\n\n_You are at farm level ${clamp(fm.level)}._`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -1786,6 +1787,7 @@ commands.push({
       rows: top, value: (doc) => `Lv ${clamp(doc.mine && doc.mine.level)}`,
       detail: (doc) => { const pick = gear(PICKS, (doc.mine || {}).pick && (doc.mine || {}).pick.id); return pick ? pick.label : ''; },
       api, limit: 10,
+      design: { bg1: '#0a160a', bg2: '#0f2a0f', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
     });
     if (card) {
       await reply({ body: `⛏️ **Mining ranks**\n\n${lines.join('\n')}\n\n_You are at mining level ${clamp(mi.level)}._`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -2739,6 +2741,7 @@ commands.push({
         emoji: '🌾', title: 'THE FARM', subtitle: userDoc.name, api,
         user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
         rows,
+        design: { bg1: '#14120a', bg2: '#26220f', accent: '#ffd740', accent2: '#ffee58', border: '#ffd740' },
       });
       if (card) {
         await reply({ body: '🌾 **THE FARM**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -2771,6 +2774,7 @@ commands.push({
         emoji: '🎣', title: 'THE TACKLE BOX', subtitle: userDoc.name, api,
         user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
         rows,
+        design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
       });
       if (card) {
         await reply({ body: '🎣 **THE TACKLE BOX**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -2803,6 +2807,7 @@ commands.push({
         emoji: '⛏️', title: 'THE MINE', subtitle: userDoc.name, api,
         user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
         rows,
+        design: { bg1: '#1a0a0a', bg2: '#2d0f0f', accent: '#ff4444', accent2: '#ff8a80', border: '#ff4444' },
       });
       if (card) {
         await reply({ body: '⛏️ **THE MINE**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
