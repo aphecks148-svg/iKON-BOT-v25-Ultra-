@@ -1916,6 +1916,7 @@ module.exports = [
         emoji: '🏆', title: 'STRONGEST PETS', subtitle: `${top.length} pets ranked by power`, rows: board,
         value: (b) => `⚡${num(b.xp || 0)} power`,
         detail: (b) => b.owner || '—',
+        design: { bg1: '#0b1a0b', bg2: '#162a16', accent: '#4dff4d', accent2: '#ccffcc', border: '#4dff4d' },
       });
       if (card) {
         await reply({ body: `🏆 **STRONGEST PETS IN iKON CITY** — ${top.length} pets\n· · · · · · ·\nRanked by total power, top 10 shown`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -3637,6 +3638,7 @@ module.exports = [
           ['Mood', mood.label],
           ['Bond', num(clamp(pet.bond))],
         ],
+        design: { bg1: '#0a160a', bg2: '#0f2a0f', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
       });
       if (card) {
         await reply({ body: `🐾 **${userDoc.name} — ${spec.name}**\n· · · · · · ·\nLv ${pet.level || 1} · power ${num(power)} · ${mood.emoji} ${mood.label}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
