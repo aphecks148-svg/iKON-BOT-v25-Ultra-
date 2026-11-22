@@ -2639,6 +2639,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         emoji: '📥', title: 'DOWNLOADER', subtitle: 'six sites, one command', api,
         user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
         rows,
+        design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
       });
       if (card) {
         await reply({ body: '📥 **DOWNLOADER**\n· · · · · · ·\nSix sites, one command', attachment: { type: 'image', data: { url: card } } }, event.messageID);
