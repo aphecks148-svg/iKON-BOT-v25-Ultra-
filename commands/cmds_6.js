@@ -2033,6 +2033,7 @@ const commands = [];
             rows: busiest,
             value: (e) => `${num(val(e, 'gc.msgs'))} msgs`,
             api, limit: 5,
+            design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
           })
         : null;
 
@@ -2095,6 +2096,7 @@ const commands = [];
         rows: admins.map((uid, i) => ({ uid, name: names[i] })),
         value: () => 'admin',
         api, limit: 10,
+        design: { bg1: '#0b0f26', bg2: '#151a3e', accent: '#b14bff', accent2: '#00d4ff', border: '#b14bff' },
       });
       if (card) {
         await reply({
@@ -2253,6 +2255,7 @@ const commands = [];
         api,
         limit: 10,
         wide: true,
+        design: { bg1: '#1a0a1e', bg2: '#2d0f2a', accent: '#ff4d8c', accent2: '#ffb3e6', border: '#ff4d8c' },
       });
 
       cfg.msgs = clamp(cfg.msgs) + 10;
@@ -2981,6 +2984,7 @@ commands.push({
           ['Members', num(g.gcMembers || 0)],
           ['Status', g.isEnabled ? '✅ running' : '⏸️ paused'],
         ],
+        design: { bg1: '#1a0a2e', bg2: '#2d0f3a', accent: '#b14bff', accent2: '#e6ccff', border: '#b14bff' },
       });
       if (card) {
         await reply({ body: '🏛️ **' + (g.threadName || 'Group') + '**\n· · · · · · ·\nLevel ' + (g.gcLevel || 1) + ' · ' + num(g.gcXp || 0) + ' XP', attachment: { type: 'image', data: { url: card } } }, event.messageID);
