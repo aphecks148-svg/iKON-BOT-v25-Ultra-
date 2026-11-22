@@ -1386,6 +1386,7 @@ kingdomCommands.push({
       emoji: '🏆', title: 'KINGDOM BOARD', subtitle: `${top.length} kingdoms`, rows: board,
       value: (b) => kc(b.xp || 0),
       detail: (b) => `monarch: ${b.monarch || '—'}`,
+      design: { bg1: '#1a0a2e', bg2: '#2d0f3a', accent: '#b14bff', accent2: '#e6ccff', border: '#b14bff' },
     });
     if (card) {
       await reply({ body: `🏆 **KINGDOM BOARD** — ${top.length} kingdoms\n· · · · · · ·\nRanked by treasury`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -1432,6 +1433,7 @@ kingdomCommands.push({
           ['Members', num(members.length)],
           ['Founded', k.foundedAt ? String(k.foundedAt).slice(0, 10) : '—'],
         ],
+        design: { bg1: '#1a0a2e', bg2: '#2d0f3a', accent: '#ffd700', accent2: '#ffb3e6', border: '#ffd700' },
       });
       if (card) {
         await reply({ body: '👑 **' + k.name + '**\n· · · · · · ·\nTreasury: ' + kc(k.treasury || 0) + ' · ' + num(members.length) + ' members', attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -1461,6 +1463,7 @@ kingdomCommands.push({
         threadID: String(event.threadID), chatName: 'the city',
         left: { uid: w.kingdom, name: w.kingdom }, right: { uid: w.opponent || '—', name: w.opponent || '—' },
         body: 'stake ' + kc(w.stake || 0), footer: 'NONE OF THIS IS REAL', api,
+        design: { bg1: '#1a0a0a', bg2: '#2d0f0f', accent: '#ff4444', accent2: '#ff8a80', border: '#ff4444' },
       });
       if (card) {
         await reply({ body: '⚔️ **WAR**\n· · · · · · ·\n' + w.kingdom + ' vs ' + (w.opponent || '—') + ' · stake ' + kc(w.stake || 0), attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -1553,6 +1556,7 @@ module.exports = [
             ['Stamina', `${data.stamina}/${hasSkill(userDoc, 'swiftfoot') ? 11 : 10}`],
             ['Prestige', `${clamp(userDoc.prestige)} (+${Math.round((prestigeBonus(userDoc) - 1) * 100)}% income)`],
           ],
+          design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
         });
       } catch {
         card = null;
@@ -1632,6 +1636,7 @@ module.exports = [
         api,
         value: (u) => `Lv ${u.level || 1} · ${num(u.xp)} XP${u.prestige ? ` 👑${u.prestige}` : ''}`,
         detail: (u) => `${num(xpToNext(u.level || 1, u.xp))} XP to the next level`,
+        design: { bg1: '#1a140a', bg2: '#2a1e0f', accent: '#ffb300', accent2: '#ffd54f', border: '#ffb300' },
       });
       if (card) {
         await reply({
@@ -2918,6 +2923,7 @@ module.exports = [
         api,
         value: (u) => `${num(winsOf(u))} wins · Lv ${u.level || 1}`,
         detail: (u) => `${num(winsOf(u) ? (u.rpg && u.rpg.stats && u.rpg.stats.losses) || 0 : 0)} losses`,
+        design: { bg1: '#14120a', bg2: '#26220f', accent: '#ffd740', accent2: '#ffee58', border: '#ffd740' },
       });
       if (card) {
         await reply({
@@ -2996,6 +3002,7 @@ module.exports = [
         api,
         value: (u) => `Lv ${u.level || 1} · ${num(u.lifetimeXp)} XP`,
         detail: (u) => `${num(u.xp)} XP in the bank`,
+        design: { bg1: '#0a1a0f', bg2: '#0f2a1a', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
       });
       if (card) {
         await reply({
@@ -3348,6 +3355,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
         api: null, user: { uid: 'poke', name: p.name },
         image: card.image,
         rows: card.rows,
+        design: { bg1: '#0b1a0b', bg2: '#162a16', accent: '#4dff4d', accent2: '#ccffcc', border: '#4dff4d' },
       });
       if (built) {
         await reply({ body: `精灵 **${p.name}** · #${String(p.id).padStart(3, '0')}`, attachment: { type: 'image', data: { url: built } } }, event.messageID);
@@ -3398,6 +3406,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
           ['Stamina', num(tdoc.stamina || 0)],
           ['Gear', tdoc.equip?.weapon || 'none'],
         ],
+        design: { bg1: '#1a0a2e', bg2: '#2d0f3a', accent: '#b14bff', accent2: '#e6ccff', border: '#b14bff' },
       });
       if (card) {
         await reply({ body: `⚔️ **${target.name} — ${cls.name}**\n· · · · · · ·\n${cls.role} · power ${cls.power}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -3445,6 +3454,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
           ['XP', num(tdoc.xp)],
           ['Wins', num(tdoc.wins || 0)],
         ],
+        design: { bg1: '#1a0a1a', bg2: '#2d0f2d', accent: '#ff4d8c', accent2: '#ffb3e6', border: '#ff4d8c' },
       });
       if (card) {
         await reply({ body: `🏅 **${target.name} — ${title}**\n· · · · · · ·\nLevel ${tdoc.level} · ${num(tdoc.xp)} XP`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -3489,6 +3499,7 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
         emoji: '🐉', title: 'BOSS BOARD', subtitle: `${bosses.length} bosses ranked by power`, rows,
         value: (b) => `Lv ${b.level || 0} · ${num(b.power || 0)} power`,
         detail: (b) => b.location || '—',
+        design: { bg1: '#0a0a1a', bg2: '#0f0f2a', accent: '#ff4d8c', accent2: '#ffb3e6', border: '#ff4d8c' },
       });
       if (card) {
         await reply({ body: `🐉 **BOSS BOARD** — ${bosses.length} bosses\n· · · · · · ·\nRanked by power, top 10 shown`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
