@@ -409,6 +409,7 @@ module.exports = [
           ['Loose cash', kc(userDoc.coins || 0)],
           ['Status', 'Robbers cannot touch vault money'],
         ],
+        design: { bg1: '#14140a', bg2: '#26260f', accent: '#ffb300', accent2: '#ffd54f', border: '#ffb300' },
       });
       const body = `🏦 **iKON VAULT — ${userDoc.name || 'Hunter'}**\n`
         + '· · · · · · ·\n'
@@ -963,6 +964,7 @@ module.exports = [
         // The split behind the total, which is the number people actually argue
         // about. Not a uid.
         detail: (u) => `wallet ${kc(u.coins)} · vault ${kc(u.bank)}`,
+        design: { bg1: '#0a1a0f', bg2: '#0f2a1a', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
       });
       if (card) {
         await reply({
@@ -1025,6 +1027,7 @@ module.exports = [
         value: (u) => `${kc(u.bank)} · Lv ${u.level || 1}`,
         // What they are carrying in their pocket, for contrast — and never a uid.
         detail: (u) => `wallet ${kc(u.coins)}`,
+        design: { bg1: '#1a140a', bg2: '#2a1e0f', accent: '#ff8f00', accent2: '#ffb74d', border: '#ff8f00' },
       });
       if (card) {
         await reply({
@@ -2081,6 +2084,7 @@ module.exports = [
           ['Is owed', kc(isOwed)],
           ['Net', kc(isOwed - owes)],
         ],
+        design: { bg1: '#1a0a0a', bg2: '#2a0f0f', accent: '#ff5252', accent2: '#ff8a80', border: '#ff5252' },
       });
       if (card) {
         await reply({ body: `📋 **${target.name} — THE LEDGER**\n· · · · · · ·\nOwes: ${kc(owes)} · Is owed: ${kc(isOwed)}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -2130,6 +2134,7 @@ module.exports = [
           ['Net worth', kc(net)],
           ['Level', tdoc.level],
         ],
+        design: { bg1: '#14120a', bg2: '#26220f', accent: '#ffd740', accent2: '#ffee58', border: '#ffd740' },
       });
       if (card) {
         await reply({ body: `💳 **${target.name} — THE TREASURY**\n· · · · · · ·\nCash: ${kc(cash)} · Vault: ${kc(bank)} · Net: ${kc(net)}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
