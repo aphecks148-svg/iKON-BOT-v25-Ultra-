@@ -600,6 +600,7 @@ async function card({
       left: await withThumb(left, threadID, api),
       right: await withThumb(right, threadID, api),
       api,
+      design: { bg1: '#1a0a1e', bg2: '#2d0f2a', accent: '#ff4d8c', accent2: '#ffb3e6', border: '#ff4d8c' },
     });
     if (art2) return art2;
     // duoCard only returns null when canvas is missing or a draw threw; fall
@@ -1664,6 +1665,7 @@ const commands = [];
           ? (p.days > 0 ? `${num(p.days)} day(s)` : 'today')
           : `${num(p.score)} 💘`),
         limit: 10,
+        design: { bg1: '#0a160a', bg2: '#0f2a0f', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
       });
 
       // The asker's own row, named the same way on both paths. This read the
@@ -1835,6 +1837,7 @@ const commands = [];
           pairs: ranked.map((r) => ({ a: r.a, b: r.b, score: r.score })),
           api,
           value: (p) => `${num(p.score)} BFF pts`,
+          design: { bg1: '#0b1a26', bg2: '#162a3e', accent: '#b14bff', accent2: '#e6ccff', border: '#b14bff' },
         });
         if (card) {
           await reply({
@@ -1910,6 +1913,7 @@ const commands = [];
           pairs: ranked.map((r) => ({ a: r.a, b: r.b, score: r.score })),
           api,
           value: (p) => `${num(p.score)} beef`,
+          design: { bg1: '#1a0a0a', bg2: '#2d0f0f', accent: '#ff4444', accent2: '#ff8a80', border: '#ff4444' },
         });
         if (card) {
           await reply({
@@ -2568,6 +2572,7 @@ commands.push({
         emoji: '❤️', title: 'SHIP', subtitle: userDoc.name + ' + ' + target.name, threadID: String(event.threadID), chatName: 'the city',
         left: { uid: userDoc.uid, name: userDoc.name }, right: { uid: target.uid, name: target.name },
         body: comp + '% compatible', footer: 'NONE OF THIS IS REAL', api,
+        design: { bg1: '#1a0a1e', bg2: '#2d0f2a', accent: '#ff4d8c', accent2: '#ffb3e6', border: '#ff4d8c' },
       });
       if (card) {
         await reply({ body: '❤️ **SHIP**\n· · · · · · ·\n' + userDoc.name + ' + ' + target.name + ' — ' + comp + '%', attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -2619,6 +2624,7 @@ commands.push({
             ['Level', tdoc.level],
             ['Wins', num(tdoc.wins || 0)],
           ],
+          design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
         });
         if (card) {
           await reply({ body: `${v.emoji} **${v.title}**\n· · · · · · ·\n${target.name}\n${verdict}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
