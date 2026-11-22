@@ -23,6 +23,29 @@ const W = 800;
 const theme = canvasKit.theme;
 
 /**
+ * Resolve a per-command design over the shared brand theme. A command passes
+ * its own bg/accent/border colours so every card in the bot looks different —
+ * the economy commands burn gold, the combat commands burn red, the social
+ * commands burn pink, and so on. Missing fields fall back to the brand theme.
+ *
+ * @param {object} [design] partial theme override
+ * @returns {object} resolved colours {bg1,bg2,accent,accent2,border,text,muted}
+ */
+function cardDesign(design = {}) {
+  return {
+    bg1: design.bg1 || theme.bg1,
+    bg2: design.bg2 || theme.bg2,
+    accent: design.accent || theme.accent,
+    accent2: design.accent2 || theme.accent2,
+    border: design.border || theme.accent,
+    text: design.text || theme.text,
+    muted: design.muted || theme.muted,
+  };
+}
+
+const W2 = 800;
+
+/**
  * The join/leave card is a different shape from the boards on purpose: 1200x600
  * is what Facebook serves unrescaled in a chat, and this is the one image in the
  * bot that gets screenshotted and sent somewhere else.
@@ -106,20 +129,21 @@ function accentBar(ctx, x, y, w, color1 = theme.accent, color2 = theme.accent2) 
   ctx.shadowBlur = 0;
 }
 
-/** Paint the shared dark gradient background with stars. */
-function paintBackground(ctx, h) {
+/** Paint the shared dark gradient background with stars. `d` is the resolved
+ *  per-command design, falling back to the brand theme. */
+function paintBackground(ctx, h, d = theme) {
   const grad = ctx.createLinearGradient(0, 0, W, h);
-  grad.addColorStop(0, theme.bg1);
-  grad.addColorStop(0.4, theme.bg2);
-  grad.addColorStop(0.7, theme.bg1);
+  grad.addColorStop(0, d.bg1);
+  grad.addColorStop(0.4, d.bg2);
+  grad.addColorStop(0.7, d.bg1);
   grad.addColorStop(1, '#0d0618');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, h);
 
   // Radial glow behind the centre for depth.
   const glow = ctx.createRadialGradient(W / 2, h * 0.35, 0, W / 2, h * 0.35, Math.max(W, h) * 0.6);
-  glow.addColorStop(0, `rgba(${hexToRgb(theme.accent)},0.08)`);
-  glow.addColorStop(0.5, `rgba(${hexToRgb(theme.accent2)},0.03)`);
+  glow.addColorStop(0, `rgba(${hexToRgb(d.accent)},0.08)`);
+  glow.addColorStop(0.5, `rgba(${hexToRgb(d.accent2)},0.03)`);
   glow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, h);
@@ -135,7 +159,7 @@ function paintBackground(ctx, h) {
     ctx.fill();
     // Brighter stars get a subtle glow.
     if (i % 4 === 0) {
-      ctx.fillStyle = `rgba(${hexToRgb(theme.accent)},0.15)`;
+      ctx.fillStyle = `rgba(${hexToRgb(d.accent)},0.15)`;
       ctx.beginPath();
       ctx.arc(x, y, r + 3, 0, Math.PI * 2);
       ctx.fill();
@@ -143,7 +167,7 @@ function paintBackground(ctx, h) {
   }
 
   // Neon grid lines for the cyberpunk feel.
-  ctx.strokeStyle = `rgba(${hexToRgb(theme.accent)},0.06)`;
+  ctx.strokeStyle = `rgba(${hexToRgb(d.accent)},0.06)`;
   ctx.lineWidth = 1;
   for (let x = 0; x < W; x += 45) {
     ctx.beginPath();
@@ -166,22 +190,23 @@ function paintBackground(ctx, h) {
   ctx.fillRect(0, 0, W, h);
 }
 
-/** Paint a header band with a title and neon glow. */
-function paintHeader(ctx, emoji, title, subtitle) {
-  // Outer neon glow.
+/** Paint a header band with a title and neon glow. `d` is the resolved
+ *  per-command design, falling back to the brand theme. */
+function paintHeader(ctx, emoji, title, subtitle, d = theme) {
+  // Outer neon glow in the command's accent colour.
   ctx.save();
-  ctx.shadowColor = theme.accent;
+  ctx.shadowColor = d.accent;
   ctx.shadowBlur = 24;
-  ctx.fillStyle = `rgba(${hexToRgb(theme.accent)},0.08)`;
+  ctx.fillStyle = `rgba(${hexToRgb(d.accent)},0.08)`;
   roundRect(ctx, 20, 20, W - 40, 116, 24);
   ctx.fill();
   ctx.restore();
 
-  // Glassmorphic header panel.
+  // Glassmorphic header panel tinted to the command's accent.
   const hGrad = ctx.createLinearGradient(24, 24, W - 24, 132);
-  hGrad.addColorStop(0, `rgba(${hexToRgb(theme.accent)},0.18)`);
-  hGrad.addColorStop(0.5, `rgba(${hexToRgb(theme.accent2)},0.10)`);
-  hGrad.addColorStop(1, `rgba(${hexToRgb(theme.accent)},0.06)`);
+  hGrad.addColorStop(0, `rgba(${hexToRgb(d.accent)},0.18)`);
+  hGrad.addColorStop(0.5, `rgba(${hexToRgb(d.accent2)},0.10)`);
+  hGrad.addColorStop(1, `rgba(${hexToRgb(d.accent)},0.06)`);
   ctx.fillStyle = hGrad;
   roundRect(ctx, 24, 24, W - 48, 112, 22);
   ctx.fill();
@@ -194,11 +219,11 @@ function paintHeader(ctx, emoji, title, subtitle) {
 
   // Top accent line with gradient.
   const accentGrad = ctx.createLinearGradient(24, 0, W - 24, 0);
-  accentGrad.addColorStop(0, theme.accent);
-  accentGrad.addColorStop(0.5, theme.accent2);
-  accentGrad.addColorStop(1, theme.accent);
+  accentGrad.addColorStop(0, d.accent);
+  accentGrad.addColorStop(0.5, d.accent2);
+  accentGrad.addColorStop(1, d.accent);
   ctx.fillStyle = accentGrad;
-  ctx.shadowColor = theme.accent;
+  ctx.shadowColor = d.accent;
   ctx.shadowBlur = 14;
   roundRect(ctx, 24, 24, W - 48, 5, 2.5);
   ctx.fill();
@@ -206,12 +231,12 @@ function paintHeader(ctx, emoji, title, subtitle) {
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = theme.text;
+  ctx.fillStyle = d.text;
 
   const size = 44;
   const emojiWidth = canvasKit.drawEmoji(ctx, emoji, 48, 68, size);
   ctx.font = `bold ${size}px sans-serif`;
-  ctx.shadowColor = theme.accent;
+  ctx.shadowColor = d.accent;
   ctx.shadowBlur = 10;
   ctx.fillText(String(title), 48 + emojiWidth + 14, 66);
   ctx.shadowBlur = 0;
@@ -219,8 +244,8 @@ function paintHeader(ctx, emoji, title, subtitle) {
   if (subtitle) {
     ctx.font = '22px sans-serif';
     const subGrad = ctx.createLinearGradient(48, 0, W - 48, 0);
-    subGrad.addColorStop(0, theme.accent2);
-    subGrad.addColorStop(1, theme.accent);
+    subGrad.addColorStop(0, d.accent2);
+    subGrad.addColorStop(1, d.accent);
     ctx.fillStyle = subGrad;
     ctx.fillText(subtitle, 48, 108);
   }
@@ -404,20 +429,21 @@ async function realName(row, api) {
  * @param {object} opts.api ws3-fca client
  * @returns {Promise<string|null>} PNG data URL, or null without the canvas binary
  */
-async function duoCard({ title, emoji = '❤️', subtitle = '', threadID, chatName = '', left, right = null, body = '', footer = '', api }) {
+async function duoCard({ title, emoji = '❤️', subtitle = '', threadID, chatName = '', left, right = null, body = '', footer = '', api, design }) {
   if (!canvasKit.available()) return null;
   if (!left) return null;
 
   const W2 = 800;
   const H = 510;
   const solo = !right;
+  const d = cardDesign(design);
 
   try {
     const cv = canvasKit.create(W2, H);
     const ctx = cv.ctx;
 
-    paintBackground(ctx, H);
-    paintHeader(ctx, emoji, title, subtitle);
+    paintBackground(ctx, H, d);
+    paintHeader(ctx, emoji, title, subtitle, d);
 
     // One round trip for both people: name and photo together, in parallel.
     const person = async (p) => {
@@ -455,7 +481,7 @@ async function duoCard({ title, emoji = '❤️', subtitle = '', threadID, chatN
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
     ctx.font = 'bold 30px sans-serif';
-    ctx.fillStyle = theme.text;
+    ctx.fillStyle = d.text;
     const nameY = 390;
     if (solo) {
       ctx.fillText(fit(ctx, a.name, 460), W2 / 2, nameY);
@@ -468,7 +494,7 @@ async function duoCard({ title, emoji = '❤️', subtitle = '', threadID, chatN
     // the action is unambiguous.
     if (!solo) {
       ctx.font = 'bold 34px sans-serif';
-      ctx.fillStyle = theme.accent;
+      ctx.fillStyle = d.accent;
       ctx.textAlign = 'center';
       ctx.fillText('❤️', W2 / 2, cy);
     }
@@ -484,7 +510,7 @@ async function duoCard({ title, emoji = '❤️', subtitle = '', threadID, chatN
     // the most interesting part of the card.
     if (body) {
       ctx.font = '22px sans-serif';
-      ctx.fillStyle = theme.muted;
+      ctx.fillStyle = d.muted;
       ctx.textAlign = 'center';
       const maxW = W2 - 120;
       const words = String(body).split(/\s+/).filter(Boolean);
@@ -506,12 +532,12 @@ async function duoCard({ title, emoji = '❤️', subtitle = '', threadID, chatN
       });
     }
 
-    cornerAccents(ctx, 8, 8, W2 - 16, H - 16, 18, theme.accent);
+    cornerAccents(ctx, 8, 8, W2 - 16, H - 16, 18, d.border);
 
     // Footer: the disclaimer, and the thread this all belongs to.
     ctx.textAlign = 'left';
     ctx.font = 'bold 19px sans-serif';
-    ctx.fillStyle = theme.gold;
+    ctx.fillStyle = d.accent2;
     ctx.fillText(fit(ctx, footer || 'NONE OF THIS IS REAL', 560), 48, H - 20);
     // The chat's name, not its id.
     //
@@ -522,7 +548,7 @@ async function duoCard({ title, emoji = '❤️', subtitle = '', threadID, chatN
     if (chatName) {
       ctx.textAlign = 'right';
       ctx.font = '17px sans-serif';
-      ctx.fillStyle = theme.muted;
+      ctx.fillStyle = d.muted;
       ctx.fillText(fit(ctx, `in ${chatName}`, 420), W2 - 48, H - 20);
     }
 
@@ -646,28 +672,29 @@ async function pokemonCard(pokemon) {
   }
 }
 
-async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
+async function userCard({ title, emoji, subtitle, rows, api, user, image, design }) {
   if (!canvasKit.available()) return null;
   try {
     const rowH = 46;
     const h = 172 + Math.max(1, rows.length) * rowH + 56;
     const cv = canvasKit.create(W, h);
     const ctx = cv.ctx;
+    const d = cardDesign(design);
 
-    paintBackground(ctx, h);
+    paintBackground(ctx, h, d);
 
-    // Neon glow border.
+    // Neon glow border in the command's accent colour.
     ctx.save();
-    ctx.shadowColor = '#00d4ff';
+    ctx.shadowColor = d.accent;
     ctx.shadowBlur = 12;
-    ctx.strokeStyle = '#00d4ff';
+    ctx.strokeStyle = d.accent;
     ctx.lineWidth = 2;
     roundRect(ctx, 8, 8, W - 16, h - 16, 28);
     ctx.stroke();
     ctx.restore();
 
-    paintHeader(ctx, emoji, title, subtitle);
-    accentBar(ctx, 24, 148, W - 48);
+    paintHeader(ctx, emoji, title, subtitle, d);
+    accentBar(ctx, 24, 148, W - 48, d.accent, d.accent2);
 
     // Avatar + name block on the left of the body.
     const pic = image ? await thumbBuffer(image) : await profile.picture(user && user.uid, api);
@@ -677,7 +704,7 @@ async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 36px sans-serif';
-    ctx.fillStyle = theme.text;
+    ctx.fillStyle = d.text;
     ctx.fillText(fit(ctx, name, W - 260), 172, 208);
 
     // Glass panel behind the stat rows.
@@ -698,21 +725,21 @@ async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
         ctx.stroke();
       }
       ctx.font = '24px sans-serif';
-      ctx.fillStyle = theme.muted;
+      ctx.fillStyle = d.muted;
       ctx.textAlign = 'left';
       ctx.fillText(label, 48, y);
 
       ctx.font = 'bold 26px sans-serif';
-      ctx.fillStyle = theme.text;
+      ctx.fillStyle = d.text;
       ctx.textAlign = 'right';
       ctx.fillText(fit(ctx, value, W - 300), W - 48, y);
       y += rowH;
     }
 
-    cornerAccents(ctx, 8, 8, W - 16, h - 16, 18);
+    cornerAccents(ctx, 8, 8, W - 16, h - 16, 18, d.border);
 
     ctx.font = '20px sans-serif';
-    ctx.fillStyle = theme.muted;
+    ctx.fillStyle = d.muted;
     ctx.textAlign = 'center';
     ctx.fillText('iKON-BOT v2 Ultra', W / 2, h - 30);
 
@@ -742,7 +769,7 @@ async function userCard({ title, emoji, subtitle, rows, api, user, image }) {
  * @param {number} [opts.limit] how many rows to draw
  * @returns {Promise<string|null>} PNG data URL, or null without the canvas binary
  */
-async function boardCard({ title, emoji, subtitle, rows, value, detail, api, limit = 10, wide = false }) {
+async function boardCard({ title, emoji, subtitle, rows, value, detail, api, limit = 10, wide = false, design }) {
   if (!canvasKit.available()) return null;
   const shown = (rows || []).slice(0, limit);
   if (!shown.length) return null;
@@ -752,21 +779,22 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
     const h = 172 + shown.length * rowH + 28;
     const cv = canvasKit.create(W, h);
     const ctx = cv.ctx;
+    const d = cardDesign(design);
 
-    paintBackground(ctx, h);
+    paintBackground(ctx, h, d);
 
-    // Neon glow border with theme color.
+    // Neon glow border with the command's accent colour.
     ctx.save();
-    ctx.shadowColor = theme.accent;
+    ctx.shadowColor = d.accent;
     ctx.shadowBlur = 16;
-    ctx.strokeStyle = theme.accent;
+    ctx.strokeStyle = d.accent;
     ctx.lineWidth = 2;
     roundRect(ctx, 8, 8, W - 16, h - 16, 28);
     ctx.stroke();
     ctx.restore();
 
-    paintHeader(ctx, emoji, title, subtitle);
-    accentBar(ctx, 24, 148, W - 48);
+    paintHeader(ctx, emoji, title, subtitle, d);
+    accentBar(ctx, 24, 148, W - 48, d.accent, d.accent2);
 
     // Resolve names and pictures together, once, in parallel.
     const [names, pics] = await Promise.all([
@@ -795,20 +823,20 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
         canvasKit.drawEmoji(ctx, medal, 44, y, 30);
       } else {
         ctx.font = 'bold 30px sans-serif';
-        ctx.fillStyle = theme.gold;
+        ctx.fillStyle = d.accent2;
         ctx.fillText(`${i + 1}.`, 44, y);
       }
 
       await drawAvatar(ctx, pics[i], 148, y, 60);
 
       ctx.font = 'bold 27px sans-serif';
-      ctx.fillStyle = theme.text;
+      ctx.fillStyle = d.text;
       // A wide row is for a line of prose rather than a number, so the name
       // gives up half its room and the text takes it.
       ctx.fillText(fit(ctx, names[i], wide ? 210 : 380), 194, y - 13);
 
       ctx.font = '22px sans-serif';
-      ctx.fillStyle = theme.muted;
+      ctx.fillStyle = d.muted;
       if (wide) {
         // Left-aligned, because a sentence has no right-hand end to align to.
         ctx.textAlign = 'left';
@@ -830,7 +858,7 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
       if (foot && !wide) {
         ctx.textAlign = 'right';
         ctx.font = '19px sans-serif';
-        ctx.fillStyle = theme.accent;
+        ctx.fillStyle = d.accent;
         ctx.fillText(fit(ctx, foot, 300), W - 44, y + 17);
       }
 
@@ -861,7 +889,7 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
  * @param {number} [opts.limit]
  * @returns {Promise<string|null>} PNG data URL, or null without the canvas binary
  */
-async function pairCard({ title, emoji = '💕', subtitle = '', pairs, api, value, limit = 8 }) {
+async function pairCard({ title, emoji = '💕', subtitle = '', pairs, api, value, limit = 8, design }) {
   if (!canvasKit.available()) return null;
   const shown = (pairs || []).slice(0, limit);
   if (!shown.length) return null;
@@ -871,20 +899,21 @@ async function pairCard({ title, emoji = '💕', subtitle = '', pairs, api, valu
     const h = 172 + shown.length * rowH + 28;
     const cv = canvasKit.create(W, h);
     const ctx = cv.ctx;
+    const d = cardDesign(design);
 
-    paintBackground(ctx, h);
+    paintBackground(ctx, h, d);
 
-    // Romantic glow border with pink theme.
+    // Romantic glow border with the command's accent colour.
     ctx.save();
-    ctx.shadowColor = theme.accent;
+    ctx.shadowColor = d.accent;
     ctx.shadowBlur = 16;
-    ctx.strokeStyle = theme.accent;
+    ctx.strokeStyle = d.accent;
     ctx.lineWidth = 2;
     roundRect(ctx, 8, 8, W - 16, h - 16, 28);
     ctx.stroke();
     ctx.restore();
 
-    paintHeader(ctx, emoji, title, subtitle);
+    paintHeader(ctx, emoji, title, subtitle, d);
 
     const resolved = await Promise.all(shown.map(async (p) => {
       const [na, nb, pa, pb] = await Promise.all([
@@ -919,11 +948,11 @@ async function pairCard({ title, emoji = '💕', subtitle = '', pairs, api, valu
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
       ctx.font = 'bold 26px sans-serif';
-      ctx.fillStyle = theme.pink;
+      ctx.fillStyle = d.accent2;
       ctx.fillText(fit(ctx, `${r.na} 💘 ${r.nb}`, 380), 222, y - 12);
 
       ctx.font = '21px sans-serif';
-      ctx.fillStyle = theme.muted;
+      ctx.fillStyle = d.muted;
       ctx.textAlign = 'right';
       ctx.fillText(fit(ctx, value ? value(pair, i) : String(pair.score || 0), 260), W - 44, y - 12);
 
@@ -931,7 +960,7 @@ async function pairCard({ title, emoji = '💕', subtitle = '', pairs, api, valu
     }
 
     // Bottom love note corner accents.
-    cornerAccents(ctx, 8, 8, W - 16, h - 16, 18, theme.accent);
+    cornerAccents(ctx, 8, 8, W - 16, h - 16, 18, d.border);
 
     return cv.canvas.toDataURL('image/png');
   } catch (err) {
@@ -1113,11 +1142,13 @@ async function botCard(opts) {
   try {
     const cv = canvasKit.create(W, 320);
     const ctx = cv.ctx;
-    paintBackground(ctx, 320);
+    const d = cardDesign(o.design);
+
+    paintBackground(ctx, 320, d);
 
     // Glassmorphic header band with accent bar.
     glassPanel(ctx, 24, 24, W - 48, 110, 22, { fill: 'rgba(255,255,255,0.06)', stroke: 'rgba(255,255,255,0.08)' });
-    accentBar(ctx, 24, 24, W - 48);
+    accentBar(ctx, 24, 24, W - 48, d.accent, d.accent2);
 
     ctx.font = 'bold 46px sans-serif';
     ctx.fillStyle = '#ffffff';
@@ -1163,7 +1194,7 @@ async function botCard(opts) {
       ctx.textAlign = 'left';
     });
 
-    cornerAccents(ctx, 8, 8, W - 16, 304, 18);
+    cornerAccents(ctx, 8, 8, W - 16, 304, 18, d.border);
 
     // Footer: memory + pending.
     const mem = o.memory || {};
@@ -1195,7 +1226,7 @@ async function botCard(opts) {
  * @param {number} [opts.accent] accent colour, defaults to gold
  * @returns {Promise<string|null>} PNG data URL, or null when canvas is missing
  */
-async function textCard({ title, emoji = '', subtitle = '', body = '', footer = '', user, api, accent = theme.gold }) {
+async function textCard({ title, emoji = '', subtitle = '', body = '', footer = '', user, api, accent = theme.gold, design }) {
   if (!canvasKit.available()) return null;
   try {
     const lines = String(body || '').split('\n').filter(Boolean);
@@ -1203,18 +1234,19 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
     const h = 240 + Math.max(1, lines.length) * lineH + 76;
     const cv = canvasKit.create(W, h);
     const ctx = cv.ctx;
+    const d = cardDesign(design);
 
-    paintBackground(ctx, h);
+    paintBackground(ctx, h, d);
     // Gradient accent bar at top.
     const topBarGrad = ctx.createLinearGradient(0, 0, W, 0);
-    topBarGrad.addColorStop(0, accent);
-    topBarGrad.addColorStop(0.5, '#00d4ff');
-    topBarGrad.addColorStop(1, accent);
+    topBarGrad.addColorStop(0, d.accent);
+    topBarGrad.addColorStop(0.5, d.accent2);
+    topBarGrad.addColorStop(1, d.accent);
     ctx.fillStyle = topBarGrad;
     ctx.fillRect(0, 0, W, 8);
 
-    paintHeader(ctx, emoji, title, subtitle);
-    accentBar(ctx, 24, 148, W - 48);
+    paintHeader(ctx, emoji, title, subtitle, d);
+    accentBar(ctx, 24, 148, W - 48, d.accent, d.accent2);
 
     const pic = user ? await thumbBuffer(await profile.picture(user.uid, api)) : null;
     await drawAvatar(ctx, pic, 92, 208, 112);
@@ -1246,14 +1278,14 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
     if (footer) {
       ctx.font = 'bold 22px sans-serif';
       const footGrad = ctx.createLinearGradient(48, 0, W - 48, 0);
-      footGrad.addColorStop(0, accent);
-      footGrad.addColorStop(1, '#00d4ff');
+      footGrad.addColorStop(0, d.accent);
+      footGrad.addColorStop(1, d.accent2);
       ctx.fillStyle = footGrad;
       ctx.textAlign = 'left';
       ctx.fillText(fit(ctx, footer, W - 96), 48, h - 36);
     }
 
-    cornerAccents(ctx, 8, 8, W - 16, h - 16, 18);
+    cornerAccents(ctx, 8, 8, W - 16, h - 16, 18, d.border);
 
     ctx.font = '20px sans-serif';
     ctx.fillStyle = 'rgba(154,160,181,0.75)';

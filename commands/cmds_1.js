@@ -396,6 +396,7 @@ module.exports = [
             rows: owners.map((id) => ({ uid: id })),
             value: () => 'owner',
             api, limit: 10,
+            design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
           })
         : null;
       if (card) {
@@ -1580,6 +1581,7 @@ module.exports = [
         commands: registry.size,
         aliases: [...registry.values()].reduce((n, c) => n + (c.aliases ? c.aliases.length : 0), 0),
         chats: 0, pending: 0,
+        design: { bg1: '#0b0f26', bg2: '#151a3e', accent: '#b14bff', accent2: '#00d4ff', border: '#b14bff' },
       });
       if (card) {
         await reply({ body: `📊 **${config.BOT_NAME} DASHBOARD**\n· · · · · · ·\nUptime: ${fmt.uptime(process.uptime())} · ${registry.size} commands · ${process.memoryUsage().rss}MB RSS`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
