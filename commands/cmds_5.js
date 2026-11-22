@@ -2527,6 +2527,7 @@ commands.push({
           ['Your balance', kc(userDoc.coins)],
           ['Streak', num(userDoc.gambleStreak || 0)],
         ],
+        design: { bg1: '#1a0a2e', bg2: '#2d0f3a', accent: '#b14bff', accent2: '#e6ccff', border: '#b14bff' },
       });
       if (card) {
         await reply({ body: '🃏 **THE ARCADE**\n· · · · · · ·\n' + kc(userDoc.coins) + ' on hand · ' + num(userDoc.gambleStreak || 0) + ' win streak', attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -2563,6 +2564,7 @@ commands.push({
           ['Win rate', rate + '%'],
           ['Streak', num(tdoc.duelStreak || 0)],
         ],
+        design: { bg1: '#1a0a0a', bg2: '#2d0f0f', accent: '#ff4444', accent2: '#ff8a80', border: '#ff4444' },
       });
       if (card) {
         await reply({ body: '⚔️ **' + target.name + ' — DUEL RECORD**\n· · · · · · ·\n' + wins + 'W ' + losses + 'L · ' + rate + '%', attachment: { type: 'image', data: { url: card } } }, event.messageID);
