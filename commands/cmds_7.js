@@ -2666,6 +2666,7 @@ const commands = [];
         value: (d) => `Lv ${g(d).level}`,
         detail: (d) => kc(g(d).money),
         api, limit: 10,
+        design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
       });
       if (card) {
         await reply({ body: `🏆 **THE CITY BOARD**\n· · · · · · ·\n${rows.join('\n')}\n\n📖 ${story()}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
@@ -2809,6 +2810,7 @@ commands.push({
         emoji: '🚗', title: 'GARAGE', subtitle: car ? car.name : 'no car', api,
         user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
         rows,
+        design: { bg1: '#1a120a', bg2: '#2a1e0f', accent: '#ff8f00', accent2: '#ffb74d', border: '#ff8f00' },
       });
       if (card) {
         await reply({ body: '🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no car') + ' · ' + kc(userDoc2.coins), attachment: { type: 'image', data: { url: card } } }, event.messageID);
