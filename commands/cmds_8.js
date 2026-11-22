@@ -2155,20 +2155,9 @@ const commands = [];
         reply,
         messageID: event.messageID,
       });
-      if (!savage) return;
-
-      const card = await captionCard({
-        title: 'iKON SAVAGE MODE',
-        subtitle: 'say',
-        body: savage,
-        footer: `${OWNER} approved`,
-        accent: canvasKit.theme.gold,
-      });
-      if (card) {
-        await reply({ body: `🗣️ **REWRITTEN**\n\n${savage}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply(`🗣️ **SAVAGE MODE**\n· · · · · · ·\n${savage}`, event.messageID);
+      if (!answer) return;
+      const body = `🗣️ **REWRITTEN**\n· · · · · · ·\n${savage}\n💸 ${kc(FEES.say)}`;
+      await reply(body, event.messageID);
     }),
   });
 
@@ -2205,14 +2194,7 @@ const commands = [];
       });
       if (!answer) return;
       const body = `⚡ **PRO MODE**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ai)}`;
-      const subtitle = 'PRO MODE';
-      const foot = `💸 ${kc(FEES.ai)}`;
-      const card = await captionCard({ title: 'AI', subtitle, body, footer: foot, accent: canvasKit.theme.accent2 });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(body, event.messageID);
     }),
   });
 
@@ -2290,17 +2272,8 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         'Style: a good translator who also knows the vibe.',
       );
 
-      const card = await captionCard({
-        title: `${text.slice(0, 40)}`,
-        subtitle: `→ ${lang.toUpperCase()}`,
-        body: out,
-        footer: `${OWNER} · Groq`,
-      });
-      if (card) {
-        await reply({ body: `🌐 **${lang.toUpperCase()}**\n\n${out}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply(`🌐 **${lang.toUpperCase()}**\n· · · · · · ·\n${out}`, event.messageID);
+      const body = `🌐 **${lang.toUpperCase()}**\n\n${out}\n💸 ${kc(FEES.translate)}`;
+      await reply(body, event.messageID);
     }),
   });
 // ───────────────────────────────────────────────────────────
@@ -2638,37 +2611,8 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
         messageID: event.messageID,
       });
       if (!song) return;
-
-      const card = await captionCard({
-        title: 'iKON SONG',
-        subtitle: `FOR ${String(userDoc.name).toUpperCase()}`,
-        body: `${topic}`,
-        footer: `${OWNER} · Groq`,
-        accent: canvasKit.theme.gold,
-      });
-      if (card) {
-        await reply({ attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      }
-
-      // The song it just wrote, read back out loud. Groq's verses are original,
-      // so speaking them is not anyone's copyright.
-      const singable = String(song)
-        .replace(/```[\s\S]*?```/g, ' ')
-        .replace(/^#+\s*/gm, '')
-        .replace(/[*_#`~|]/g, ' ')
-        .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean)
-        .slice(0, 14)
-        .join('. ');
-
-      await sendVoice({
-        reply,
-        messageID: event.messageID,
-        text: `${topic}. ${singable}`,
-        body: `🎵 **${topic.toUpperCase()}**\n· · · · · · ·\n${song}\n💸 ${kc(FEES.songai)}`,
-      });
+      const body = `🎵 **${topic.toUpperCase()}**\n· · · · · · ·\n${song}\n💸 ${kc(FEES.songai)}`;
+      await reply(body, event.messageID);
     }),
   });
 
