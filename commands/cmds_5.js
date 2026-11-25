@@ -780,7 +780,7 @@ const commands = [];
         await reply('❌ The bomb needs the city grid online. Try again shortly.', event.messageID);
         return;
       }
-      const group = await Group.findOne({ gid: String(event.threadID) });
+      const group = await Group.findOne({ tid: String(event.threadID) });
       if (!group) {
         await reply('❌ No arcade record for this chat yet.', event.messageID);
         return;
@@ -864,7 +864,7 @@ const commands = [];
         await reply('❌ The bomb needs the city grid online. Try again shortly.', event.messageID);
         return;
       }
-      const group = await Group.findOne({ gid: String(event.threadID) });
+      const group = await Group.findOne({ tid: String(event.threadID) });
       if (!group || !group.gameBomb || !group.gameBomb.holderUid) {
         await reply('💣 Nothing is ticking. Light it with `!bombgame`.', event.messageID);
         return;

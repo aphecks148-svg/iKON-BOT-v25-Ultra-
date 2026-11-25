@@ -1886,7 +1886,7 @@ module.exports = [
         await reply('📖 The city grid is down right now — the lottery board is unavailable.', event.messageID);
         return;
       }
-      const group = await Group.findOne({ gid: String(event.threadID) });
+      const group = await Group.findOne({ tid: String(event.threadID) });
       if (!group) {
         await reply('❌ No arcade record for this chat yet.', event.messageID);
         return;
@@ -1917,6 +1917,11 @@ module.exports = [
 
         await debit(userDoc, cost, 'lottery_buy', { count, cost });
 
+        // Defensive initialization: ensure lottery object exists
+        // (handles edge case where Group was created before lottery field was added)
+        if (!group.lottery) {
+          group.lottery = { pot: 0, tickets: [], endsAt: null, lastDrawAt: null, lastWinner: { uid: '', name: '', amount: 0 } };
+        }
         const lot = group.lottery;
         lot.pot = clamp(lot.pot) + cost;
         let mine = (lot.tickets || []).find((t) => String(t.uid) === String(userDoc.uid));
