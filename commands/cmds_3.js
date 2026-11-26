@@ -1536,27 +1536,17 @@ module.exports = [
       // text card below has every one of them.
       let card = null;
       try {
-        card = await cards.userCard({
-          emoji: '🧬',
-          title: 'iKON ACADEMY ID CARD',
-          subtitle: `${rank.title} · Level ${level}`,
-          user: userDoc,
+        card = await cards.profileCard({
+          name,
+          uid: userDoc.uid,
+          pic: null,
+          balance: kc(userDoc.coins),
+          level,
+          exp: num(xp),
+          messages: num(userDoc.messages || 0),
+          rank: `${rank.title} 👑`,
+          joined: userDoc.createdAt ? new Date(userDoc.createdAt).toLocaleDateString() : '—',
           api,
-          rows: [
-            ['Name', name],
-            ['Rank', `${rank.title} (${num(rank.level)})`],
-            ['Level', `${level} · ${pct}%`],
-            ['XP', `${num(xp)}/${num(needed)}`],
-            ['Lifetime XP', `${num(lifetime)} XP`],
-            ['To level up', `${num(remaining)} XP`],
-            ['Money', kc(userDoc.coins)],
-            ['Starting allowance', kc(userDoc.money ?? cache.STARTING_MONEY)],
-            ['Class', cls ? `${cls.emoji} ${cls.name}` : 'Unchosen'],
-            ['Titles', titles],
-            ['Stamina', `${data.stamina}/${hasSkill(userDoc, 'swiftfoot') ? 11 : 10}`],
-            ['Prestige', `${clamp(userDoc.prestige)} (+${Math.round((prestigeBonus(userDoc) - 1) * 100)}% income)`],
-          ],
-          design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
         });
       } catch {
         card = null;

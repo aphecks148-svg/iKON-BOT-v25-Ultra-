@@ -1279,16 +1279,9 @@ async function announce(api, threadID, kind, who, info, template, isGroup) {
   // direct CDN url, and it does not go through the graph redirect.
   const known = (info && info.users && info.users.get(String(who.uid))) || null;
   try {
-    const png = await cards.arrivalCard({
-      kind,
-      uid: who.uid,
-      name: display,
-      threadName,
-      threadID,
-      picUrl: (known && known.thumbSrc) || '',
-      count: (info && info.count) || 0,
-      api,
-    });
+    const png = kind === 'goodbye'
+      ? await cards.goodbyeCard({ name: display, pic: (known && known.thumbSrc) || '', api })
+      : await cards.welcomeCard({ name: display, pic: (known && known.thumbSrc) || '', groupName: threadName, memberCount: (info && info.count) || 0, api });
     if (png) {
       // A stream, not a descriptor. ws3-fca 3.5.2 throws on
       // `{ type, data: { url } }`, and this used to turn that into a silent
