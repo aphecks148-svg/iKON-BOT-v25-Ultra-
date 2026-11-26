@@ -2813,69 +2813,7 @@ module.exports = [
       );
     }),
   },
-
-  // ─────────────────────────────────────────────────────────
-  // 31
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'topwins',
-    aliases: ['wins'],
-    category: 'rpg',
-    description: '🥇 Top winners - Most battle wins',
-    usage: '!topwins',
-    hint: 'Most battle wins, ever. The board of the people who have been fighting the most.',
-    cooldown: 15,
-    permission: 'all',
-    execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'topwins', async () => {
-      await react('🥇');
-      if (!mongo.isReady()) {
-        await reply('💾 Academy records are sealed — The city grid is down right now.', event.messageID);
-        return;
-      }
-      const board = await User.find({ 'rpg.stats.wins': { $gt: 0 } })
-        .sort({ 'rpg.stats.wins': -1 })
-        .limit(10)
-        .select('uid name level rpg.stats.wins rpg.stats.battles')
-        .lean();
-      if (!board.length) {
-        await reply('🥇 Nobody has won a fight yet. Try `!battle`.', event.messageID);
-        return;
-      }
-      const winsOf = (u) => (u.rpg && u.rpg.stats && u.rpg.stats.wins) || 0;
-
-      const card = await cards.boardCard({
-        emoji: '🥇',
-        title: 'MOST WINS',
-        subtitle: 'Undefeated in the arena',
-        rows: board,
-        api,
-        value: (u) => `${num(winsOf(u))} wins · Lv ${u.level || 1}`,
-        detail: (u) => `${num(winsOf(u) ? (u.rpg && u.rpg.stats && u.rpg.stats.losses) || 0 : 0)} losses`,
-        design: { bg1: '#14120a', bg2: '#26220f', accent: '#ffd740', accent2: '#ffee58', border: '#ffd740' },
-      });
-      if (card) {
-        await reply({
-          body: `🥇 **MOST WINS**\nThe academy is watching.`,
-          attachment: { type: 'image', data: { url: card } },
-        }, event.messageID);
-        return;
-      }
-
-      const medals = ['🥇', '🥈', '🥉'];
-      const names = await Promise.all(board.map((u) => cards.realName(u, api)));
-      const lines = board.map((u, i) => `${medals[i] || `${i + 1}.`} ${names[i]} — ${num(winsOf(u))} wins (Lv ${u.level || 1})`);
-
-      await reply(
-        `🥇 **MOST WINS**\n`
-        + '· · · · · · ·\n'
-        + `${lines.join('\n')}\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
-    }),
-  },
-
-  // ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
   // 32
   // ─────────────────────────────────────────────────────────
   {
