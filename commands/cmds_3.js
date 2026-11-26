@@ -1407,71 +1407,8 @@ kingdomCommands.push({
     );
   }),
 });
-
-kingdomCommands.push({
-    name: 'kingdomcard',
-    aliases: ['kingdomsheet', 'kcinfo'],
-    category: 'kingdom',
-    description: '👑 Render a kingdom as a picture — treasury, members, ranks',
-    usage: '!kingdomcard [name]',
-    hint: 'A kingdom as a picture: the treasury, the roster and the ranks, all on one card.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'kingdomcard', async () => {
-      await react('👑');
-      const name = args.join(' ').trim() || userDoc.kingdom;
-      if (!name) { await reply('❌ You are not in a kingdom. Found one with `!kingdom create <name>`.', event.messageID); return; }
-      const k = await Kingdom.findOne({ name: new RegExp('^' + reEsc(name) + '$', 'i') }).lean().catch(() => null);
-      if (!k) { await reply('❌ No kingdom called `' + name + '`.', event.messageID); return; }
-      const members = Array.isArray(k.members) ? k.members : [];
-      const card = await cards.userCard({
-        emoji: '👑', title: 'KINGDOM', subtitle: k.name, api,
-        user: { uid: k.name, name: k.name, level: Math.floor((k.treasury || 0) / 1000) + 1, xp: k.treasury || 0 },
-        rows: [
-          ['Treasury', kc(k.treasury || 0)],
-          ['Monarch', k.leaderName || '—'],
-          ['Members', num(members.length)],
-          ['Founded', k.foundedAt ? String(k.foundedAt).slice(0, 10) : '—'],
-        ],
-        design: { bg1: '#1a0a2e', bg2: '#2d0f3a', accent: '#ffd700', accent2: '#ffb3e6', border: '#ffd700' },
-      });
-      if (card) {
-        await reply({ body: '👑 **' + k.name + '**\n· · · · · · ·\nTreasury: ' + kc(k.treasury || 0) + ' · ' + num(members.length) + ' members', attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply('👑 **' + k.name + '**\n· · · · · · ·\nTreasury: ' + kc(k.treasury || 0) + '\n📖 (no picture this time)', event.messageID);
-    }),
-  });
-
-  kingdomCommands.push({
-    name: 'warcard',
-    aliases: ['warchart', 'warstatus'],
-    category: 'kingdom',
-    description: '⚔️ Render a war as a picture — the two sides, the stakes',
-    usage: '!warcard [kingdom]',
-    hint: 'A war as a picture: the two sides and what is at stake. The text above it says the same thing.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'warcard', async () => {
-      await react('⚔️');
-      const name = args.join(' ').trim() || userDoc.kingdom;
-      if (!name) { await reply('❌ You are not in a kingdom.', event.messageID); return; }
-      const w = await War.findOne({ kingdom: new RegExp('^' + reEsc(name) + '$', 'i') }).sort({ startedAt: -1 }).lean().catch(() => null);
-      if (!w) { await reply('❌ No active war for `' + name + '`.', event.messageID); return; }
-      const card = await cards.duoCard({
-        emoji: '⚔️', title: 'WAR', subtitle: w.kingdom + ' vs ' + (w.opponent || '—'),
-        threadID: String(event.threadID), chatName: 'the city',
-        left: { uid: w.kingdom, name: w.kingdom }, right: { uid: w.opponent || '—', name: w.opponent || '—' },
-        body: 'stake ' + kc(w.stake || 0), footer: 'NONE OF THIS IS REAL', api,
-        design: { bg1: '#1a0a0a', bg2: '#2d0f0f', accent: '#ff4444', accent2: '#ff8a80', border: '#ff4444' },
-      });
-      if (card) {
-        await reply({ body: '⚔️ **WAR**\n· · · · · · ·\n' + w.kingdom + ' vs ' + (w.opponent || '—') + ' · stake ' + kc(w.stake || 0), attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply('⚔️ **WAR**\n· · · · · · ·\n' + w.kingdom + ' vs ' + (w.opponent || '—') + ' · stake ' + kc(w.stake || 0) + '\n📖 (no picture this time)', event.messageID);
-    }),
-  });
+);
+);
 
 module.exports = [
   // ─────────────────────────────────────────────────────────
@@ -3110,51 +3047,6 @@ First spawn due in ${Math.round((Number(group.pokemon.intervalMs) || dex.DEFAULT
     }),
   },
 // ─────────────────────────────────────────────────────────
-  // 38$  — boss board
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'bossboard',
-    aliases: ['bosslist', 'bosses', 'raidboard'],
-    category: 'rpg',
-    description: '🐉 Every boss, ranked by how much trouble they are',
-    usage: '!bossboard',
-    hint: 'Every boss, ranked by how much trouble it is. It is a reading list, not a dare.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, config }) => guard(reply, event.messageID, 'bossboard', async () => {
-      await react('🐉');
-      const Boss = require('../models/Boss');
-      const bosses = await Boss.find({}).sort({ power: -1 }).lean().catch(() => []);
-      if (!bosses.length) {
-        await reply('❌ No bosses recorded yet. An owner can seed them with `!bossseed`.', event.messageID);
-        return;
-      }
-      const rows = bosses.slice(0, 10).map((b, i) => ({
-        uid: String(i + 1), name: b.name || `Boss ${i + 1}`,
-        level: b.level || 0, xp: b.power || 0,
-      }));
-      const card = await cards.boardCard({
-        emoji: '🐉', title: 'BOSS BOARD', subtitle: `${bosses.length} bosses ranked by power`, rows,
-        value: (b) => `Lv ${b.level || 0} · ${num(b.power || 0)} power`,
-        detail: (b) => b.location || '—',
-        design: { bg1: '#0a0a1a', bg2: '#0f0f2a', accent: '#ff4d8c', accent2: '#ffb3e6', border: '#ff4d8c' },
-      });
-      if (card) {
-        await reply({ body: `🐉 **BOSS BOARD** — ${bosses.length} bosses\n· · · · · · ·\nRanked by power, top 10 shown`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      const lines = rows.map((b, i) => `${i + 1}. ${b.name} — Lv ${b.level || 0} · ${num(b.power || 0)} power`).join('\n');
-      await reply(
-        `🐉 **BOSS BOARD** — ${bosses.length} bosses\n`
-        + '· · · · · · ·\n'
-        + `${lines}\n`
-        + `📖 (no picture this time)`,
-        event.messageID,
-      );
-    }),
-  },
-
-  // ─────────────────────────────────────────────────────────
   // 39$  — seed the boss table (owner only)
   // ─────────────────────────────────────────────────────────
   {
