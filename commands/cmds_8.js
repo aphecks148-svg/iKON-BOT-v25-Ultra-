@@ -2216,12 +2216,7 @@ const commands = [];
       }
       const answer = await askGroq(q, `Style: iKON AI assistant. Be helpful, witty, and concise. Owner is ${OWNER}.`, userDoc.lang || 'en');
       const body = `🤖 **IKON AI**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ai)}`;
-      const card = await captionCard({ title: 'IKON AI', subtitle: 'Chat', body, footer: `${OWNER} · Groq`, accent: canvasKit.theme.accent2 });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(body, event.messageID);
     }),
   });
 
@@ -2377,12 +2372,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
       const body =         `🌦️ **${String(spot && spot.name ? spot.name : place).toUpperCase()}**\n`;
       const subtitle = 'String(spot && spot.name ? spot.name : place).toUpperCase()';
       const foot = `💸 ${kc(FEES.weatherai)}`;
-      const card = await captionCard({ title: 'WEATHERAI', subtitle, body, footer: foot, accent: canvasKit.theme.accent2 });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(body, event.messageID);
     }),
   });
 
@@ -2484,12 +2474,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
       const body = `📋 **THE SHORT VERSION**\n· · · · · · ·\n${brief}\n💸 ${kc(FEES.summarize)}`;
       const subtitle = 'THE SHORT VERSION';
       const foot = `💸 ${kc(FEES.summarize)}`;
-      const card = await captionCard({ title: 'SUMMARIZE', subtitle, body, footer: foot, accent: canvasKit.theme.accent2 });
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      } else {
-        await reply(body, event.messageID);
-      }
+      await reply(body, event.messageID);
     }),
   });
 
