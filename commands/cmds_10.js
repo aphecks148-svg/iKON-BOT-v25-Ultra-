@@ -2718,38 +2718,6 @@ function pokeOf(doc) {
 
 
 
-commands.push({
-    name: 'farmcard',
-    aliases: ['farmstatus', 'fieldcard'],
-    category: 'farming',
-    description: '🌾 Render your farm as a picture — fields, crops, yield',
-    usage: '!farmcard',
-    hint: 'Your farm as a picture: the fields, the crops and the yield.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'farmcard', async () => {
-      await react('🌾');
-      const doc = await require('../models/Economy').findOne({ uid: userDoc.uid }).lean().catch(() => null);
-      const f = (doc && doc.farming) || {};
-      const rows = [
-        ['Fields', num(Object.keys(f).filter((k) => f[k]).length)],
-        ['Crops', num(Object.values(f).filter(Boolean).length)],
-        ['Yield', num(f.yield || 0)],
-        ['Level', userDoc.level],
-      ];
-      const card = await cards.userCard({
-        emoji: '🌾', title: 'THE FARM', subtitle: userDoc.name, api,
-        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
-        rows,
-        design: { bg1: '#14120a', bg2: '#26220f', accent: '#ffd740', accent2: '#ffee58', border: '#ffd740' },
-      });
-      if (card) {
-        await reply({ body: '🌾 **THE FARM**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply('🌾 **THE FARM**\n· · · · · · ·\n' + userDoc.name + '\n📖 (no picture this time)', event.messageID);
-    }),
-  });
 
   commands.push({
     name: 'fishcard',

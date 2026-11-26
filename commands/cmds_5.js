@@ -2507,73 +2507,8 @@ const commands = [];
     }),
   });
 
-commands.push({
-    name: 'casinocard',
-    aliases: ['casino', 'arcadecard', 'house'],
-    category: 'games',
-    description: '🃏 The arcade — odds, tables, and the house edge',
-    usage: '!casinocard',
-    hint: 'Every table in the arcade and the house edge on each one, drawn as a card. Read it before you play.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'casinocard', async () => {
-      await react('🃏');
-      const card = await cards.userCard({
-        emoji: '🃏', title: 'THE ARCADE', subtitle: 'the house always wins', api,
-        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
-        rows: [
-          ['Tables', 'Blackjack · Dice · RPS · Trivia'],
-          ['House edge', '5% on every bet'],
-          ['Your balance', kc(userDoc.coins)],
-          ['Streak', num(userDoc.gambleStreak || 0)],
-        ],
-        design: { bg1: '#1a0a2e', bg2: '#2d0f3a', accent: '#b14bff', accent2: '#e6ccff', border: '#b14bff' },
-      });
-      if (card) {
-        await reply({ body: '🃏 **THE ARCADE**\n· · · · · · ·\n' + kc(userDoc.coins) + ' on hand · ' + num(userDoc.gambleStreak || 0) + ' win streak', attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply('🃏 **THE ARCADE**\n· · · · · · ·\nBalance: ' + kc(userDoc.coins) + '\n📖 (no picture this time)', event.messageID);
-    }),
-  });
 
-  commands.push({
-    name: 'duelcard',
-    aliases: ['duelrecord', 'rivalcard'],
-    category: 'games',
-    description: '⚔️ Your duel record — wins, losses, win rate',
-    usage: '!duelcard [@user]',
-    hint: 'Your duel record as a card: wins, losses and the win rate they make.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc, args }) => guard(reply, event.messageID, 'duelcard', async () => {
-      await react('⚔️');
-      const target = await userTarget.resolve(api, event, args, userDoc);
-      if (!target) { await reply('❌ I could not find that hunter.', event.messageID); return; }
-      const tdoc = await cache.getOrCreateUser(target.uid, api);
-      const wins = clamp(tdoc.duelWins || 0);
-      const losses = clamp(tdoc.duelLosses || 0);
-      const total = wins + losses;
-      const rate = total ? Math.round((wins / total) * 100) : 0;
-      const card = await cards.userCard({
-        emoji: '⚔️', title: 'DUEL', subtitle: 'the record', api,
-        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
-        rows: [
-          ['Wins', num(wins)],
-          ['Losses', num(losses)],
-          ['Win rate', rate + '%'],
-          ['Streak', num(tdoc.duelStreak || 0)],
-        ],
-        design: { bg1: '#1a0a0a', bg2: '#2d0f0f', accent: '#ff4444', accent2: '#ff8a80', border: '#ff4444' },
-      });
-      if (card) {
-        await reply({ body: '⚔️ **' + target.name + ' — DUEL RECORD**\n· · · · · · ·\n' + wins + 'W ' + losses + 'L · ' + rate + '%', attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply('⚔️ **' + target.name + ' — DUEL RECORD**\n· · · · · · ·\nWins: ' + num(wins) + '\nLosses: ' + num(losses) + '\nRate: ' + rate + '%\n📖 (no picture this time)', event.messageID);
-    }),
-  });
-
+  
   commands.push({
     name: 'trivianight',
     aliases: ['quiznight', 'trivia', 'quiz'],
