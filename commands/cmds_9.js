@@ -850,14 +850,19 @@ const commands = [];
       }
 
       await react('💢');
-      const sent = await art(reply, event.messageID, {
-        title: '👋 SLAP',
+      const leftP = await withThumb({ uid: userDoc.uid, name: userDoc.name }, event.threadID, api);
+      const rightP = await withThumb({ uid: who.uid, name: who.name }, event.threadID, api);
+      const slapPng = await cards.slapCard({
+        leftName: userDoc.name,
+        rightName: who.name,
+        leftPic: leftP.thumbSrc,
+        rightPic: rightP.thumbSrc,
         api,
-        threadID: event.threadID,
-        left: { uid: userDoc.uid, name: userDoc.name },
-        right: { uid: who.uid, name: who.name },
-        footer: 'A MESSAGE AND A TRANSFER. EVERYBODY IS FINE.',
       });
+      const sent = !!slapPng;
+      if (slapPng) {
+        await reply({ attachment: { type: 'image', data: { url: slapPng } } }, event.messageID);
+      }
       if (!sent) {
         await reply(
           `👋 **${userDoc.name} SLAPPED ${who.name}**\n`
@@ -919,19 +924,27 @@ const commands = [];
       }
 
       await react('❤️');
-      const sent = await art(reply, event.messageID, {
-        title: '💋 KISS',
-        api,
-        threadID: event.threadID,
-        left: { uid: userDoc.uid, name: userDoc.name },
-        right: { uid: who.uid, name: who.name },
+      const pct = rand(10, 95);
+      const leftP = await withThumb({ uid: userDoc.uid, name: userDoc.name }, event.threadID, api);
+      const rightP = await withThumb({ uid: who.uid, name: who.name }, event.threadID, api);
+      const artPng = await cards.perfectPairCard({
+        leftName: userDoc.name,
+        rightName: who.name,
+        leftPic: leftP.thumbSrc,
+        rightPic: rightP.thumbSrc,
+        match: pct,
         footer: 'NOTHING ABOUT THIS CHANGES YOUR STATUS.',
+        api,
       });
+      const sent = !!artPng;
+      if (artPng) {
+        await reply({ attachment: { type: 'image', data: { url: artPng } } }, event.messageID);
+      }
       if (!sent) {
         await reply(
           `💋 **${userDoc.name} KISSED ${who.name}**\n`
           + '· · · · · · ·\n'
-          + `${meter(rand(10, 95), '❤️ LOVE METER')}\n`
+          + `${meter(pct, '❤️ LOVE METER')}\n`
           + `${petLine}\n`
           + `👛 Your wallet: ${kc(userDoc.coins)}\n`
           + `📖 _Nothing about this changes your status._`,
@@ -1011,15 +1024,16 @@ const commands = [];
         event.messageID,
       );
 
-      const art = await card({
-        title: '💘 SHIPPED',
-        api,
-        threadID: event.threadID,
-        left: { uid: a.uid, name: a.name },
-        right: { uid: b.uid, name: b.name },
-        body: `${pct}% of this chat agrees. The other ${100 - pct}% are not invited to the wedding.`,
+      const leftP = await withThumb({ uid: a.uid, name: a.name }, event.threadID, api);
+      const rightP = await withThumb({ uid: b.uid, name: b.name }, event.threadID, api);
+      const art = await cards.perfectPairCard({
+        leftName: a.name,
+        rightName: b.name,
+        leftPic: leftP.thumbSrc,
+        rightPic: rightP.thumbSrc,
+        match: pct,
         footer: `${OWNER} · SHIPS NEVER UNSHIP`,
-        accent: canvasKit.theme.accent2,
+        api,
       });
       if (art) {
         await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
@@ -1453,15 +1467,16 @@ const commands = [];
       }
 
       await react('🎊');
-      const art = await card({
-        title: '💍 MARRIED',
-        api,
-        threadID: event.threadID,
-        left: { uid: userDoc.uid, name: userDoc.name },
-        right: { uid: who.uid, name: who.name },
-        body: 'This is binding under group chat law. The divorce costs double.',
+      const leftP = await withThumb({ uid: userDoc.uid, name: userDoc.name }, event.threadID, api);
+      const rightP = await withThumb({ uid: who.uid, name: who.name }, event.threadID, api);
+      const art = await cards.perfectPairCard({
+        leftName: userDoc.name,
+        rightName: who.name,
+        leftPic: leftP.thumbSrc,
+        rightPic: rightP.thumbSrc,
+        match: 100,
         footer: `${OWNER} · 5,000 SPENT`,
-        accent: canvasKit.theme.accent2,
+        api,
       });
       if (art) {
         await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
@@ -1471,7 +1486,7 @@ const commands = [];
           + '· · · · · · ·\n'
           + `💸 -5,000\n`
           + `婚姻 Both sides now point at each other.\n`
-          + ` Their wallet: ${kc(who.coins)}\n`
+          + `Their wallet: ${kc(who.coins)}\n`
           + `📖 _A field called spouse. It is not real, but it is permanent until one of you pays 10,000._`,
           event.messageID,
         );
