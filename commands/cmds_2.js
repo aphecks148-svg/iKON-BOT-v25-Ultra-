@@ -2105,52 +2105,7 @@ module.exports = [
   // ───────────────────────────────────────────────────────────
   // 36$  — wealth card (picture of your treasury)
   // ───────────────────────────────────────────────────────────
-  {
-    name: 'wealthcard',
-    aliases: ['networthcard', 'bankcard', 'richcard'],
-    category: 'economy',
-    description: '💳 Render your treasury as a picture — cash, bank, net worth',
-    usage: '!wealthcard [@user]',
-    hint: 'The same numbers as `!balance`, drawn as a card instead of a line of text.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc, args, config }) => guard(reply, event.messageID, 'wealthcard', async () => {
-      await react('💳');
-      const target = await userTarget.resolve(api, event, args, userDoc);
-      if (!target) {
-        await reply('❌ I could not find that hunter.', event.messageID);
-        return;
-      }
-      const tdoc = await cache.getOrCreateUser(target.uid, api);
-      const cash = clamp(tdoc.coins);
-      const bank = clamp(tdoc.bank);
-      const net = cash + bank;
-      const card = await cards.userCard({
-        emoji: '💳', title: 'WEALTH', subtitle: 'the treasury', api,
-        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
-        rows: [
-          ['Cash on hand', kc(cash)],
-          ['Vault', kc(bank)],
-          ['Net worth', kc(net)],
-          ['Level', tdoc.level],
-        ],
-        design: { bg1: '#14120a', bg2: '#26220f', accent: '#ffd740', accent2: '#ffee58', border: '#ffd740' },
-      });
-      if (card) {
-        await reply({ body: `💳 **${target.name} — THE TREASURY**\n· · · · · · ·\nCash: ${kc(cash)} · Vault: ${kc(bank)} · Net: ${kc(net)}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply(
-        `💳 **${target.name} — THE TREASURY**\n`
-        + '· · · · · · ·\n'
-        + `Cash: ${kc(cash)}\n`
-        + `Vault: ${kc(bank)}\n`
-        + `Net worth: ${kc(net)}\n`
-        + '📖 (no picture this time)',
-        event.messageID,
-      );
-    }),
-  },
+,
 
   // ─────────────────────────────────────────────────────────
   // SPLIT A BILL

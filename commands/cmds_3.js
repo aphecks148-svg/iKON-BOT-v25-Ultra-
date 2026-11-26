@@ -1590,69 +1590,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 2
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'rank',
-    // `!leaderboardrpg`, `!rlb` and `!toprpg` were a second copy of this same
-    // board: same sort, same board card, same medals, differing only in a
-    // level filter and one icon. They are aliases here so neither spelling
-    // ever answers "Unknown command" again.
-    aliases: ['leaderboardrpg', 'rlb', 'toprpg'],
-    category: 'rpg',
-    description: '🏅 Server rank by level - Who is the strongest hunter?',
-    usage: '!rank',
-    hint: 'The full hall of fame. Also answers to `!leaderboardrpg` and `!rlb`.',
-    cooldown: 15,
-    permission: 'all',
-    execute: async ({ reply, react, event, api }) => guard(reply, event.messageID, 'rank', async () => {
-      await react('🏅');
-      if (!mongo.isReady()) {
-        await reply('💾 Academy records are sealed — The city grid is down right now.', event.messageID);
-        return;
-      }
-      const board = await User.find({}).sort({ level: -1, xp: -1 }).limit(10).select('uid name level xp prestige').lean();
-      if (!board.length) {
-        await reply('🏅 No hunters enrolled yet. Enroll by talking.', event.messageID);
-        return;
-      }
-      const medals = ['🥇', '🥈', '🥉'];
-
-      // Real photos and real Facebook names on a canvas board, with the text
-      // list kept as the fallback for platforms without the canvas binary.
-      const card = await cards.boardCard({
-        emoji: '🏅',
-        title: 'iKON ACADEMY RANK',
-        subtitle: 'Strongest hunters on the server',
-        rows: board,
-        api,
-        value: (u) => `Lv ${u.level || 1} · ${num(u.xp)} XP${u.prestige ? ` 👑${u.prestige}` : ''}`,
-        detail: (u) => `${num(xpToNext(u.level || 1, u.xp))} XP to the next level`,
-        design: { bg1: '#1a140a', bg2: '#2a1e0f', accent: '#ffb300', accent2: '#ffd54f', border: '#ffb300' },
-      });
-      if (card) {
-        await reply({
-          body: `🏅 **iKON ACADEMY RANK**\n${board.length} hunters enrolled.`,
-          attachment: { type: 'image', data: { url: card } },
-        }, event.messageID);
-        return;
-      }
-
-      // Facebook is asked for the name; a stored "Facebook User" is not a name,
-      // and a board of ten of them still looks like a ranking.
-      const names = await Promise.all(board.map((u) => cards.realName(u, api)));
-      const lines = board.map((u, i) => {
-        const crown = u.prestige ? ` 👑x${u.prestige}` : '';
-        return `${medals[i] || `${i + 1}.`} ${names[i]} — Lv ${u.level || 1}${crown} (${num(u.xp)} XP)`;
-      });
-
-      await reply(
-        `🏅 **iKON ACADEMY RANK**\n`
-        + '· · · · · · ·\n'
-        + `${lines.join('\n')}\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
-    }),
-  },
+,
 
   // ─────────────────────────────────────────────────────────
   // 4

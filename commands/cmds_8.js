@@ -2602,38 +2602,7 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
   });
 
 
-  commands.push({
-    name: 'downloadcard',
-    aliases: ['dlstatus', 'dlstats'],
-    category: 'downloader',
-    description: '📥 Render the downloader status as a picture — supported sites',
-    usage: '!downloadcard',
-    hint: 'The downloader as a picture: every site it handles and what each one costs.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'downloadcard', async () => {
-      await react('📥');
-      const rows = [
-        ['YouTube', 'audio + video'],
-        ['TikTok', 'no watermark'],
-        ['Instagram', 'posts + reels'],
-        ['X / Twitter', 'videos + images'],
-        ['Pinterest', 'six pictures'],
-      ];
-      const card = await cards.userCard({
-        emoji: '📥', title: 'DOWNLOADER', subtitle: 'six sites, one command', api,
-        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
-        rows,
-        design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
-      });
-      if (card) {
-        await reply({ body: '📥 **DOWNLOADER**\n· · · · · · ·\nSix sites, one command', attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply('📥 **DOWNLOADER**\n· · · · · · ·\n📖 (no picture this time)', event.messageID);
-    }),
-  });
-
+  
 
   // ───────────────────────────────────────────────────────────
   // BOT PERSONA — language

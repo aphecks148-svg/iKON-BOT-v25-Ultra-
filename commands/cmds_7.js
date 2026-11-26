@@ -2616,72 +2616,7 @@ const commands = [];
 // THE BOARD
 // ───────────────────────────────────────────────────────────
 
-  commands.push({
-    name: 'gtaleaderboard',
-    aliases: ['gtatop', 'gtarb'],
-    category: 'gta',
-    description: '🏆 The top criminals in the city, ranked by level and then winnings',
-    usage: '!gtaleaderboard',
-    hint: 'The top criminals in the city, by level and then by winnings.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'gtaleaderboard', async () => {
-      await react('🏆');
-      if (!mongo.isReady()) {
-        await reply('🏆 The books are closed. The database is asleep.', event.messageID);
-        return;
-      }
-
-      let docs = [];
-      try {
-        // Sorted in the query, not after it: pulling the whole gta collection
-        // to sort in JS would be the single most expensive thing in the module.
-        docs = await User.find({ 'gta.started': true })
-          .sort({ 'gta.level': -1, 'gta.money': -1 })
-          .limit(10);
-      } catch {
-        await reply('🏆 The books are closed. Try again shortly.', event.messageID);
-        return;
-      }
-
-      if (!docs || !docs.length) {
-        await reply('🏆 **Nobody is on the board yet.** \`!gtastart\` and go make some money.', event.messageID);
-        return;
-      }
-
-      const medals = ['🥇', '🥈', '🥉'];
-      // Real Facebook names. The stored one is a snapshot from whenever this
-      // player was last seen, and a stored "Facebook User" turns the whole city
-      // board into ten identical rows that still look ranked.
-      const names = await Promise.all(docs.map((d) => cards.realName(d, api)));
-      const rows = docs.map((d, i) => {
-        const t = g(d);
-        const place = medals[i] || `${i + 1}.`;
-        return `${place} **${names[i]}** — Lv ${t.level} · ${kc(t.money)} · ${stars(t.wanted)}`;
-      });
-
-      const card = await cards.boardCard({
-        emoji: '🏆', title: 'THE CITY BOARD', subtitle: 'By level, then by winnings',
-        rows: docs,
-        value: (d) => `Lv ${g(d).level}`,
-        detail: (d) => kc(g(d).money),
-        api, limit: 10,
-        design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
-      });
-      if (card) {
-        await reply({ body: `🏆 **THE CITY BOARD**\n· · · · · · ·\n${rows.join('\n')}\n\n📖 ${story()}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply(
-        `🏆 **THE CITY BOARD**\n`
-        + '· · · · · · ·\n'
-        + `${rows.join('\n')}\n\n`
-        + `📖 ${story()}`,
-        event.messageID,
-      );
-    }),
-  });
-
+  
   commands.push({
     name: 'gtarank',
     aliases: ['gtamyrank', 'gtaposition'],
@@ -2787,38 +2722,6 @@ const commands = [];
     }),
   });
 
-commands.push({
-    name: 'gtacard',
-    aliases: ['gtacardboard', 'vehicard'],
-    category: 'gta',
-    description: '🚗 Render your garage as a picture — cars, stats, wanted level',
-    usage: '!gtacard',
-    hint: 'Your garage as a picture: the cars, their numbers and your wanted level.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'gtacard', async () => {
-      await react('🚗');
-      const userDoc2 = await cache.getOrCreateUser(userDoc.uid, api);
-      const car = (userDoc2.gta && userDoc2.gta.cars && userDoc2.gta.cars[0]) || null;
-      const rows = [
-        ['Cash', kc(userDoc2.coins)],
-        ['Wanted', num(userDoc2.gta && userDoc2.gta.wantedLevel ? userDoc2.gta.wantedLevel : 0)],
-        ['Fuel', num(userDoc2.gta && userDoc2.gta.fuel != null ? userDoc2.gta.fuel : 100)],
-        ['Cars', num(userDoc2.gta && userDoc2.gta.cars ? userDoc2.gta.cars.length : 0)],
-      ];
-      const card = await cards.userCard({
-        emoji: '🚗', title: 'GARAGE', subtitle: car ? car.name : 'no car', api,
-        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
-        rows,
-        design: { bg1: '#1a120a', bg2: '#2a1e0f', accent: '#ff8f00', accent2: '#ffb74d', border: '#ff8f00' },
-      });
-      if (card) {
-        await reply({ body: '🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no car') + ' · ' + kc(userDoc2.coins), attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-await reply('🚗 **GARAGE**\n· · · · · · ·\n' + (car ? car.name : 'no car') + '\n📖 (no picture this time)', event.messageID);
-    }),
-  });
 
   // ───────────────────────────────────────────────────────────
   // THE NIGHT SHIFT

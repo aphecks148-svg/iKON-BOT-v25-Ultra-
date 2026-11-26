@@ -1366,62 +1366,6 @@ commands.push({
 });
 
 commands.push({
-  name: 'farmleaderboard',
-  aliases: ['farmtop', 'topfarmers'],
-  category: 'farming',
-  description: '🏆 Top farmers by level and total harvest',
-  usage: '!farmleaderboard',
-  hint: 'The top farmers, by level and then by everything they have brought in.',
-  cooldown: 10,
-  permission: 'all',
-  execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'farmleaderboard', async () => {
-    await react('🏆');
-    const fm = s(userDoc).farm;
-
-    if (!mongo.isReady()) {
-      await reply('🏆 The ledger is offline, so nobody can be ranked. Try again when the database is back.', event.messageID);
-      return;
-    }
-
-    // Level first, total harvest second: a hunter who has actually farmed
-    // cannot be outranked by somebody who pressed !farmstart once.
-    const top = await User.find({ 'farm.level': { $exists: true, $gt: 0 } })
-      .sort({ 'farm.level': -1, 'farm.totalHarvest': -1 })
-      .limit(10)
-      .catch(() => []);
-
-    if (!top.length) {
-      await reply('🏆 Nobody has claimed a farm yet. `!farmstart` and change that.', event.messageID);
-      return;
-    }
-
-    // Real Facebook names. A board that reads "Facebook User" ten times over
-    // looks finished, and nobody notices the lookup behind it failed once and
-    // wrote the failure down forever.
-    const names = await Promise.all(top.map((doc) => cards.realName(doc, api)));
-    const lines = top.map((doc, i) => {
-      const f = doc.farm || {};
-      const mine = String(doc.uid) === String(userDoc.uid);
-      return `${i === 0 ? '\u{1F947}' : `${i + 1}.`} **${names[i]}** — \`Lv ${clamp(f.level)}\` · ${num(clamp(f.totalHarvest))} harvested`
-        + `${clamp(f.prestige) ? ` · \u{2B50}${clamp(f.prestige)}` : ''}${mine ? ' _← you_' : ''}`;
-    });
-
-    const card = await cards.boardCard({
-      emoji: '🌾', title: 'TOP FARMERS', subtitle: 'By level, then by harvest',
-      rows: top, value: (doc) => `Lv ${clamp(doc.farm && doc.farm.level)}`,
-      detail: (doc) => `${num(clamp(doc.farm && doc.farm.totalHarvest))} harvested`,
-      api, limit: 10,
-      design: { bg1: '#0b1a0b', bg2: '#162a16', accent: '#4dff4d', accent2: '#ccffcc', border: '#4dff4d' },
-    });
-    if (card) {
-      await reply({ body: `🏆 **Top farmers**\n\n${lines.join('\n')}\n\n_You are at farm level ${clamp(fm.level)}._`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      return;
-    }
-    await reply(`🏆 **Top farmers**\n\n${lines.join('\n')}\n\n_You are at farm level ${clamp(fm.level)}._`, event.messageID);
-  }),
-});
-
-commands.push({
   name: 'dailyfarm',
   aliases: ['dailyharvest', 'farmdaily'],
   category: 'farming',

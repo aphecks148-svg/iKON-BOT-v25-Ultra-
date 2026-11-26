@@ -3602,59 +3602,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   // 41$  — pet card (picture of your active pet)
   // ─────────────────────────────────────────────────────────
-  {
-    name: 'petcard',
-    aliases: ['petprofile', 'petstatus'],
-    category: 'pets',
-    description: '🐾 Render your active pet as a picture — stats, mood, gear',
-    usage: '!petcard',
-    hint: 'Your active pet as a picture: the stats, the mood and the gear.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'petcard', async () => {
-      await react('🐾');
-      // The pet model keys the owner on `ownerUid` and the active pet on
-      // `equipped`. This used to ask for `owner` and `active`, which are not
-      // fields on the model, so the query matched nothing and the card always
-      // answered "you have no active pet".
-      const pet = await Pet.findOne({ ownerUid: String(userDoc.uid), equipped: true, isDead: false }).catch(() => null);
-      if (!pet) {
-        await reply('❌ You have no active pet. Adopt one with `!petshop`, or equip one with `!petequip`.', event.messageID);
-        return;
-      }
-      // The species id lives on `type`; there is no `species` field and no
-      // `PETS` table — `PET_BY_ID` is the table, and reading `PETS` here
-      // threw a ReferenceError on every single call.
-      const spec = PET_BY_ID.get(pet.type) || { name: pet.name || 'Unknown', emoji: pet.emoji || '🐾', rarity: 'common' };
-      const mood = moodOf(pet);
-      const power = powerOf(pet, userDoc);
-      const card = await cards.userCard({
-        emoji: spec.emoji, title: 'PET', subtitle: `${spec.name} — ${rarity.label(spec.rarity)}`, api,
-        user: { uid: userDoc.uid, name: userDoc.name, level: pet.level || 1, xp: pet.xp || 0 },
-        rows: [
-          ['Species', spec.name],
-          ['Level', pet.level || 1],
-          ['Power', num(power)],
-          ['Mood', mood.label],
-          ['Bond', num(clamp(pet.bond))],
-        ],
-        design: { bg1: '#0a160a', bg2: '#0f2a0f', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
-      });
-      if (card) {
-        await reply({ body: `🐾 **${userDoc.name} — ${spec.name}**\n· · · · · · ·\nLv ${pet.level || 1} · power ${num(power)} · ${mood.emoji} ${mood.label}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply(
-        `🐾 **${userDoc.name} — ${spec.name}**\n`
-        + '· · · · · · ·\n'
-        + `Level: ${pet.level || 1}\n`
-        + `Power: ${num(power)}\n`
-        + `Mood: ${mood.emoji} ${mood.label}\n`
-        + '📖 (no picture this time)',
-        event.messageID,
-      );
-    }),
-  },
+,
 
   // ─────────────────────────────────────────────────────────
   // THE MOOD
