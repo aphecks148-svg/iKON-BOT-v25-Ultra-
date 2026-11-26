@@ -954,18 +954,15 @@ module.exports = [
       const names = await Promise.all(top.map((u) => cards.realName(u, api)));
       const total = top.reduce((s, u) => s + (u.total || 0), 0);
 
-      const card = await cards.boardCard({
-        emoji: '🏆',
-        title: 'RICHEST HUNTERS',
-        subtitle: 'Top 10 by total wealth in iKON City',
-        rows: top,
-        api,
-        value: (u) => `${kc(u.total)} · Lv ${u.level || 1}`,
-        // The split behind the total, which is the number people actually argue
-        // about. Not a uid.
-        detail: (u) => `wallet ${kc(u.coins)} · vault ${kc(u.bank)}`,
-        design: { bg1: '#0a1a0f', bg2: '#0f2a1a', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
-      });
+      const rows = top.map((u, i) => ({
+        rank: i + 1,
+        name: names[i] || u.name || 'Unknown',
+        bal: kc(u.total),
+        pic: null,
+        emoji: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1),
+        medal: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1),
+      }));
+      const card = await cards.richestCard({ rows, limit: 10, api });
       if (card) {
         await reply({
           body: `🏆 **RICHEST HUNTERS**\n💵 ${kc(total)} on the books.`,
@@ -1018,17 +1015,15 @@ module.exports = [
       // this fallback is the path every machine without the canvas binary takes.
       const names = await Promise.all(top.map((u) => cards.realName(u, api)));
 
-      const card = await cards.boardCard({
-        emoji: '🏦',
-        title: 'VAULT KINGS',
-        subtitle: `Top ${top.length} bank holders · ${kc(total)} locked away`,
-        rows: top,
-        api,
-        value: (u) => `${kc(u.bank)} · Lv ${u.level || 1}`,
-        // What they are carrying in their pocket, for contrast — and never a uid.
-        detail: (u) => `wallet ${kc(u.coins)}`,
-        design: { bg1: '#1a140a', bg2: '#2a1e0f', accent: '#ff8f00', accent2: '#ffb74d', border: '#ff8f00' },
-      });
+      const rows = top.map((u, i) => ({
+        rank: i + 1,
+        name: names[i] || u.name || 'Unknown',
+        bal: kc(u.bank),
+        pic: null,
+        emoji: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1),
+        medal: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1),
+      }));
+      const card = await cards.richestCard({ rows, limit: 10, api });
       if (card) {
         await reply({
           body: `🏦 **VAULT KINGS**\n🔐 ${kc(total)} locked away.`,
