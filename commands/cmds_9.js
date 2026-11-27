@@ -850,11 +850,11 @@ const commands = [];
       }
 
       await react('💢');
-      const leftP = await withThumb({ uid: userDoc.uid, name: userDoc.name }, event.threadID, api);
-      const rightP = await withThumb({ uid: who.uid, name: who.name }, event.threadID, api);
+      const leftP = await withThumb({ uid: who.uid, name: who.name }, event.threadID, api);
+      const rightP = await withThumb({ uid: userDoc.uid, name: userDoc.name }, event.threadID, api);
       const slapPng = await cards.slapCard({
-        leftName: userDoc.name,
-        rightName: who.name,
+        leftName: who.name,
+        rightName: userDoc.name,
         leftPic: leftP.thumbSrc,
         rightPic: rightP.thumbSrc,
         api,

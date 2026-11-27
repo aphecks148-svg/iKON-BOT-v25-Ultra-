@@ -1489,28 +1489,20 @@ async function slapCard(opts) {
       }
     }
 
-    // Floating emojis.
-    const emojis = ['😂','👋','💥','💢','😭','✨','⚡'];
-    ctx.font = '26px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    for (let i=0;i<28;i++){ ctx.globalAlpha=0.5+(i%4)*0.12; ctx.fillText(emojis[i%emojis.length], (i*113)%780+10, (i*71)%480+10); }
-    ctx.globalAlpha=1;
 
     // Header.
     ctx.textAlign='center';
     ctx.shadowColor='#ff2d00'; ctx.shadowBlur=16;
-    ctx.font='bold 44px sans-serif'; ctx.fillStyle='#fff';
-    ctx.fillText('😂 SLAP BATTLE! 😂', W/2, 58);
-    ctx.shadowBlur=0;
-    ctx.font='22px serif'; ctx.fillStyle='#fff';
-    ctx.fillText('⚡', W/2-200, 52); ctx.fillText('⚡', W/2+200, 52);
-    ctx.fillText('💥', W/2-160, 70); ctx.fillText('💥', W/2+160, 70);
+	ctx.font='bold 44px sans-serif'; ctx.fillStyle='#fff';
+	ctx.fillText('SLAP BATTLE!', W/2, 58);
+	ctx.shadowBlur=0;
 
     // Golden divider.
     const dg = ctx.createLinearGradient(140, 88, 660, 88);
     dg.addColorStop(0,'transparent'); dg.addColorStop(0.3,'#ffd700'); dg.addColorStop(0.5,'#fff3b0'); dg.addColorStop(0.7,'#ffd700'); dg.addColorStop(1,'transparent');
     ctx.strokeStyle=dg; ctx.lineWidth=3;
     ctx.beginPath(); ctx.moveTo(140,88); ctx.lineTo(660,88); ctx.stroke();
-    ctx.font='16px serif'; ctx.fillStyle='#ff2d00'; ctx.fillText('• ── 💢 ── •', W/2, 100);
+    ctx.font='16px serif'; ctx.fillStyle='#ff2d00'; ctx.fillText('• ──  ── •', W/2, 100);
 
     // Avatars.
     const cy=260, r=80, leftX=200, rightX=600;
@@ -1524,9 +1516,6 @@ async function slapCard(opts) {
     if (leftBuf){ const img=await loadImage(leftBuf); if(img){ const sc=Math.max(160/img.width,160/img.height); ctx.drawImage(img,leftX-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);} else { ctx.fillStyle='#2a2a44'; ctx.fillRect(leftX-r,cy-r,160,160);} }
     else { ctx.fillStyle='#2a2a44'; ctx.fillRect(leftX-r,cy-r,160,160);} 
     ctx.restore();
-    // shocked emoji overlay
-    ctx.font='40px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('😱', leftX, cy-60);
 
     // Right slapper (blue ring).
     ctx.save(); ctx.shadowColor='#007aff'; ctx.shadowBlur=24;
@@ -1535,13 +1524,12 @@ async function slapCard(opts) {
     if (rightBuf){ const img=await loadImage(rightBuf); if(img){ const sc=Math.max(160/img.width,160/img.height); ctx.drawImage(img,rightX-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);} else { ctx.fillStyle='#2a2a44'; ctx.fillRect(rightX-r,cy-r,160,160);} }
     else { ctx.fillStyle='#2a2a44'; ctx.fillRect(rightX-r,cy-r,160,160);} 
     ctx.restore();
-    ctx.font='40px serif'; ctx.fillText('👋', rightX+60, cy-20);
 
     // Comic POW text.
     ctx.save(); ctx.translate(W/2, cy);
     ctx.font='bold 72px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.lineWidth=8; ctx.strokeStyle='#ff0000'; ctx.fillStyle='#ffff00';
-    ctx.strokeText('POW! 💥',0,-10); ctx.fillText('POW! 💥',0,-10);
+    ctx.strokeText('POW!',0,-10); ctx.fillText('POW!',0,-10);
     ctx.font='bold 36px sans-serif'; ctx.strokeStyle='#ff0000'; ctx.fillStyle='#fff';
     ctx.strokeText('SLAP!',0,40); ctx.fillText('SLAP!',0,40);
     ctx.restore();
@@ -1550,15 +1538,12 @@ async function slapCard(opts) {
     ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.lineWidth=3;
     for (let i=0;i<6;i++){ ctx.beginPath(); ctx.moveTo(rightX-110, cy-30+i*12); ctx.lineTo(rightX-60, cy-30+i*12); ctx.stroke(); }
 
-    // Stars.
-    ctx.font='22px serif';
-    ctx.fillText('✨', W/2-90, cy-70); ctx.fillText('✨', W/2+90, cy-75); ctx.fillText('🌟', W/2-70, cy+60); ctx.fillText('🌟', W/2+70, cy+65);
 
     // Names.
     ctx.font='bold 24px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=6;
     ctx.fillText('★ ' + (o.leftName || 'Alex') + ' got slapped! ★', leftX, cy+r+36);
-    ctx.fillText('★ ' + (o.rightName || 'Emma') + ' 👋 ★', rightX, cy+r+36);
+    ctx.fillText('★ ' + (o.rightName || 'Emma') + ' ★', rightX, cy+r+36);
     ctx.shadowBlur=0;
 
     // Footer.
@@ -1569,10 +1554,8 @@ async function slapCard(opts) {
     ctx.beginPath(); ctx.moveTo(120, fy-20); ctx.lineTo(680, fy-20); ctx.stroke();
     ctx.font='italic 16px serif'; ctx.fillStyle='#7c3aed';
     ctx.shadowColor='rgba(255,255,255,0.6)'; ctx.shadowBlur=2;
-    ctx.fillText('• ── 😂 Made with 💥 by iKON BOT 😂 ── •', W/2, fy);
-    ctx.shadowBlur=0;
-    ctx.font='18px serif'; ctx.fillStyle='#ff2d00';
-    ctx.fillText('😂 👋 💥 💢 😭', W/2, fy+22);
+    ctx.fillText('Made with love by iKON BOT', W/2, fy);
+	ctx.shadowBlur=0;
 
     return cv.canvas.toDataURL('image/png');
   } catch (err) {
