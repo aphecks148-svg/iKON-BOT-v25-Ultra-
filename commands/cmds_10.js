@@ -1687,59 +1687,7 @@ commands.push({
     );
   }),
 });
-
-commands.push({
-  name: 'minerank',
-  aliases: ['minetop', 'minerboard'],
-  category: 'farming',
-  description: '⛏️ Mining level leaderboard',
-  usage: '!minerank',
-  hint: 'The mining level board — the people who have actually gone deep.',
-  cooldown: 10,
-  permission: 'all',
-  execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'minerank', async () => {
-    await react('⛏️');
-    const mi = s(userDoc).mine;
-
-    if (!mongo.isReady()) {
-      await reply('⛏️ The rock is silent. Mining ranks need the database, and it is offline.', event.messageID);
-      return;
-    }
-
-    const top = await User.find({ 'mine.level': { $exists: true, $gt: 0 } })
-      .sort({ 'mine.level': -1, 'mine.xp': -1 })
-      .limit(10)
-      .catch(() => []);
-
-    if (!top.length) {
-      await reply('⛏️ Nobody has swung a pickaxe yet. `!minebuy wooden_pick` and change that.', event.messageID);
-      return;
-    }
-
-    // Real Facebook names, not whatever the row happens to have stored.
-    const names = await Promise.all(top.map((doc) => cards.realName(doc, api)));
-    const lines = top.map((doc, i) => {
-      const m = doc.mine || {};
-      const mine = String(doc.uid) === String(userDoc.uid);
-      const pick = gear(PICKS, m.pick && m.pick.id);
-      return `${i === 0 ? '\u{1F947}' : `${i + 1}.`} **${names[i]}** — mining \`Lv ${clamp(m.level)}\`${pick ? ` · ${pick.label}` : ''}`
-        + `${mine ? ' _← you_' : ''}`;
-    });
-
-    const card = await cards.boardCard({
-      emoji: '⛏️', title: 'MINING RANKS', subtitle: 'By level, then by XP',
-      rows: top, value: (doc) => `Lv ${clamp(doc.mine && doc.mine.level)}`,
-      detail: (doc) => { const pick = gear(PICKS, (doc.mine || {}).pick && (doc.mine || {}).pick.id); return pick ? pick.label : ''; },
-      api, limit: 10,
-      design: { bg1: '#0a160a', bg2: '#0f2a0f', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
-    });
-    if (card) {
-      await reply({ body: `⛏️ **Mining ranks**\n\n${lines.join('\n')}\n\n_You are at mining level ${clamp(mi.level)}._`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-      return;
-    }
-    await reply(`⛏️ **Mining ranks**\n\n${lines.join('\n')}\n\n_You are at mining level ${clamp(mi.level)}._`, event.messageID);
-  }),
-});
+);
 
 commands.push({
   name: 'minedig',
@@ -2657,77 +2605,8 @@ function pokeOf(doc) {
   if (!Number.isFinite(doc.pokemon.bestPower)) doc.pokemon.bestPower = 0;
   return doc.pokemon;
 }
-
-
-
-
-
-
-  commands.push({
-    name: 'fishcard',
-    aliases: ['fishstatus', 'tacklecard'],
-    category: 'farming',
-    description: '🎣 Render your tackle box as a picture — catch, size, rare fish',
-    usage: '!fishcard',
-    hint: 'Your tackle box as a picture: the catch, the sizes and the rare ones.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'fishcard', async () => {
-      await react('🎣');
-      const doc = await require('../models/Economy').findOne({ uid: userDoc.uid }).lean().catch(() => null);
-      const f = (doc && doc.fishing) || {};
-      const rows = [
-        ['Caught', num(f.caught || 0)],
-        ['Largest', num(f.largest || 0) + 'kg'],
-        ['Rare', num(f.rare || 0)],
-        ['Level', userDoc.level],
-      ];
-      const card = await cards.userCard({
-        emoji: '🎣', title: 'THE TACKLE BOX', subtitle: userDoc.name, api,
-        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
-        rows,
-        design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
-      });
-      if (card) {
-        await reply({ body: '🎣 **THE TACKLE BOX**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply('🎣 **THE TACKLE BOX**\n· · · · · · ·\n' + userDoc.name + '\n📖 (no picture this time)', event.messageID);
-    }),
-  });
-
-  commands.push({
-    name: 'minecard',
-    aliases: ['minestatus', 'pickcard'],
-    category: 'farming',
-    description: '⛏️ Render your mine as a picture — depth, ore, yield',
-    usage: '!minecard',
-    hint: 'Your mine as a picture: the depth, the ore and the yield.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc }) => guard(reply, event.messageID, 'minecard', async () => {
-      await react('⛏️');
-      const doc = await require('../models/Economy').findOne({ uid: userDoc.uid }).lean().catch(() => null);
-      const m = (doc && doc.mining) || {};
-      const rows = [
-        ['Depth', num(m.depth || 0) + 'm'],
-        ['Ore', num(m.ore || 0)],
-        ['Yield', num(m.yield || 0)],
-        ['Level', userDoc.level],
-      ];
-      const card = await cards.userCard({
-        emoji: '⛏️', title: 'THE MINE', subtitle: userDoc.name, api,
-        user: { uid: userDoc.uid, name: userDoc.name, level: userDoc.level, xp: userDoc.xp },
-        rows,
-        design: { bg1: '#1a0a0a', bg2: '#2d0f0f', accent: '#ff4444', accent2: '#ff8a80', border: '#ff4444' },
-      });
-      if (card) {
-        await reply({ body: '⛏️ **THE MINE**\n· · · · · · ·\n' + userDoc.name, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply('⛏️ **THE MINE**\n· · · · · · ·\n' + userDoc.name + '\n📖 (no picture this time)', event.messageID);
-    }),
-  });
+);
+);
 
   // ───────────────────────────────────────────────────────────
   // THE KITCHEN
