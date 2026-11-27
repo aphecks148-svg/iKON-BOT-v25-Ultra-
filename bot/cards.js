@@ -2136,12 +2136,106 @@ async function hugCard(opts) {
   }
 }
 
+/**
+ * Funny gaming kill card. 800x500, cartoon game style. No emoji in fillText.
+ */
+async function killCard(opts) {
+  if (!canvasKit.available()) return null;
+  const o = opts || {};
+  const W = 800, H = 500;
+  try {
+    const cv = canvasKit.create(W, H);
+    const ctx = cv.ctx;
+    const bg = ctx.createLinearGradient(0,0,W,H);
+    bg.addColorStop(0,'#1a0a2e'); bg.addColorStop(0.5,'#0f0a1f'); bg.addColorStop(1,'#000000');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    // neon grid
+    ctx.strokeStyle='rgba(255,0,100,0.12)'; ctx.lineWidth=1;
+    for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+    for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+    // bokeh
+    for(let i=0;i<14;i++){const x=(i*157)%W,y=(i*101)%H,r=30+(i%4)*15;const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,'rgba(255,0,100,0.22)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+    const syms=['•','★','X'];
+    ctx.font='24px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let i=0;i<24;i++){ctx.globalAlpha=0.4+(i%4)*0.12;ctx.fillText(syms[i%syms.length],(i*127)%780+10,(i*67)%480+10);}ctx.globalAlpha=1;
+    // header
+    ctx.textAlign='center'; ctx.shadowColor='#ff0066'; ctx.shadowBlur=20;
+    ctx.font='bold 52px sans-serif'; ctx.fillStyle='#fff';
+    ctx.fillText('K.O.!', W/2, 56);
+    ctx.shadowBlur=0;
+    ctx.font='22px serif'; ctx.fillStyle='#fff';
+    ctx.fillText('•', W/2-180, 52); ctx.fillText('•', W/2+180, 52);
+    const dg=ctx.createLinearGradient(140,92,660,92);
+    dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#ff0066');dg.addColorStop(0.5,'#fff3b0');dg.addColorStop(0.7,'#ff0066');dg.addColorStop(1,'transparent');
+    ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,92);ctx.lineTo(660,92);ctx.stroke();
+    ctx.font='16px serif'; ctx.fillStyle='#ff0066'; ctx.fillText('• ──  ── •', W/2, 104);
+    // avatars
+    const cy=270, r=85, leftX=220, rightX=580;
+    const leftBuf = o.leftPic ? await thumbBuffer(o.leftPic) : null;
+    const rightBuf = o.rightPic ? await thumbBuffer(o.rightPic) : null;
+    // left winner - cool (green ring)
+    ctx.save(); ctx.shadowColor='#00ff88'; ctx.shadowBlur=26;
+    ctx.beginPath(); ctx.arc(leftX,cy,r+6,0,Math.PI*2); ctx.lineWidth=8; ctx.strokeStyle='#00ff88'; ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.arc(leftX,cy,r,0,Math.PI*2); ctx.clip();
+    if(leftBuf){const img=await loadImage(leftBuf); if(img){const sc=Math.max(170/img.width,170/img.height);ctx.drawImage(img,leftX-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);}else{ctx.fillStyle='#1a1a2e';ctx.fillRect(leftX-r,cy-r,170,170);}}
+    else {ctx.fillStyle='#1a1a2e';ctx.fillRect(leftX-r,cy-r,170,170);}
+    ctx.restore();
+    // sunglasses overlay
+    ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(leftX-40,cy-15,80,22);
+    ctx.fillStyle='#00ff88'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('COOL', leftX, cy-4);
+    // right loser - dizzy (red ring)
+    ctx.save(); ctx.shadowColor='#ff0066'; ctx.shadowBlur=26;
+    ctx.beginPath(); ctx.arc(rightX,cy,r+6,0,Math.PI*2); ctx.lineWidth=8; ctx.strokeStyle='#ff0066'; ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.arc(rightX,cy,r,0,Math.PI*2); ctx.clip();
+    if(rightBuf){const img=await loadImage(rightBuf); if(img){const sc=Math.max(170/img.width,170/img.height);ctx.drawImage(img,rightX-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);}else{ctx.fillStyle='#1a1a2e';ctx.fillRect(rightX-r,cy-r,170,170);}}
+    else {ctx.fillStyle='#1a1a2e';ctx.fillRect(rightX-r,cy-r,170,170);}
+    ctx.restore();
+    // dizzy X eyes
+    ctx.strokeStyle='#fff'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.moveTo(rightX-25,cy-20); ctx.lineTo(rightX-5,cy); ctx.moveTo(rightX-5,cy-20); ctx.lineTo(rightX-25,cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rightX+5,cy-20); ctx.lineTo(rightX+25,cy); ctx.moveTo(rightX+25,cy-20); ctx.lineTo(rightX+5,cy); ctx.stroke();
+    // center comic text
+    const hx=W/2, hy=cy;
+    const eg=ctx.createRadialGradient(hx,hy,0,hx,hy,100); eg.addColorStop(0,'rgba(255,0,100,0.5)'); eg.addColorStop(1,'transparent');
+    ctx.fillStyle=eg; ctx.beginPath(); ctx.arc(hx,hy,100,0,Math.PI*2); ctx.fill();
+    ctx.font='bold 52px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.lineWidth=6; ctx.strokeStyle='#ff0000'; ctx.fillStyle='#ffff00';
+    ctx.strokeText('BANG!', hx, hy-18); ctx.fillText('BANG!', hx, hy-18);
+    ctx.font='bold 34px sans-serif'; ctx.strokeStyle='#ff0000'; ctx.fillStyle='#fff';
+    ctx.strokeText('POW!', hx, hy+22); ctx.fillText('POW!', hx, hy+22);
+    // motion lines
+    ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=2;
+    for(let i=0;i<5;i++){ctx.beginPath();ctx.moveTo(rightX-100, cy-20+i*10);ctx.lineTo(rightX-60,cy-20+i*10);ctx.stroke();}
+    // names
+    ctx.font='bold 22px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=6;
+    ctx.fillText((o.leftName||'Alex')+' killed '+(o.rightName||'Emma')+'!', W/2, cy+r+40);
+    ctx.shadowBlur=0;
+    // footer
+    const fy=H-50;
+    const fdg=ctx.createLinearGradient(120,fy-20,680,fy-20);
+    fdg.addColorStop(0,'transparent');fdg.addColorStop(0.5,'#ff0066');fdg.addColorStop(1,'transparent');
+    ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-20);ctx.lineTo(680,fy-20);ctx.stroke();
+    ctx.font='italic 16px serif'; ctx.fillStyle='#c084fc';
+    ctx.shadowColor='rgba(255,255,255,0.6)'; ctx.shadowBlur=2;
+    ctx.fillText('Made with love by iKON BOT', W/2, fy); ctx.shadowBlur=0;
+    ctx.font='16px serif'; ctx.fillStyle='#ff0066';
+    ctx.fillText('• ──  ── •', W/2, fy+20);
+    return cv.canvas.toDataURL('image/png');
+  } catch (err) {
+    const { error } = require('./helpers');
+    error(`[CARD] killCard failed: ${err.message}`);
+    return null;
+  }
+}
+
 module.exports = {
   arrivalCard,
   botCard,
   duoCard,
   perfectPairCard,
   slapCard,
+  killCard,
   hugCard,
   kissCard,
   welcomeCard,

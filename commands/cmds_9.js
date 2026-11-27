@@ -1164,15 +1164,20 @@ const commands = [];
         try { await group.save(); } catch { /* cosmetic */ }
       }
 
-      await react('⚰️');
-      const sent = await art(reply, event.messageID, {
-        title: '💀 KILL',
+      await react('!');
+      const leftP = await withThumb({ uid: userDoc.uid, name: userDoc.name }, event.threadID, api);
+      const rightP = await withThumb({ uid: who.uid, name: who.name }, event.threadID, api);
+      const killPng = await cards.killCard({
+        leftName: userDoc.name,
+        rightName: who.name,
+        leftPic: leftP.thumbSrc,
+        rightPic: rightP.thumbSrc,
         api,
-        threadID: event.threadID,
-        left: { uid: userDoc.uid, name: userDoc.name },
-        right: { uid: who.uid, name: who.name },
-        footer: 'NOBODY WAS KILLED. THIS IS A MESSAGE WITH A SAD EMOJI.',
       });
+      const sent = !!killPng;
+      if (killPng) {
+        await reply({ attachment: { type: 'image', data: { url: killPng } } }, event.messageID);
+      }
       if (!sent) {
         await reply(
           `💀 **${userDoc.name} KILLED ${who.name}**\n`
