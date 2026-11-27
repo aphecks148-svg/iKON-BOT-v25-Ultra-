@@ -1687,7 +1687,6 @@ commands.push({
     );
   }),
 });
-);
 
 commands.push({
   name: 'minedig',
@@ -2605,8 +2604,6 @@ function pokeOf(doc) {
   if (!Number.isFinite(doc.pokemon.bestPower)) doc.pokemon.bestPower = 0;
   return doc.pokemon;
 }
-);
-);
 
   // ───────────────────────────────────────────────────────────
   // THE KITCHEN

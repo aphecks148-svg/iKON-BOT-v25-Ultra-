@@ -1562,7 +1562,6 @@ const commands = [];
 
     }),
   });
-);
 
   commands.push({
     name: 'pair',
