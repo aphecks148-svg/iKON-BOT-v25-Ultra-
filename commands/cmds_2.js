@@ -385,47 +385,7 @@ module.exports = [
       await reply(body, event.messageID);
     }),
   },
-
-  // ─────────────────────────────────────────────────────────
-  // 2
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'bank',
-    aliases: [],
-    category: 'economy',
-    description: "🏦 Your secure vault - Coins in bank can't be robbed",
-    usage: '!bank',
-    hint: 'Coins in the vault cannot be robbed. Moving money in is one command and worth doing early.',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ api, userDoc, reply, react, event }) => guard(reply, event.messageID, 'bank', async () => {
-      await react('🏦');
-      const bank = userDoc.bank || 0;
-      const card = await cards.userCard({
-        emoji: '🏦', title: 'iKON VAULT', subtitle: `Secured: ${kc(bank)}`,
-        user: userDoc, api,
-        rows: [
-          ['Vault', kc(bank)],
-          ['Loose cash', kc(userDoc.coins || 0)],
-          ['Status', 'Robbers cannot touch vault money'],
-        ],
-        design: { bg1: '#14140a', bg2: '#26260f', accent: '#ffb300', accent2: '#ffd54f', border: '#ffb300' },
-      });
-      const body = `🏦 **iKON VAULT — ${userDoc.name || 'Hunter'}**\n`
-        + '· · · · · · ·\n'
-        + `🔐 Secured: ${kc(bank)}\n`
-        + `👛 Loose cash: ${kc(userDoc.coins || 0)}\n`
-        + `🛡️ Robbers cannot touch vault money.\n`
-        + `📖 ${story()}`;
-      if (card) {
-        await reply({ body, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply(body, event.messageID);
-    }),
-  },
-
-  // ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
   // 3
   // ─────────────────────────────────────────────────────────
   {
@@ -2053,56 +2013,7 @@ module.exports = [
       );
     }),
   },
-
-  // ───────────────────────────────────────────────────────────
-  // 37$  — debt ledger
-  // ───────────────────────────────────────────────────────────
-  {
-    name: 'debt',
-    aliases: ['debts', 'owes', 'ledger'],
-    category: 'economy',
-    description: '📋 Who owes what — your IOUs and who owes you',
-    usage: '!debt [@user]',
-    hint: 'Who owes you and who you owe. `!pay` settles the second one; the first one is a collection problem.',
-    cooldown: 60,
-    permission: 'all',
-    execute: async ({ api, event, reply, react, userDoc, args, config }) => guard(reply, event.messageID, 'debt', async () => {
-      await react('📋');
-      const target = await userTarget.resolve(api, event, args, userDoc);
-      if (!target) {
-        await reply('❌ I could not find that hunter.', event.messageID);
-        return;
-      }
-      const tdoc = await cache.getOrCreateUser(target.uid, api);
-      const owes = clamp(tdoc.debtOwed || 0);
-      const isOwed = clamp(tdoc.debtRepaid || 0);
-      const card = await cards.userCard({
-        emoji: '📋', title: 'DEBT', subtitle: 'the ledger', api,
-        user: { uid: target.uid, name: target.name, level: tdoc.level, xp: tdoc.xp },
-        rows: [
-          ['Owes', kc(owes)],
-          ['Is owed', kc(isOwed)],
-          ['Net', kc(isOwed - owes)],
-        ],
-        design: { bg1: '#1a0a0a', bg2: '#2a0f0f', accent: '#ff5252', accent2: '#ff8a80', border: '#ff5252' },
-      });
-      if (card) {
-        await reply({ body: `📋 **${target.name} — THE LEDGER**\n· · · · · · ·\nOwes: ${kc(owes)} · Is owed: ${kc(isOwed)}`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply(
-        `📋 **${target.name} — THE LEDGER**\n`
-        + '· · · · · · ·\n'
-        + `Owes: ${kc(owes)}\n`
-        + `Is owed: ${kc(isOwed)}\n`
-        + `Net: ${kc(isOwed - owes)}\n`
-        + `📖 (no picture this time)`,
-        event.messageID,
-);
-    }),
-  },
-
-  // ───────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────
   // 36$  — wealth card (picture of your treasury)
   // ───────────────────────────────────────────────────────────
 ,
