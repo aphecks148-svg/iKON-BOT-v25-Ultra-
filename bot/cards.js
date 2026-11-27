@@ -2471,6 +2471,101 @@ async function marryCard(opts) {
   }
 }
 
+/**
+ * Funny sad divorce card. 800x500, breakup style. No emoji in fillText.
+ */
+async function divorceCard(opts) {
+  if (!canvasKit.available()) return null;
+  const o = opts || {};
+  const W = 800, H = 500;
+  try {
+    const cv = canvasKit.create(W, H);
+    const ctx = cv.ctx;
+    const bg = ctx.createLinearGradient(0,0,W,H);
+    bg.addColorStop(0,'#4a4a6a'); bg.addColorStop(0.5,'#2a2a4a'); bg.addColorStop(1,'#1a1a3a');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    // rain
+    ctx.strokeStyle='rgba(200,220,255,0.3)'; ctx.lineWidth=1.5;
+    for(let i=0;i<40;i++){const x=(i*47)%W,y=(i*31)%H;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+2,y+12);ctx.stroke();}
+    // bokeh dim
+    for(let i=0;i<12;i++){const x=(i*149)%W,y=(i*97)%H,r=35+(i%4)*18;const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,'rgba(150,150,200,0.18)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+    const syms=['•',' '];
+    ctx.font='24px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let i=0;i<24;i++){ctx.globalAlpha=0.35+(i%4)*0.1;ctx.fillText(syms[i%syms.length],(i*127)%780+10,(i*67)%480+10);}ctx.globalAlpha=1;
+    // header
+    ctx.textAlign='center'; ctx.shadowColor='rgba(255,255,255,0.5)'; ctx.shadowBlur=14;
+    ctx.font='bold 46px sans-serif'; ctx.fillStyle='#e0e0ff';
+    ctx.fillText('DIVORCED!', W/2, 56);
+    ctx.shadowBlur=0;
+    const dg=ctx.createLinearGradient(140,88,660,88);
+    dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#a0a0c0');dg.addColorStop(0.5,'#d0d0e8');dg.addColorStop(0.7,'#a0a0c0');dg.addColorStop(1,'transparent');
+    ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,88);ctx.lineTo(660,88);ctx.stroke();
+    ctx.font='16px serif'; ctx.fillStyle='#c8c8e8'; ctx.fillText('• ──  ── •', W/2, 100);
+    // avatars moving apart
+    const cy=270, r=80, leftX=200, rightX=600;
+    const leftBuf = o.leftPic ? await thumbBuffer(o.leftPic) : null;
+    const rightBuf = o.rightPic ? await thumbBuffer(o.rightPic) : null;
+    for(const [x,buf] of [[leftX,leftBuf],[rightX,rightBuf]]){
+      ctx.save(); ctx.shadowColor='rgba(180,180,220,0.5)'; ctx.shadowBlur=20;
+      ctx.beginPath(); ctx.arc(x,cy,r+6,0,Math.PI*2); ctx.lineWidth=8; ctx.strokeStyle='rgba(180,180,220,0.6)'; ctx.stroke(); ctx.restore();
+      ctx.save(); ctx.beginPath(); ctx.arc(x,cy,r,0,Math.PI*2); ctx.clip();
+      if(buf){const img=await loadImage(buf); if(img){const sc=Math.max(160/img.width,160/img.height);ctx.globalAlpha=0.85;ctx.drawImage(img,x-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);ctx.globalAlpha=1;}else{ctx.fillStyle='#2a2a44';ctx.fillRect(x-r,cy-r,160,160);}}
+      else {ctx.fillStyle='#2a2a44';ctx.fillRect(x-r,cy-r,160,160);}
+      ctx.restore();
+    }
+    // center broken heart + IT'S OVER
+    const hx=W/2, hy=cy;
+    const hg=ctx.createRadialGradient(hx,hy,0,hx,hy,90); hg.addColorStop(0,'rgba(100,100,150,0.4)'); hg.addColorStop(1,'transparent');
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(hx,hy,90,0,Math.PI*2); ctx.fill();
+    // broken heart (two halves)
+    ctx.save(); ctx.fillStyle='#8888aa'; ctx.globalAlpha=0.9;
+    ctx.beginPath();
+    ctx.moveTo(hx-5, hy+28); ctx.bezierCurveTo(hx-55, hy-10, hx-70, hy-50, hx-5, hy-22);
+    ctx.lineTo(hx-5, hy+28); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(hx+5, hy+28); ctx.bezierCurveTo(hx+55, hy-10, hx+70, hy-50, hx+5, hy-22);
+    ctx.lineTo(hx+5, hy+28); ctx.fill();
+    ctx.globalAlpha=1; ctx.restore();
+    ctx.font='bold 30px sans-serif'; ctx.fillStyle='#e0e0ff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=6;
+    ctx.fillText("IT'S OVER!", hx, hy+5);
+    ctx.shadowBlur=0;
+    // papers
+    ctx.fillStyle='rgba(255,255,255,0.15)';
+    ctx.fillRect(hx-60, hy+50, 40, 28); ctx.fillRect(hx+20, hy+45, 40, 28);
+    ctx.font='12px sans-serif'; ctx.fillStyle='#fff';
+    ctx.fillText('decree', hx-40, hy+64); ctx.fillText('papers', hx+40, hy+59);
+    // tears
+    ctx.fillStyle='rgba(150,180,255,0.6)';
+    for(let i=0;i<6;i++){ctx.beginPath();ctx.arc(leftX+(i*20), cy+r+5+i*3, 3,0,Math.PI*2);ctx.fill();}
+    for(let i=0;i<6;i++){ctx.beginPath();ctx.arc(rightX-(i*20), cy+r+5+i*3, 3,0,Math.PI*2);ctx.fill();}
+    // names
+    ctx.font='bold 22px sans-serif'; ctx.fillStyle='#e0e0ff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=6;
+    ctx.fillText((o.leftName||'Alex')+'  '+(o.rightName||'Emma'), W/2, cy+r+34);
+    ctx.shadowBlur=0;
+    ctx.font='bold 18px sans-serif'; ctx.fillStyle='#e0e0ff';
+    ctx.fillText((o.leftName||'Alex')+'  '+(o.rightName||'Emma')+' - It is Over!', W/2, cy+r+58);
+    ctx.font='14px sans-serif'; ctx.fillStyle='#c8c8e8';
+    if(o.reason) ctx.fillText(o.reason, W/2, cy+r+78);
+    // footer
+    const fy=H-45;
+    const fdg=ctx.createLinearGradient(120,fy-16,680,fy-16);
+    fdg.addColorStop(0,'transparent');fdg.addColorStop(0.5,'#a0a0c0');fdg.addColorStop(1,'transparent');
+    ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-16);ctx.lineTo(680,fy-16);ctx.stroke();
+    ctx.font='italic 16px serif'; ctx.fillStyle='#d0d0e8';
+    ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=2;
+    ctx.fillText('Made with love by iKON BOT', W/2, fy); ctx.shadowBlur=0;
+    ctx.font='16px serif'; ctx.fillStyle='#c8c8e8';
+    ctx.fillText('• ──  ── •', W/2, fy+18);
+    return cv.canvas.toDataURL('image/png');
+  } catch (err) {
+    const { error } = require('./helpers');
+    error(`[CARD] divorceCard failed: ${err.message}`);
+    return null;
+  }
+}
+
 module.exports = {
   arrivalCard,
   botCard,
@@ -2479,6 +2574,7 @@ module.exports = {
   slapCard,
   roastCard,
   killCard,
+  divorceCard,
   marryCard,
   shipCard,
   hugCard,

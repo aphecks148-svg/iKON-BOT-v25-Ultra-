@@ -1542,14 +1542,20 @@ const commands = [];
       await save(who);
 
       await react('🗑️');
-      const sent = await art(reply, event.messageID, {
-        title: '💔 DIVORCE',
+      const leftP = await withThumb({ uid: userDoc.uid, name: userDoc.name }, event.threadID, api);
+      const rightP = await withThumb({ uid: who.uid, name: who.name }, event.threadID, api);
+      const divorcePng = await cards.divorceCard({
+        leftName: userDoc.name,
+        rightName: who.name,
+        leftPic: leftP.thumbSrc,
+        rightPic: rightP.thumbSrc,
+        reason: `It lasted ${num(years)} day(s).`,
         api,
-        threadID: event.threadID,
-        left: { uid: userDoc.uid, name: userDoc.name },
-        right: { uid: who.uid, name: who.name },
-        footer: 'THE MATCHMAKER DOES NOT RECORD WHO WAS AT FAULT.',
       });
+      const sent = !!divorcePng;
+      if (divorcePng) {
+        await reply({ attachment: { type: 'image', data: { url: divorcePng } } }, event.messageID);
+      }
       if (!sent) {
         await reply(
           `💔 **${userDoc.name} DIVORCED ${who.name}**\n`
