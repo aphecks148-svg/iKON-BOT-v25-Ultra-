@@ -2393,6 +2393,84 @@ async function shipCard(opts) {
   }
 }
 
+/**
+ * Wedding marry card. 800x500, luxury wedding style. No emoji in fillText.
+ */
+async function marryCard(opts) {
+  if (!canvasKit.available()) return null;
+  const o = opts || {};
+  const W = 800, H = 500;
+  try {
+    const cv = canvasKit.create(W, H);
+    const ctx = cv.ctx;
+    const bg = ctx.createLinearGradient(0,0,W,H);
+    bg.addColorStop(0,'#fffaf0'); bg.addColorStop(0.5,'#ffe4d6'); bg.addColorStop(1,'#ffd6e8');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    for(let i=0;i<16;i++){const x=(i*131)%W,y=(i*83)%H,r=30+(i%4)*18;const g=ctx.createRadialGradient(x,y,0,x,y,r);const c=['#fff','#ffd700','#ffc4e0','#ffe4d6'];g.addColorStop(0,c[i%c.length]+'55');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+    const syms=['•','♡','★'];
+    ctx.font='24px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let i=0;i<28;i++){ctx.globalAlpha=0.4+(i%5)*0.1;ctx.fillText(syms[i%syms.length],(i*97)%780+10,(i*61)%480+10);}ctx.globalAlpha=1;
+    // header
+    ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=20;
+    ctx.font='italic bold 46px serif'; ctx.fillStyle='#b8860b';
+    ctx.fillText('JUST MARRIED!', W/2, 56);
+    ctx.shadowBlur=0;
+    const dg=ctx.createLinearGradient(140,88,660,88);
+    dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#ffd700');dg.addColorStop(0.5,'#fff3b0');dg.addColorStop(0.7,'#ffd700');dg.addColorStop(1,'transparent');
+    ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,88);ctx.lineTo(660,88);ctx.stroke();
+    ctx.font='16px serif'; ctx.fillStyle='#b8860b'; ctx.fillText('• ──  ── •', W/2, 100);
+    // avatars
+    const cy=260, r=85, leftX=210, rightX=590;
+    const leftBuf = o.leftPic ? await thumbBuffer(o.leftPic) : null;
+    const rightBuf = o.rightPic ? await thumbBuffer(o.rightPic) : null;
+    for(const [x,buf] of [[leftX,leftBuf],[rightX,rightBuf]]){
+      ctx.save(); ctx.shadowColor='#ffd700'; ctx.shadowBlur=28;
+      ctx.beginPath(); ctx.arc(x,cy,r+6,0,Math.PI*2); ctx.lineWidth=8; ctx.strokeStyle='#ffd700'; ctx.stroke(); ctx.restore();
+      ctx.save(); ctx.beginPath(); ctx.arc(x,cy,r,0,Math.PI*2); ctx.clip();
+      if(buf){const img=await loadImage(buf); if(img){const sc=Math.max(170/img.width,170/img.height);ctx.drawImage(img,x-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);}else{ctx.fillStyle='#f0e6d2';ctx.fillRect(x-r,cy-r,170,170);}}
+      else {ctx.fillStyle='#f0e6d2';ctx.fillRect(x-r,cy-r,170,170);}
+      ctx.restore();
+    }
+    // center ring + I DO
+    const hx=W/2, hy=cy;
+    const hg=ctx.createRadialGradient(hx,hy,0,hx,hy,90); hg.addColorStop(0,'rgba(255,215,0,0.5)'); hg.addColorStop(1,'transparent');
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(hx,hy,90,0,Math.PI*2); ctx.fill();
+    ctx.font='bold 46px serif'; ctx.fillStyle='#b8860b'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='#ffd700'; ctx.shadowBlur=18;
+    ctx.fillText('I DO!', hx, hy);
+    ctx.shadowBlur=0;
+    ctx.font='36px serif'; ctx.fillStyle='#ffd700';
+    ctx.fillText('O', hx-40, hy-50); ctx.fillText('O', hx+40, hy-50);
+    // floating hearts
+    ctx.font='22px serif'; ctx.fillStyle='#ff69b4';
+    ctx.fillText('♡', hx-120, hy-60); ctx.fillText('♡', hx+120, hy-65); ctx.fillText('♡', hx-100, hy+60); ctx.fillText('♡', hx+105, hy+65);
+    // names
+    ctx.font='bold 24px sans-serif'; ctx.fillStyle='#b8860b'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(0,0,0,0.3)'; ctx.shadowBlur=4;
+    ctx.fillText((o.leftName||'Alex')+'  '+(o.rightName||'Emma'), W/2, cy+r+34);
+    ctx.shadowBlur=0;
+    ctx.font='bold 18px sans-serif'; ctx.fillStyle='#b8860b';
+    ctx.fillText((o.leftName||'Alex')+'  '+(o.rightName||'Emma')+' - Just Married!', W/2, cy+r+58);
+    ctx.font='14px sans-serif'; ctx.fillStyle='#7c3aed';
+    ctx.fillText(o.date||new Date().toLocaleDateString(), W/2, cy+r+78);
+    // footer
+    const fy=H-45;
+    const fdg=ctx.createLinearGradient(120,fy-16,680,fy-16);
+    fdg.addColorStop(0,'transparent');fdg.addColorStop(0.5,'#ffd700');fdg.addColorStop(1,'transparent');
+    ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-16);ctx.lineTo(680,fy-16);ctx.stroke();
+    ctx.font='italic 16px serif'; ctx.fillStyle='#7c3aed';
+    ctx.shadowColor='rgba(255,255,255,0.6)'; ctx.shadowBlur=2;
+    ctx.fillText('Made with love by iKON BOT', W/2, fy); ctx.shadowBlur=0;
+    ctx.font='16px serif'; ctx.fillStyle='#b8860b';
+    ctx.fillText('• ──  ── •', W/2, fy+18);
+    return cv.canvas.toDataURL('image/png');
+  } catch (err) {
+    const { error } = require('./helpers');
+    error(`[CARD] marryCard failed: ${err.message}`);
+    return null;
+  }
+}
+
 module.exports = {
   arrivalCard,
   botCard,
@@ -2401,6 +2479,7 @@ module.exports = {
   slapCard,
   roastCard,
   killCard,
+  marryCard,
   shipCard,
   hugCard,
   kissCard,

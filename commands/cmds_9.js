@@ -1472,13 +1472,12 @@ const commands = [];
       await react('🎊');
       const leftP = await withThumb({ uid: userDoc.uid, name: userDoc.name }, event.threadID, api);
       const rightP = await withThumb({ uid: who.uid, name: who.name }, event.threadID, api);
-      const art = await cards.perfectPairCard({
+      const art = await cards.marryCard({
         leftName: userDoc.name,
         rightName: who.name,
         leftPic: leftP.thumbSrc,
         rightPic: rightP.thumbSrc,
-        match: 100,
-        footer: `${OWNER} · 5,000 SPENT`,
+        date: new Date().toLocaleDateString(),
         api,
       });
       if (art) {
