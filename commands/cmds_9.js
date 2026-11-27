@@ -1790,17 +1790,16 @@ const commands = [];
       if (!pet) brags.push('no pet, all you.');
 
       await react('📢');
-      const art = await card({
-        title: '💪 FLEX',
+      await react('!');
+      const flexPng = await cards.flexCard({
+        name: userDoc.name,
+        pic: (await withThumb({ uid: userDoc.uid, name: userDoc.name }, event.threadID, api)).thumbSrc,
+        cash: num(userDoc.coins),
+        rank: rank ? 'Legend #' + num(rank) : 'Legend',
         api,
-        threadID: event.threadID,
-        left: { uid: userDoc.uid, name: userDoc.name },
-        body: `${kc(userDoc.coins)}\n${pet ? `${pet.emoji || '🐾'} ${pet.name} — ${num(petPower(pet))} pwr` : 'No pet'}\n${rank ? `Rank #${num(rank)}` : 'Rank unavailable'}`,
-        footer: `-${kc(FEES.flex)} TO POST THIS`,
-        accent: canvasKit.theme.gold,
       });
-      if (art) {
-        await reply({ attachment: { type: 'image', data: { url: art } } }, event.messageID);
+      if (flexPng) {
+        await reply({ attachment: { type: 'image', data: { url: flexPng } } }, event.messageID);
       } else {
         await reply(
           `💪 **${userDoc.name} IS FLEXING**\n`

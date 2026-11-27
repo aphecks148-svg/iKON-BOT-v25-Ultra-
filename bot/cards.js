@@ -2646,6 +2646,76 @@ async function rizzCard(opts) {
   }
 }
 
+/**
+ * Luxury flex card. 800x500, rich boss style. No emoji in fillText.
+ */
+async function flexCard(opts) {
+  if (!canvasKit.available()) return null;
+  const o = opts || {};
+  const W = 800, H = 500;
+  try {
+    const cv = canvasKit.create(W, H);
+    const ctx = cv.ctx;
+    const bg = ctx.createLinearGradient(0,0,W,H);
+    bg.addColorStop(0,'#0a0a0a'); bg.addColorStop(0.5,'#1a1400'); bg.addColorStop(1,'#2a1f00');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    for(let i=0;i<18;i++){const x=(i*157)%W,y=(i*101)%H,r=30+(i%4)*15;const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,'rgba(255,215,0,0.22)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+    // money particles
+    ctx.font='20px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let i=0;i<20;i++){ctx.globalAlpha=0.5;ctx.fillText('$',(i*73)%880+10,(i*41)%580+10);}ctx.globalAlpha=1;
+    const syms=['•','★','O'];
+    for(let i=0;i<24;i++){ctx.globalAlpha=0.4+(i%4)*0.12;ctx.fillText(syms[i%syms.length],(i*127)%780+10,(i*67)%480+10);}ctx.globalAlpha=1;
+    // header
+    ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=20;
+    ctx.font='bold 50px sans-serif'; ctx.fillStyle='#ffd700';
+    ctx.fillText('FLEX!', W/2, 56);
+    ctx.shadowBlur=0;
+    const dg=ctx.createLinearGradient(140,92,660,92);
+    dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#ffd700');dg.addColorStop(0.5,'#fff3b0');dg.addColorStop(0.7,'#ffd700');dg.addColorStop(1,'transparent');
+    ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,92);ctx.lineTo(660,92);ctx.stroke();
+    ctx.font='16px serif'; ctx.fillStyle='#ffd700'; ctx.fillText('• ──  ── •', W/2, 104);
+    // avatar center
+    const cx=W/2, cy=250, r=90;
+    const ag=ctx.createRadialGradient(cx,cy,0,cx,cy,r*1.8); ag.addColorStop(0,'rgba(255,215,0,0.4)'); ag.addColorStop(1,'transparent');
+    ctx.fillStyle=ag; ctx.beginPath(); ctx.arc(cx,cy,r*1.8,0,Math.PI*2); ctx.fill();
+    ctx.save(); ctx.shadowColor='#ffd700'; ctx.shadowBlur=30;
+    ctx.beginPath(); ctx.arc(cx,cy,r+8,0,Math.PI*2); ctx.lineWidth=10; ctx.strokeStyle='#ffd700'; ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.clip();
+    const buf = o.pic ? await thumbBuffer(o.pic) : null;
+    if(buf){const img=await loadImage(buf); if(img){const sc=Math.max(180/img.width,180/img.height);ctx.drawImage(img,cx-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);}else{ctx.fillStyle='#1a1a0a';ctx.fillRect(cx-r,cy-r,180,180);}}
+    else {ctx.fillStyle='#1a1a0a';ctx.fillRect(cx-r,cy-r,180,180);}
+    ctx.restore();
+    // crown
+    ctx.font='40px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('!', cx, cy-r-26);
+    // gold chains
+    ctx.strokeStyle='#ffd700'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.arc(cx,cy+r-10,40,0,Math.PI); ctx.stroke();
+    ctx.font='24px serif'; ctx.fillStyle='#ffd700'; ctx.fillText('$', cx-50, cy+r+5); ctx.fillText('$', cx+50, cy+r+5);
+    // text
+    ctx.font='bold 22px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=6;
+    ctx.fillText((o.name||'Alex')+' is flexing '+(o.cash||'0')+' K-Cash!', W/2, cy+r+34);
+    ctx.shadowBlur=0;
+    ctx.font='16px sans-serif'; ctx.fillStyle='#ffd700';
+    ctx.fillText(o.rank||'Legend', W/2, cy+r+58);
+    // footer
+    const fy=H-45;
+    const fdg=ctx.createLinearGradient(120,fy-16,680,fy-16);
+    fdg.addColorStop(0,'transparent');fdg.addColorStop(0.5,'#ffd700');fdg.addColorStop(1,'transparent');
+    ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-16);ctx.lineTo(680,fy-16);ctx.stroke();
+    ctx.font='italic 16px serif'; ctx.fillStyle='#ffd700';
+    ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=2;
+    ctx.fillText('Made with love by iKON BOT', W/2, fy); ctx.shadowBlur=0;
+    ctx.font='16px serif'; ctx.fillStyle='#ffd700';
+    ctx.fillText('• ──  ── •', W/2, fy+18);
+    return cv.canvas.toDataURL('image/png');
+  } catch (err) {
+    const { error } = require('./helpers');
+    error(`[CARD] flexCard failed: ${err.message}`);
+    return null;
+  }
+}
+
 module.exports = {
   arrivalCard,
   botCard,
@@ -2654,6 +2724,7 @@ module.exports = {
   slapCard,
   roastCard,
   killCard,
+  flexCard,
   rizzCard,
   divorceCard,
   marryCard,
