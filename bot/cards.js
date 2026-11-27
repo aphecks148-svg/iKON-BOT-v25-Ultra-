@@ -889,90 +889,163 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
  * @param {number} [opts.limit]
  * @returns {Promise<string|null>} PNG data URL, or null without the canvas binary
  */
-async function pairCard({ title, emoji = '💕', subtitle = '', pairs, api, value, limit = 8, design }) {
+async function pairCard(opts) {
   if (!canvasKit.available()) return null;
-  const shown = (pairs || []).slice(0, limit);
-  if (!shown.length) return null;
-
+  const o = opts || {};
+  const W = 1000, H = 600;
   try {
-    const rowH = 88;
-    const h = 172 + shown.length * rowH + 28;
-    const cv = canvasKit.create(W, h);
-	const ctx = cv.ctx;
+    const cv = canvasKit.create(W, H);
+    const ctx = cv.ctx;
 
-	// Romantic dreamy background.
-	const bg = ctx.createLinearGradient(0, 0, W, h);
-	bg.addColorStop(0, '#ffd6e8'); bg.addColorStop(0.5, '#e8d5f5'); bg.addColorStop(1, '#d4c5f9');
-	ctx.fillStyle = bg; ctx.fillRect(0, 0, W, h);
-	for (let i = 0; i < 12; i++) {
-	  const x = (i * 137) % W, y = (i * 89) % h, r = 30 + (i % 4) * 15;
-	  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-	  const colors = ['#ff9ecf', '#c9a7ff', '#ffd6a5', '#b5e8ff'];
-	  g.addColorStop(0, colors[i % colors.length] + '44'); g.addColorStop(1, 'transparent');
-	  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-	}
+    // Dark romantic gradient: black -> deep pink -> purple.
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, '#0a0412'); bg.addColorStop(0.45, '#2a0a3e'); bg.addColorStop(1, '#120226');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
 
-	// Romantic glow border.
-	ctx.save();
-	ctx.shadowColor = '#ff69b4';
-    ctx.shadowBlur = 16;
-    ctx.strokeStyle = d.accent;
+    // Blurred hearts bokeh.
+    const heartBuf = null;
+    for (let i = 0; i < 16; i++) {
+      const x = (i * 137) % W, y = (i * 89) % H, r = 30 + (i % 5) * 18;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const colors = ['#ff69b4', '#c9a7ff', '#ffd6e8', '#8b00ff'];
+      g.addColorStop(0, colors[i % colors.length] + '22'); g.addColorStop(1, 'transparent');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Floating particles.
+    const syms = ['•', '♡', '★'];
+    ctx.font = '24px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (let i = 0; i < 26; i++) {
+      ctx.globalAlpha = 0.35 + (i % 4) * 0.1;
+      ctx.fillText(syms[i % syms.length], (i * 127) % 980 + 10, (i * 67) % 580 + 10);
+    }
+    ctx.globalAlpha = 1;
+
+    // Glass panel behind avatars.
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+    const rad = 30;
+    ctx.beginPath();
+    ctx.moveTo(40 + rad, 140);
+    ctx.lineTo(W - 40 - rad, 140);
+    ctx.quadraticCurveTo(W - 40, 140, W - 40, 140 + rad);
+    ctx.lineTo(W - 40, 340 - rad);
+    ctx.quadraticCurveTo(W - 40, 340, W - 40 - rad, 340);
+    ctx.lineTo(40 + rad, 340);
+    ctx.quadraticCurveTo(40, 340, 40, 340 - rad);
+    ctx.lineTo(40, 140 + rad);
+    ctx.quadraticCurveTo(40, 140, 40 + rad, 140);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 105, 180, 0.35)';
     ctx.lineWidth = 2;
-    roundRect(ctx, 8, 8, W - 16, h - 16, 28);
     ctx.stroke();
     ctx.restore();
 
-    paintHeader(ctx, emoji, title, subtitle, d);
+    // Header.
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff69b4'; ctx.shadowBlur = 20;
+    ctx.font = 'italic bold 52px serif'; ctx.fillStyle = '#fff';
+    ctx.fillText('PERFECT MATCH!', W / 2, 64);
+    ctx.shadowBlur = 0;
+    ctx.font = '18px serif'; ctx.fillStyle = '#c9a7ff';
+    ctx.fillText('iKON LOVE LAB', W / 2, 96);
+    ctx.font = '16px serif'; ctx.fillStyle = '#ff69b4';
+    ctx.fillText('• ──  ── •', W / 2, 118);
 
-    const resolved = await Promise.all(shown.map(async (p) => {
-      const [na, nb, pa, pb] = await Promise.all([
-        profile.fetchRealName(p.a, api) || `Hunter ${String(p.a).slice(-4)}`,
-        profile.fetchRealName(p.b, api) || `Hunter ${String(p.b).slice(-4)}`,
-        profile.picture(p.a, api),
-        profile.picture(p.b, api),
-      ]);
-      return { na, nb, pa, pb };
-    }));
+    // Avatars: left pink, right blue.
+    const cy = 300, r = 75, leftX = 270, rightX = 730;
+    const leftBuf = o.leftPic ? await thumbBuffer(o.leftPic) : null;
+    const rightBuf = o.rightPic ? await thumbBuffer(o.rightPic) : null;
 
-    let y = 172 + rowH / 2;
-
-    // Glass panel behind all rows.
-    glassPanel(ctx, 24, 156, W - 48, shown.length * rowH + 8, 18);
-
-    for (let i = 0; i < shown.length; i += 1) {
-      const pair = shown[i];
-      const r = resolved[i];
-
-      if (i % 2 === 0) {
-        ctx.fillStyle = 'rgba(255,255,255,0.035)';
-        roundRect(ctx, 32, y - rowH / 2 + 4, W - 64, rowH - 8, 14);
-        ctx.fill();
+    for (const [x, buf, color] of [[leftX, leftBuf, '#ff69b4'], [rightX, rightBuf, '#00c8ff']]) {
+      ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 28;
+      ctx.beginPath(); ctx.arc(x, cy, r + 8, 0, Math.PI * 2); ctx.lineWidth = 8; ctx.strokeStyle = color; ctx.stroke(); ctx.restore();
+      ctx.save(); ctx.beginPath(); ctx.arc(x, cy, r, 0, Math.PI * 2); ctx.clip();
+      if (buf) {
+        const img = await loadImage(buf);
+        if (img) {
+          const sc = Math.max(150 / img.width, 150 / img.height);
+          ctx.drawImage(img, x - img.width * sc / 2, cy - img.height * sc / 2, img.width * sc, img.height * sc);
+        } else {
+          ctx.fillStyle = '#0a0412'; ctx.fillRect(x - r, cy - r, 150, 150);
+        }
+      } else {
+        ctx.fillStyle = '#0a0412'; ctx.fillRect(x - r, cy - r, 150, 150);
       }
-
-      // Overlapping pair, the left one on top. Awaited in order so the two
-      // circles are drawn deterministically rather than interleaved.
-      await drawAvatar(ctx, r.pa, 118, y, 62);
-      await drawAvatar(ctx, r.pb, 176, y, 62);
-
-      ctx.textBaseline = 'middle';
-      ctx.textAlign = 'left';
-      ctx.font = 'bold 26px sans-serif';
-      ctx.fillStyle = d.accent2;
-      ctx.fillText(fit(ctx, `${r.na} 💘 ${r.nb}`, 380), 222, y - 12);
-
-      ctx.font = '21px sans-serif';
-      ctx.fillStyle = d.muted;
-      ctx.textAlign = 'right';
-      ctx.fillText(fit(ctx, value ? value(pair, i) : String(pair.score || 0), 260), W - 44, y - 12);
-
-      y += rowH;
+      ctx.restore();
     }
 
-    // Bottom love note corner accents.
-    cornerAccents(ctx, 8, 8, W - 16, h - 16, 18, d.border);
+    // Sparkles connecting both avatars.
+    ctx.font = '20px serif'; ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('✦', leftX + r + 10, cy - 20);
+    ctx.fillText('✦', rightX - r - 10, cy - 20);
+    ctx.fillText('✦', leftX + r + 10, cy + 20);
+    ctx.fillText('✦', rightX - r - 10, cy + 20);
+
+    // Center heart with percentage.
+    const hx = W / 2, hy = cy;
+    const hg = ctx.createRadialGradient(hx, hy, 0, hx, hy, 100);
+    hg.addColorStop(0, 'rgba(255, 105, 180, 0.55)'); hg.addColorStop(1, 'transparent');
+    ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(hx, hy, 100, 0, Math.PI * 2); ctx.fill();
+    // heart shape.
+    ctx.save(); ctx.shadowColor = '#ff1744'; ctx.shadowBlur = 28; ctx.fillStyle = '#ff1744';
+    ctx.beginPath();
+    const s = 1.05;
+    ctx.moveTo(hx, hy + 32 * s);
+    ctx.bezierCurveTo(hx - 60 * s, hy - 12 * s, hx - 80 * s, hy - 60 * s, hx, hy - 30 * s);
+    ctx.bezierCurveTo(hx + 80 * s, hy - 60 * s, hx + 60 * s, hy - 12 * s, hx, hy + 32 * s);
+    ctx.fill(); ctx.restore();
+    ctx.font = 'bold 26px sans-serif'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 4;
+    ctx.fillText((o.match || 98) + '%', hx, hy - 4);
+    ctx.font = 'bold 12px sans-serif'; ctx.fillText('LOVE', hx, hy + 14); ctx.shadowBlur = 0;
+
+    // Cupid arrow.
+    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(hx - 120, hy + 12); ctx.lineTo(hx + 120, hy - 12); ctx.stroke();
+    ctx.fillStyle = '#ffd700'; ctx.font = '22px serif'; ctx.fillText('♡', hx + 120, hy - 16);
+
+    // Floating hearts.
+    ctx.font = '22px serif'; ctx.fillStyle = '#fff';
+    ctx.fillText('♡', hx - 140, hy - 70); ctx.fillText('♡', hx + 140, hy - 75);
+    ctx.fillText('♡', hx - 120, hy + 70); ctx.fillText('♡', hx + 125, hy + 75);
+
+    // Names below avatars.
+    ctx.font = 'bold 22px sans-serif'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 6;
+    ctx.fillText(o.leftName || 'Alex', leftX, cy + r + 30);
+    ctx.fillText(o.rightName || 'Emma', rightX, cy + r + 30);
+    ctx.shadowBlur = 0;
+
+    // Compatibility bar.
+    const barX = 220, barY = 430, barW = 560, barH = 12;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)'; ctx.fillRect(barX, barY, barW, barH);
+    const pct = Math.min(1, (o.match || 98) / 100);
+    const grad = ctx.createLinearGradient(barX, barY, barX + barW * pct, barY);
+    grad.addColorStop(0, '#ff69b4'); grad.addColorStop(1, '#00c8ff');
+    ctx.fillStyle = grad; ctx.fillRect(barX, barY, barW * pct, barH);
+    ctx.strokeStyle = 'rgba(255, 105, 180, 0.5)'; ctx.lineWidth = 1; ctx.strokeRect(barX, barY, barW, barH);
+
+    // Love quote.
+    ctx.font = 'italic 18px serif'; ctx.fillStyle = '#c9a7ff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Two souls, one frequency.', W / 2, barY + 28);
+
+    // Footer.
+    const fy = H - 40;
+    const fdg = ctx.createLinearGradient(120, fy - 16, 880, fy - 16);
+    fdg.addColorStop(0, 'transparent'); fdg.addColorStop(0.5, '#ff69b4'); fdg.addColorStop(1, 'transparent');
+    ctx.strokeStyle = fdg; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(120, fy - 16); ctx.lineTo(880, fy - 16); ctx.stroke();
+    ctx.font = 'italic 16px serif'; ctx.fillStyle = '#c9a7ff';
+    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 2;
+    ctx.fillText('Made with love by iKON BOT', W / 2, fy); ctx.shadowBlur = 0;
+    ctx.font = '16px serif'; ctx.fillStyle = '#ff69b4';
+    ctx.fillText('• ──  ── •', W / 2, fy + 18);
 
     return cv.canvas.toDataURL('image/png');
   } catch (err) {
+    const { error } = require('./helpers');
     error(`[CARD] pairCard failed: ${err.message}`);
     return null;
   }
