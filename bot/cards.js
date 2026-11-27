@@ -898,14 +898,23 @@ async function pairCard({ title, emoji = '💕', subtitle = '', pairs, api, valu
     const rowH = 88;
     const h = 172 + shown.length * rowH + 28;
     const cv = canvasKit.create(W, h);
-    const ctx = cv.ctx;
-    const d = cardDesign(design);
+	const ctx = cv.ctx;
 
-    paintBackground(ctx, h, d);
+	// Romantic dreamy background.
+	const bg = ctx.createLinearGradient(0, 0, W, h);
+	bg.addColorStop(0, '#ffd6e8'); bg.addColorStop(0.5, '#e8d5f5'); bg.addColorStop(1, '#d4c5f9');
+	ctx.fillStyle = bg; ctx.fillRect(0, 0, W, h);
+	for (let i = 0; i < 12; i++) {
+	  const x = (i * 137) % W, y = (i * 89) % h, r = 30 + (i % 4) * 15;
+	  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+	  const colors = ['#ff9ecf', '#c9a7ff', '#ffd6a5', '#b5e8ff'];
+	  g.addColorStop(0, colors[i % colors.length] + '44'); g.addColorStop(1, 'transparent');
+	  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+	}
 
-    // Romantic glow border with the command's accent colour.
-    ctx.save();
-    ctx.shadowColor = d.accent;
+	// Romantic glow border.
+	ctx.save();
+	ctx.shadowColor = '#ff69b4';
     ctx.shadowBlur = 16;
     ctx.strokeStyle = d.accent;
     ctx.lineWidth = 2;
