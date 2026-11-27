@@ -1716,6 +1716,19 @@ const commands = [];
       const line = pick1(RIZZ_LINES);
       const verdict = scorePct > 80 ? 'CERTIFIED RIZZ' : scorePct > 55 ? 'HAS SOME RIZZ' : scorePct > 30 ? 'TRYING' : 'NO RIZZ DETECTED';
 
+      await react('!');
+      const pic = who.thumbSrc || null;
+      const rizzPng = await cards.rizzCard({
+        name: who.name,
+        pic,
+        rizz: scorePct,
+        api,
+      });
+      if (rizzPng) {
+        await reply({ attachment: { type: 'image', data: { url: rizzPng } } }, event.messageID);
+        return;
+      }
+
       await reply(
         `😏 **${who.name} — RIZZ**\n`
         + '· · · · · · ·\n'
