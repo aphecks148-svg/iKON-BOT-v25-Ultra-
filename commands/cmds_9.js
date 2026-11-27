@@ -1025,13 +1025,12 @@ const commands = [];
 
       const leftP = await withThumb({ uid: a.uid, name: a.name }, event.threadID, api);
       const rightP = await withThumb({ uid: b.uid, name: b.name }, event.threadID, api);
-      const art = await cards.perfectPairCard({
+      const art = await cards.shipCard({
         leftName: a.name,
         rightName: b.name,
         leftPic: leftP.thumbSrc,
         rightPic: rightP.thumbSrc,
         match: pct,
-        footer: `${OWNER} · SHIPS NEVER UNSHIP`,
         api,
       });
       if (art) {
