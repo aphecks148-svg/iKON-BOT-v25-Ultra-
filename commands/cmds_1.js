@@ -340,74 +340,7 @@ module.exports = [
       );
     }),
   },
-
-  // ─────────────────────────────────────────────────────────
-  // 9$
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'adminlist',
-    aliases: ['admins'],
-    category: 'system',
-    description: '🛡️ List bot admins (ADMIN_IDS) and this group admin',
-    usage: '!adminlist',
-    hint: 'Who can run the owner-only commands, and who can moderate here. Two lists, because they are not the same people.',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ api, event, config, reply }) => guard(reply, event.messageID, 'adminlist', async () => {
-      // Read through permissions.ownerIds() rather than config.ADMIN_IDS alone:
-      // that folds in the optional OWNER_ID, so this list is exactly the set the
-      // permission check uses. If the two ever disagree, an operator reading
-      // this would be told the wrong thing about who can run what.
-      const owners = permissions.ownerIds();
-      // Names, not ids. A chat listing full of 15-digit numbers cannot be read by
-      // the person who asked for it, and the id is not the question they asked —
-      // "who can I ask for help" is. Facebook has the name, so ask it.
-      const ownerNames = await Promise.all(owners.map((id) => cards.realName({ uid: id }, api)));
-      const lines = [
-        `${OWNER_ICON} Bot admins (${owners.length})`,
-        '· · · · · · ·',
-        ...(owners.length ? ownerNames.map((name) => `• ${name}`) : ['• none configured — set ADMIN_IDS in the Render environment']),
-      ];
-
-      if (event.isGroup) {
-        let admins = [];
-        try {
-          const info = await api.getThreadInfo(event.threadID);
-          admins = Array.isArray(info.adminIDs) ? info.adminIDs : [];
-        } catch { /* ignore */ }
-
-        // This build hands back { id, isAdmin } entries rather than bare ids,
-        // so interpolating the array element directly printed [object Object].
-        const ids = admins
-          .map((entry) => (entry && typeof entry === 'object' ? entry.id : entry))
-          .filter((id) => id !== undefined && id !== null)
-          .map(String);
-        const names = await Promise.all(ids.map((id) => cards.realName({ uid: id }, api)));
-        const sender = String(event.senderID);
-        lines.push('', `👥 Group admins (${ids.length})`);
-        if (!ids.length) lines.push('• could not read');
-        else ids.forEach((id, i) => {
-          lines.push(`• ${names[i]}${id === sender ? '  ← you' : ''}`);
-        });
-      }
-      const card = owners.length
-        ? await cards.boardCard({
-            emoji: '🛡️', title: 'BOT ADMINS', subtitle: `${owners.length} admin${owners.length === 1 ? '' : 's'}`,
-            rows: owners.map((id) => ({ uid: id })),
-            value: () => 'owner',
-            api, limit: 10,
-            design: { bg1: '#0a1626', bg2: '#151f2e', accent: '#00d4ff', accent2: '#4fc3f7', border: '#00d4ff' },
-          })
-        : null;
-      if (card) {
-        await reply({ body: lines.join('\n'), attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply(lines.join('\n'), event.messageID);
-    }),
-  },
-
-  // ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
   // 10$
   // ─────────────────────────────────────────────────────────
   {
@@ -1559,47 +1492,7 @@ module.exports = [
       await reply(lines.join('\n'), event.messageID);
     }),
   },
-
-  // ─────────────────────────────────────────────────────────
-  // 36$  — admin dashboard (owner + thread admin)
-  // ─────────────────────────────────────────────────────────
-  {
-    name: 'dashboard',
-    aliases: ['panel', 'botpanel', 'statuscard'],
-    category: 'system',
-    description: '📊 Render the bot dashboard as a picture — uptime, memory, chats, commands',
-    usage: '!dashboard',
-    hint: 'The whole state of the bot as a picture: uptime, memory, chats and the command count on one card.',
-    cooldown: 30,
-    permission: 'groupAdmin',
-    execute: async ({ api, event, reply, react, config, registry }) => guard(reply, event.messageID, 'dashboard', async () => {
-      await react('📊');
-      const card = await cards.botCard({
-        botName: config.BOT_NAME, version: config.BOT_VERSION,
-        uptime: fmt.uptime(process.uptime()),
-        memory: process.memoryUsage(),
-        commands: registry.size,
-        aliases: [...registry.values()].reduce((n, c) => n + (c.aliases ? c.aliases.length : 0), 0),
-        chats: 0, pending: 0,
-        design: { bg1: '#0b0f26', bg2: '#151a3e', accent: '#b14bff', accent2: '#00d4ff', border: '#b14bff' },
-      });
-      if (card) {
-        await reply({ body: `📊 **${config.BOT_NAME} DASHBOARD**\n· · · · · · ·\nUptime: ${fmt.uptime(process.uptime())} · ${registry.size} commands · ${process.memoryUsage().rss}MB RSS`, attachment: { type: 'image', data: { url: card } } }, event.messageID);
-        return;
-      }
-      await reply(
-        `📊 **${config.BOT_NAME} DASHBOARD**\n`
-        + '· · · · · · ·\n'
-        + `⏱️ Uptime: ${fmt.uptime(process.uptime())}\n`
-        + `🧠 Memory: ${Math.round(process.memoryUsage().rss / 1024)}MB RSS\n`
-        + `📦 Commands: ${registry.size}\n`
-        + `📖 (no picture this time)`,
-        event.messageID,
-      );
-    }),
-  },
-
-  // ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
   // 36b$  — operator broadcast (owner only)
   // ─────────────────────────────────────────────────────────
   
