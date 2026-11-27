@@ -371,18 +371,31 @@ module.exports = [
       await react('💳');
       const coins = userDoc.coins || 0;
       const bank = userDoc.bank || 0;
-      const tier = coins + bank >= 1000000 ? '💎 LEGEND'
-        : coins + bank >= 250000 ? '👑 TYCOON'
-          : coins + bank >= 50000 ? '🏙️ ELITE' : '🧱 STREET';
+      const tier = coins + bank >= 1000000 ? 'LEGEND'
+        : coins + bank >= 250000 ? 'TYCOON'
+          : coins + bank >= 50000 ? 'ELITE' : 'STREET';
 
-      const body = `💳 **${userDoc.name || 'Hunter'}**\n`
-        + '· · · · · · ·\n'
-        + `👛 Wallet: ${kc(coins)}\n`
-        + `🏦 Vault: ${kc(bank)}\n`
-        + `💎 Net worth: ${kc(coins + bank)}\n`
-        + `${tier} · Level ${userDoc.level || 1}\n`
-        + `📖 ${story()}`;
-      await reply(body, event.messageID);
+      const bankPng = await cards.bankCard({
+        name: userDoc.name,
+        pic: null,
+        balance: num(bank),
+        interest: Math.round(bank * 0.05),
+        api,
+      });
+      if (bankPng) {
+        await reply({ attachment: { type: 'image', data: { url: bankPng } } }, event.messageID);
+      } else {
+        await reply(
+          `💳 **${userDoc.name || 'Hunter'}**\n`
+          + '· · · · · · ·\n'
+          + `👛 Wallet: ${kc(coins)}\n`
+          + `🏦 Vault: ${kc(bank)}\n`
+          + `💎 Net worth: ${kc(coins + bank)}\n`
+          + `${tier} · Level ${userDoc.level || 1}\n`
+          + `📖 ${story()}`,
+          event.messageID,
+        );
+      }
     }),
   },
 // ─────────────────────────────────────────────────────────
