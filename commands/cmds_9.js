@@ -1231,14 +1231,17 @@ const commands = [];
       await save(userDoc);
 
       await react('💀');
-      const sent = await art(reply, event.messageID, {
-        title: '🔥 ROAST',
+      await react('!');
+      const roastPng = await cards.roastCard({
+        name: who.name,
+        pic: (await withThumb({ uid: who.uid, name: who.name }, event.threadID, api)).thumbSrc,
+        roast: line,
         api,
-        threadID: event.threadID,
-        left: { uid: userDoc.uid, name: userDoc.name },
-        right: { uid: who.uid, name: who.name },
-        footer: aiLine ? 'WRITTEN THIS SECOND.' : 'PRE-WRITTEN. NO AI WAS INVOLVED IN THIS ONE.',
       });
+      const sent = !!roastPng;
+      if (roastPng) {
+        await reply({ attachment: { type: 'image', data: { url: roastPng } } }, event.messageID);
+      }
       if (!sent) {
         await reply(
           `🔥 **${userDoc.name} ROASTED ${who.name}**\n`
