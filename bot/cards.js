@@ -2241,6 +2241,8 @@ module.exports = {
   welcomeCard,
   goodbyeCard,
   leaderboardCard,
+  richestCard,
+  profileCard,
   userCard,
   boardCard,
   pairCard,
