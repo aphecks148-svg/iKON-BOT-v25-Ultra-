@@ -783,18 +783,19 @@ const commands = [];
       }
 
       await react('💚');
-      const sent = await art(reply, event.messageID, {
-        title: '🤗 HUG',
+      const leftP = await withThumb({ uid: userDoc.uid, name: userDoc.name }, event.threadID, api);
+      const rightP = await withThumb({ uid: who.uid, name: who.name }, event.threadID, api);
+      const hugPng = await cards.hugCard({
+        leftName: userDoc.name,
+        rightName: who.name,
+        leftPic: leftP.thumbSrc,
+        rightPic: rightP.thumbSrc,
         api,
-        threadID: event.threadID,
-        left: { uid: userDoc.uid, name: userDoc.name },
-        right: { uid: who.uid, name: who.name },
-        body: pet
-          ? `${pet.emoji || '🐾'} ${pet.name} came along and enjoyed it more than either of you.`
-          : 'No pet. It was still acceptable.',
-        footer: 'A MESSAGE AND A TRANSFER — NOT A HUG',
-        accent: canvasKit.theme.gold,
       });
+      const sent = !!hugPng;
+      if (hugPng) {
+        await reply({ attachment: { type: 'image', data: { url: hugPng } } }, event.messageID);
+      }
       if (!sent) {
         await reply(
           `🤗 **${userDoc.name} HUGGED ${who.name}**\n`

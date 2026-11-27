@@ -2058,12 +2058,91 @@ async function kissCard(opts) {
   }
 }
 
+/**
+ * Warm hug card. 800x500, cozy anime style. No emoji in fillText.
+ */
+async function hugCard(opts) {
+  if (!canvasKit.available()) return null;
+  const o = opts || {};
+  const W = 800, H = 500;
+  try {
+    const cv = canvasKit.create(W, H);
+    const ctx = cv.ctx;
+    const bg = ctx.createLinearGradient(0,0,W,H);
+    bg.addColorStop(0,'#ffd9b3'); bg.addColorStop(0.5,'#ffc4d6'); bg.addColorStop(1,'#ffb3a7');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    // bokeh warm
+    for(let i=0;i<16;i++){const x=(i*131)%W,y=(i*83)%H,r=30+(i%4)*18;const g=ctx.createRadialGradient(x,y,0,x,y,r);const c=['#fff','#ffd9b3','#ffc4d6','#ffe0a3'];g.addColorStop(0,c[i%c.length]+'55');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+    // warm rays
+    ctx.save(); ctx.translate(W/2,H/2);
+    for(let i=0;i<8;i++){const a=i*Math.PI/4;ctx.rotate(a);ctx.fillStyle='rgba(255,220,180,0.12)';ctx.fillRect(-3,-200,6,160);ctx.rotate(-a);}ctx.restore();
+    const syms=['•','♡','★'];
+    ctx.font='24px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let i=0;i<28;i++){ctx.globalAlpha=0.4+(i%5)*0.1;ctx.fillText(syms[i%syms.length],(i*97)%780+10,(i*61)%480+10);}ctx.globalAlpha=1;
+    // header
+    ctx.textAlign='center'; ctx.shadowColor='#ff8c42'; ctx.shadowBlur=18;
+    ctx.font='italic bold 46px serif'; ctx.fillStyle='#ff6b35';
+    ctx.fillText('BIG HUG!', W/2, 58);
+    ctx.shadowBlur=0;
+    const dg=ctx.createLinearGradient(140,88,660,88);
+    dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#ff8c42');dg.addColorStop(0.5,'#fff3b0');dg.addColorStop(0.7,'#ff8c42');dg.addColorStop(1,'transparent');
+    ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,88);ctx.lineTo(660,88);ctx.stroke();
+    ctx.font='16px serif'; ctx.fillStyle='#ff6b35'; ctx.fillText('• ──  ── •', W/2, 100);
+    // avatars leaning in
+    const cy=270, r=85, leftX=240, rightX=560;
+    const leftBuf = o.leftPic ? await thumbBuffer(o.leftPic) : null;
+    const rightBuf = o.rightPic ? await thumbBuffer(o.rightPic) : null;
+    for(const [x,buf] of [[leftX,leftBuf],[rightX,rightBuf]]){
+      ctx.save(); ctx.shadowColor='#ff8c42'; ctx.shadowBlur=26;
+      ctx.beginPath(); ctx.arc(x,cy,r+6,0,Math.PI*2); ctx.lineWidth=8; ctx.strokeStyle='#ff8c42'; ctx.stroke(); ctx.restore();
+      ctx.save(); ctx.beginPath(); ctx.arc(x,cy,r,0,Math.PI*2); ctx.clip();
+      if(buf){const img=await loadImage(buf); if(img){const sc=Math.max(170/img.width,170/img.height);ctx.drawImage(img,x-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);}else{ctx.fillStyle='#2a2a44';ctx.fillRect(x-r,cy-r,170,170);}}
+      else {ctx.fillStyle='#2a2a44';ctx.fillRect(x-r,cy-r,170,170);}
+      ctx.restore();
+    }
+    // center hug heart
+    const hx=W/2, hy=cy;
+    const hg=ctx.createRadialGradient(hx,hy,0,hx,hy,90); hg.addColorStop(0,'rgba(255,120,80,0.55)'); hg.addColorStop(1,'transparent');
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(hx,hy,90,0,Math.PI*2); ctx.fill();
+    ctx.font='bold 44px sans-serif'; ctx.fillStyle='#ff6b35'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='#ff6b35'; ctx.shadowBlur=20;
+    ctx.fillText('HUG!', hx, hy);
+    ctx.shadowBlur=0;
+    ctx.font='28px serif'; ctx.fillStyle='#fff';
+    ctx.fillText('♡', hx-95, hy-55); ctx.fillText('♡', hx+95, hy-60); ctx.fillText('♡', hx-75, hy+55); ctx.fillText('♡', hx+80, hy+60);
+    // names
+    ctx.font='bold 24px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=6;
+    ctx.fillText(o.leftName||'Alex', leftX, cy+r+34);
+    ctx.fillText(o.rightName||'Emma', rightX, cy+r+34);
+    ctx.shadowBlur=0;
+    ctx.font='bold 20px sans-serif'; ctx.fillStyle='#fff';
+    ctx.fillText((o.leftName||'Alex')+' hugged '+(o.rightName||'Emma')+'!', W/2, cy+r+62);
+    // footer
+    const fy=H-50;
+    const fdg=ctx.createLinearGradient(120,fy-20,680,fy-20);
+    fdg.addColorStop(0,'transparent');fdg.addColorStop(0.5,'#ff8c42');fdg.addColorStop(1,'transparent');
+    ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-20);ctx.lineTo(680,fy-20);ctx.stroke();
+    ctx.font='italic 16px serif'; ctx.fillStyle='#7c3aed';
+    ctx.shadowColor='rgba(255,255,255,0.6)'; ctx.shadowBlur=2;
+    ctx.fillText('Made with love by iKON BOT', W/2, fy); ctx.shadowBlur=0;
+    ctx.font='16px serif'; ctx.fillStyle='#ff6b35';
+    ctx.fillText('• ──  ── •', W/2, fy+20);
+    return cv.canvas.toDataURL('image/png');
+  } catch (err) {
+    const { error } = require('./helpers');
+    error(`[CARD] hugCard failed: ${err.message}`);
+    return null;
+  }
+}
+
 module.exports = {
   arrivalCard,
   botCard,
   duoCard,
   perfectPairCard,
   slapCard,
+  hugCard,
   kissCard,
   welcomeCard,
   goodbyeCard,
