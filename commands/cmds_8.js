@@ -2202,21 +2202,20 @@ const commands = [];
     name: 'ikon',
     aliases: ['ik', 'ikonai'],
     category: 'downloader',
-    description: '🤖 AI assistant — mention @ikon or reply to its messages',
+    description: 'AI assistant — chat with it',
     usage: '!ikon <prompt>',
-    hint: 'Chat with the AI assistant. Mention @ikon or reply to its messages to continue the conversation.',
+    hint: 'Ask anything. Mention @ikon or reply to its messages to continue.',
     cooldown: 5,
     permission: 'all',
     execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'ikon', async () => {
       await react('⚡');
       const q = args.join(' ').trim();
       if (!q) {
-        await reply('❌ Usage: `!ikon <prompt>`\n💡 Mention @ikon or reply to its messages to chat with it!', event.messageID);
+        await reply('Usage: `!ikon <prompt>`\nAsk anything — mention @ikon or reply to its messages to chat.', event.messageID);
         return;
       }
-      const answer = await askGroq(q, `Style: iKON AI assistant. Be helpful, witty, and concise. Owner is ${OWNER}.`, userDoc.lang || 'en');
-      const body = `🤖 **IKON AI**\n· · · · · · ·\n${answer}\n💸 ${kc(FEES.ai)}`;
-      await reply(body, event.messageID);
+      const answer = await askGroq(q, 'Style: Be helpful, witty, concise, and natural. Sound like a person talking, not an assistant. No self-introduction, no branding, no "I am an AI" talk — just answer.', userDoc.lang || 'en');
+      await reply(answer, event.messageID);
     }),
   });
 
