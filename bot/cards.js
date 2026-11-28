@@ -1819,22 +1819,41 @@ async function goodbyeCard(opts) {
 /**
  * Premium profile card. 1000x600, modern gaming aesthetic.
  */
+/**
+ * Premium profile card. 1000x680, modern gaming aesthetic.
+ * Shows: name, UID, rank, level, XP, money, class, titles, stamina, prestige, bio, real Facebook picture.
+ */
 async function profileCard(opts) {
   if (!canvasKit.available()) return null;
   const o = opts || {};
-  const W = 1000, H = 600;
+  const W = 1000, H = 680;
   try {
     const cv = canvasKit.create(W, H);
     const ctx = cv.ctx;
+
+    // Helper for text width
+    const textWidth = (txt, font) => {
+      const prev = ctx.font;
+      ctx.font = font;
+      const w = ctx.measureText(txt).width;
+      ctx.font = prev;
+      return w;
+    };
+
+    // Gradient background
     const bg = ctx.createLinearGradient(0,0,W,H);
     bg.addColorStop(0,'#0a0f2e'); bg.addColorStop(0.5,'#1a1040'); bg.addColorStop(1,'#2d1050');
     ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
-    // particles
+
+    // Particles
     for(let i=0;i<30;i++){const x=(i*137)%W,y=(i*89)%H,r=2+(i%3);const g=ctx.createRadialGradient(x,y,0,x,y,r*4);g.addColorStop(0,'rgba(180,150,255,0.6)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r*4,0,Math.PI*2);ctx.fill();}
+
+    // Decorative symbols
     const syms = ['#', '*', '!', '@', 'K'];
     ctx.font='24px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let i=0;i<28;i++){ctx.globalAlpha=0.4+(i%4)*0.12;ctx.fillText(syms[i%syms.length],(i*113)%980+10,(i*71)%580+10);}ctx.globalAlpha=1;
-    // header
+
+    // Header
     ctx.textAlign='center'; ctx.shadowColor='#c084fc'; ctx.shadowBlur=18;
     ctx.font='bold 48px sans-serif'; ctx.fillStyle='#fff';
     ctx.fillText('[ USER PROFILE ]', W/2, 58);
@@ -1845,64 +1864,129 @@ async function profileCard(opts) {
     dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#c084fc');dg.addColorStop(0.5,'#ffd700');dg.addColorStop(0.7,'#c084fc');dg.addColorStop(1,'transparent');
     ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(160,96);ctx.lineTo(840,96);ctx.stroke();
     ctx.font='18px serif'; ctx.fillStyle='#c084fc'; ctx.fillText('• ── # ── •', W/2, 108);
-    // avatar left
-    const ax=250, ay=320, r=110;
-    // double ring
+
+    // Avatar left — real Facebook profile picture when available
+    const ax=250, ay=330, r=115;
     ctx.save(); ctx.shadowColor='#c084fc'; ctx.shadowBlur=26;
     ctx.beginPath(); ctx.arc(ax,ay,r+10,0,Math.PI*2); ctx.lineWidth=6; ctx.strokeStyle='#c084fc'; ctx.stroke(); ctx.restore();
     ctx.save(); ctx.shadowColor='#ffd700'; ctx.shadowBlur=18;
     ctx.beginPath(); ctx.arc(ax,ay,r+2,0,Math.PI*2); ctx.lineWidth=4; ctx.strokeStyle='#ffd700'; ctx.stroke(); ctx.restore();
-    // crown (use K instead of crown emoji)
-    ctx.font='40px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('K', ax, ay-r-26);
-    // avatar
+    ctx.font='40px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('K', ax, ay-r-28);
     ctx.save(); ctx.beginPath(); ctx.arc(ax,ay,r,0,Math.PI*2); ctx.clip();
     const buf = o.pic ? await thumbBuffer(o.pic) : null;
-    if(buf){const img=await loadImage(buf); if(img){const sc=Math.max(190/img.width,190/img.height);ctx.drawImage(img,ax-img.width*sc/2,ay-img.height*sc/2,img.width*sc,img.height*sc);}else{ctx.fillStyle='#2a2a44';ctx.fillRect(ax-r,ay-r,190,190);}}
-    else {ctx.fillStyle='#2a2a44';ctx.fillRect(ax-r,ay-r,190,190);}
+    if(buf){
+      const img=await loadImage(buf);
+      if(img){
+        const sc=Math.max(230/img.width,230/img.height);
+        ctx.drawImage(img,ax-img.width*sc/2,ay-img.height*sc/2,img.width*sc,img.height*sc);
+      } else {
+        ctx.fillStyle='#2a2a44'; ctx.fillRect(ax-r,ay-r,230,230);
+      }
+    } else {
+      ctx.fillStyle='#2a2a44'; ctx.fillRect(ax-r,ay-r,230,230);
+    }
     ctx.restore();
-    // status dot
-    ctx.fillStyle='#00e676'; ctx.beginPath(); ctx.arc(ax+r-10, ay+r-10, 10,0,Math.PI*2); ctx.fill();
+    // Status dot (green = online)
+    ctx.fillStyle='#00e676'; ctx.beginPath(); ctx.arc(ax+r-10, ay+r-10, 12,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.stroke();
-    // level badge
+    // Level badge
     ctx.save(); ctx.shadowColor='#ffd700'; ctx.shadowBlur=14;
-    ctx.beginPath(); ctx.arc(ax+r-8, ay+r+8, 30,0,Math.PI*2); ctx.fillStyle='#ffd700'; ctx.fill(); ctx.restore();
-    ctx.font='bold 16px sans-serif'; ctx.fillStyle='#1a1040'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('LVL '+(o.level||25), ax+r-8, ay+r+8);
-    // info box glassmorphism
-    const bx=400, by=150, bw=560, bh=400;
+    ctx.beginPath(); ctx.arc(ax+r-8, ay+r+8, 32,0,Math.PI*2); ctx.fillStyle='#ffd700'; ctx.fill(); ctx.restore();
+    ctx.font='bold 18px sans-serif'; ctx.fillStyle='#1a1040'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('LVL '+(o.level||1), ax+r-8, ay+r+8);
+
+    // Info box glassmorphism
+    const bx=410, by=150, bw=550, bh=510;
     ctx.save();
-    ctx.fillStyle='rgba(255,255,255,0.08)';
-    // rounded rect
-    const rad=24;
+    ctx.fillStyle='rgba(255,255,255,0.07)';
+    const rad=26;
     ctx.beginPath(); ctx.moveTo(bx+rad,by); ctx.lineTo(bx+bw-rad,by); ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+rad); ctx.lineTo(bx+bw,by+bh-rad); ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-rad,by+bh); ctx.lineTo(bx+rad,by+bh); ctx.quadraticCurveTo(bx,by+bh,bx,by+bh-rad); ctx.lineTo(bx,by+rad); ctx.quadraticCurveTo(bx,by,bx+rad,by); ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle='rgba(192,132,252,0.5)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.strokeStyle='rgba(192,132,252,0.45)'; ctx.lineWidth=2; ctx.stroke();
     ctx.restore();
-    // info text (no emojis in canvas)
-    const lines = [
-      '<3 Name: '+(o.name||'Alex Carter')+' <3',
-      'UID: '+(o.uid||'100012345678'),
-      '$ Balance: '+(o.balance||'12,500')+' coins',
-      '* Level: '+(o.level||25)+' • EXP: '+(o.exp||'2,340'),
-      '@ Messages: '+(o.messages||'1,890'),
-      '! Rank: '+(o.rank||'Legend K'),
-      '+ Joined: '+(o.joined||'12 Jan 2026'),
-    ];
-    ctx.font='bold 24px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.textBaseline='middle';
-    ctx.shadowColor='rgba(0,0,0,0.4)'; ctx.shadowBlur=4;
-    let y=by+40;
-    for (const l of lines){ ctx.fillText(l, bx+30, y); y+=52; }
+
+    // Extract all profile data
+    const name  = String(o.name||'Hunter');
+    const uid   = String(o.uid||'—');
+    const money = String(o.money||'0');
+    const bal   = String(o.balance||'0');
+    const lvl   = Number(o.level||1);
+    const exp   = String(o.exp||'0');
+    const need  = String(o.expNeeded||'0');
+    const rem   = String(o.remainingXP||'0');
+    const lt    = String(o.lifetimeXP||'0');
+    const nxt   = String(o.nextTitle||'—');
+    const rank  = String(o.rank||'—');
+    const msgs  = String(o.messages||'0');
+    const cls   = String(o.class||'Unchosen');
+    const titles= String(o.titles||'None yet');
+    const stam  = String(o.stamina||'0');
+    const maxStam = String(o.maxStamina||'10');
+    const prest = String(o.prestige||'0');
+    const income= String(o.incomeBonus||'0');
+    const bio   = String(o.bio||'');
+    const joined= String(o.joined||'—');
+
+    // Info text rendering
+    ctx.font='bold 22px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(0,0,0,0.35)'; ctx.shadowBlur=3;
+
+    let y=by+34;
+    const put=(label,value,color='#e0e0e0')=>{
+      ctx.fillStyle='#ffd700'; ctx.fillText(label+': ', bx+30, y);
+      ctx.fillStyle=color; ctx.fillText(value, bx+30+textWidth(label+': ','bold 22px sans-serif')+8, y);
+      y+=40;
+    };
+    put('Name', name, '#ffffff');
+    put('UID', uid, '#c0e0ff');
+    put('Rank', rank, '#ffd700');
+    put('Level', String(lvl), '#ffffff');
+    put('XP', exp+' / '+need, '#ffffff');
+    put('Next Lv', rem+' XP', '#ffffff');
+    put('Lifetime XP', lt, '#ffffff');
+    put('Next Title', nxt, '#ffd700');
+    put('Money', money+' K-Cash', '#ffd700');
+    put('Allowance', o.allowance||'500', '#ffd700');
+    put('Class', cls, '#00e676');
+    put('Titles', titles, '#c084fc');
+    put('Stamina', stam+'/'+maxStam, '#ffffff');
+    put('Prestige', prest+' ('+income+'% income)', '#ffffff');
+    put('Messages', msgs, '#ffffff');
+    put('Joined', joined, '#ffffff');
+    if(bio && bio.length){
+      y+=8;
+      ctx.fillStyle='#ffd700'; ctx.fillText('Bio:', bx+30, y); y+=32;
+      ctx.fillStyle='#ffffff'; ctx.textBaseline='middle';
+      // wrap bio to fit
+      const maxW=bw-60;
+      const words=bio.split(' ');
+      let line='';
+      for(const w of words){
+        if(textWidth((line+w+' ').trim(),'18px sans-serif')>maxW && line.length){
+          ctx.fillText(line.trim(), bx+50, y);
+          y+=26; line=w+' ';
+        } else {
+          line+=w+' ';
+        }
+      }
+      if(line.trim().length) ctx.fillText(line.trim(), bx+50, y);
+    }
     ctx.shadowBlur=0;
-    // footer
-    const fy=H-50;
+    ctx.textBaseline='middle';
+
+    // Footer
+    const fy=H-38;
+    const storyText=String(o.story||'Instructor watches from the balcony with a clipboard.');
     const fdg=ctx.createLinearGradient(160,fy-16,840,fy-16);
     fdg.addColorStop(0,'transparent');fdg.addColorStop(0.5,'#c084fc');fdg.addColorStop(1,'transparent');
     ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(160,fy-16);ctx.lineTo(840,fy-16);ctx.stroke();
-    ctx.font='italic 18px serif'; ctx.fillStyle='#c084fc'; ctx.textAlign='center';
-    ctx.shadowColor='rgba(255,255,255,0.5)'; ctx.shadowBlur=2;
+    ctx.font='italic 16px serif'; ctx.fillStyle='#c084fc'; ctx.textAlign='center';
+    ctx.shadowColor='rgba(255,255,255,0.4)'; ctx.shadowBlur=2;
     ctx.fillText('• ── <3 Made with K by iKON BOT • Your Profile • ── •', W/2, fy); ctx.shadowBlur=0;
-    ctx.font='18px serif'; ctx.fillStyle='#ffd700';
-    ctx.fillText('* # * # *', W/2, fy+22);
+    ctx.font='16px serif'; ctx.fillStyle='#ffd700'; ctx.textAlign='center';
+    ctx.fillText(storyText, W/2, fy+26);
+    ctx.font='18px serif'; ctx.fillStyle='#c084fc';
+    ctx.fillText('* # * # *', W/2, fy+52);
     return cv.canvas.toDataURL('image/png');
   } catch (err) {
     const { error } = require('./helpers');
@@ -1910,6 +1994,7 @@ async function profileCard(opts) {
     return null;
   }
 }
+
 
 /**
  * Richest users card. 900x600, royal gold aesthetic.

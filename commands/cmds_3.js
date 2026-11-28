@@ -1471,16 +1471,34 @@ module.exports = [
       // text card below has every one of them.
       let card = null;
       try {
+        // Fetch real Facebook profile picture
+        const profile = require('../bot/profile');
+        const fbPic = await profile.picture(userDoc.uid, api);
+        
         card = await cards.profileCard({
           name,
           uid: userDoc.uid,
-          pic: null,
+          pic: fbPic,
           balance: kc(userDoc.coins),
           level,
           exp: num(xp),
-          messages: num(userDoc.messages || 0),
+          expNeeded: num(needed),
+          remainingXP: num(remaining),
+          lifetimeXP: num(lifetime),
+          nextTitle: nextTitle ? `${nextTitle.title} at Lv ${nextTitle.level}` : '—',
           rank: `${rank.title} 👑`,
+          messages: num(userDoc.messages || 0),
+          money: num(userDoc.coins),
+          allowance: cache.STARTING_MONEY,
+          class: cls ? `${cls.emoji} ${cls.name}` : 'Unchosen',
+          titles,
+          stamina: data.stamina,
+          maxStamina: hasSkill(userDoc, 'swiftfoot') ? 11 : 10,
+          prestige: clamp(userDoc.prestige),
+          incomeBonus: Math.round((prestigeBonus(userDoc) - 1) * 100),
+          bio: userDoc.bio || '',
           joined: userDoc.createdAt ? new Date(userDoc.createdAt).toLocaleDateString() : '—',
+          story: story(),
           api,
         });
       } catch {
