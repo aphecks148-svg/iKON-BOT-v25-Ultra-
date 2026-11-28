@@ -51,6 +51,14 @@ const UserSchema = new mongoose.Schema(
     reputation: { type: Number, default: 0 },
     prestige: { type: Number, default: 0, min: 0 },
 
+    // module 11 — user-saved items
+    saved: {
+      type: Map,
+      of: String,
+      default: new Map(),
+      // Each entry: key = item name, value = saved text/data
+    },
+
     // The kingdom this hunter belongs to, by name. '' = independent.
     // A name, not an id, matches how the Kingdom model is keyed and
     // lets a profile show its kingdom without a join.

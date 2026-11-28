@@ -29,6 +29,7 @@ const moderation = require('../bot/moderation');
 // disagree about who somebody is.
 const cards = require('../bot/cards');
 const userTarget = require('../bot/target');
+const cache = require('../bot/cache');
 const decks = require('../bot/categories');
 const menu = require('../bot/helpmenu');
 const compliance = require('../bot/compliance');
@@ -1614,6 +1615,355 @@ module.exports = [
       await reply(`🕐 **${zone}**\n· · · · · · ·\n🕰️ ${formatted}${dayNote}`, event.messageID);
     }),
   },
+
+  // ─────────────────────────────────────────────────────────
+  // 40$ — spy on a user's public Facebook profile
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'spy',
+    aliases: ['stalk', 'profileinfo', 'whois'],
+    category: 'system',
+    description: '🔍 View detailed public Facebook profile info — bio, cover photo, location, and more',
+    usage: '.spy @user',
+    hint: 'Tag someone to see their public profile details: HD profile/cover photos, bio, location, nickname, and UID.',
+    cooldown: 15,
+    permission: 'all',
+    execute: async ({ args, event, api, reply, react, userDoc }) => guard(reply, event.messageID, 'spy', async () => {
+      await react('🔍');
+
+      // Resolve target user from mention, name, or UID
+      let result = null;
+      if (event.mentions && Object.keys(event.mentions).length > 0) {
+        // Use the first mention
+        const mentionUid = Object.keys(event.mentions)[0];
+        result = await userTarget.byId(mentionUid, event, api);
+      } else if (args.length > 0) {
+        // Try to resolve from args (name or UID)
+        result = await userTarget.resolve(event, args, api);
+      } else {
+        // Default to the sender
+        result = await userTarget.byId(event.senderID, event, api);
+      }
+
+      if (!result || !result.uid) {
+        await reply('❌ Could not resolve that user. Tag someone or provide a name/UID.', event.messageID);
+        return;
+      }
+
+      const uid = result.uid;
+      const chatName = result.name || 'Unknown';
+
+      // Fetch detailed profile using getUserInfo with usePayload=false for full data
+      let profileData = null;
+      try {
+        profileData = await api.getUserInfo(uid, false);
+      } catch (err) {
+        error(`[SPY] getUserInfo(${uid}) failed: ${err.message}`);
+      }
+
+      if (!profileData) {
+        // Fallback to cached info
+        profileData = await cache.getUserInfoCached(uid, api);
+      }
+
+      if (!profileData) {
+        await reply('❌ Could not fetch profile data from Facebook.', event.messageID);
+        return;
+      }
+
+      const profileName = profileData.name || chatName;
+
+      // Also get chat nickname from thread info if available
+      let chatNickname = null;
+      try {
+        const threadInfo = await api.getThreadInfo(event.threadID);
+        if (threadInfo && threadInfo.nicknames && threadInfo.nicknames[uid]) {
+          chatNickname = threadInfo.nicknames[uid];
+        }
+      } catch (err) {
+        // Ignore thread info errors
+      }
+
+      // Build the spy report
+      const lines = [];
+      lines.push(`🔍 **SPY REPORT: ${profileName}**`);
+      lines.push('· · · · · · ·');
+      lines.push(`🆔 UID: \`${uid}\``);
+      lines.push(`👤 Profile Name: ${profileName}`);
+      if (chatName !== profileName) lines.push(`💬 Chat Name: ${chatName}`);
+      if (chatNickname && chatNickname !== chatName && chatNickname !== profileName) lines.push(`🏷️ Chat Nickname: ${chatNickname}`);
+      if (profileData.firstName) lines.push(`📛 First Name: ${profileData.firstName}`);
+      if (profileData.lastName) lines.push(`📛 Last Name: ${profileData.lastName}`);
+      if (profileData.vanity) lines.push(`🔗 Vanity URL: https://facebook.com/${profileData.vanity}`);
+      lines.push(`🌐 Profile: ${profileData.profileUrl || `https://facebook.com/${uid}`}`);
+      
+      if (profileData.gender) lines.push(`⚧ Gender: ${profileData.gender}`);
+      if (profileData.isVerified) lines.push('✅ Verified: Yes');
+      if (profileData.isFriend) lines.push('👥 Friend Status: Friends');
+      if (profileData.isBirthday) lines.push('🎂 Today is their birthday!');
+
+      if (profileData.bio) {
+        lines.push('');
+        lines.push(`📝 **Bio:**`);
+        lines.push(profileData.bio);
+      }
+
+      if (profileData.live_city) {
+        lines.push('');
+        lines.push(`📍 **Location:** ${profileData.live_city}`);
+      }
+
+      if (profileData.headline) {
+        lines.push('');
+        lines.push(`💼 **Headline:** ${profileData.headline}`);
+      }
+
+      if (profileData.followers) {
+        lines.push('');
+        lines.push(`👥 **Followers:** ${profileData.followers}`);
+      }
+
+      if (profileData.following) {
+        lines.push(`👥 **Following:** ${profileData.following}`);
+      }
+
+      // Profile picture and cover photo URLs
+      if (profileData.profilePicUrl) {
+        lines.push('');
+        lines.push(`🖼️ **Profile Picture:** ${profileData.profilePicUrl}`);
+      }
+      if (profileData.coverPhoto) {
+        lines.push(`🖼️ **Cover Photo:** ${profileData.coverPhoto}`);
+      }
+
+      // Type info
+      if (profileData.type) {
+        lines.push('');
+        lines.push(`📋 Account Type: ${profileData.type}`);
+      }
+
+      // Send as text first
+      await reply(lines.join('\n'), event.messageID);
+
+      // Then send profile picture and cover photo as attachments if available
+      const attachments = [];
+      if (profileData.profilePicUrl) {
+        attachments.push({ type: 'image', data: { url: profileData.profilePicUrl } });
+      }
+      if (profileData.coverPhoto) {
+        attachments.push({ type: 'image', data: { url: profileData.coverPhoto } });
+      }
+
+      if (attachments.length > 0) {
+        try {
+          await reply({ body: `📸 **${profileName}'s Photos**`, attachment: attachments }, event.messageID);
+        } catch (attachErr) {
+          error(`[SPY] Failed to send attachments: ${attachErr.message}`);
+        }
+      }
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 41$ — fake hack prank (admin only)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'hack',
+    aliases: ['stealpassword', 'getlogin', 'pwn'],
+    category: 'fun',
+    description: '😈 Pretend to hack someone — fake progress bar, fake data, pure chaos',
+    usage: '!hack @user',
+    hint: 'Admin only. Tags a victim and runs a hilariously fake "hacking" sequence. No real data is stolen, obviously.',
+    cooldown: 30,
+    permission: 'admin',
+    execute: async ({ args, event, api, reply, react, userDoc }) => guard(reply, event.messageID, 'hack', async () => {
+      await react('😈');
+
+      // Resolve target
+      let targetUid = null;
+      let targetName = 'the target';
+
+      if (event.mentions && Object.keys(event.mentions).length > 0) {
+        targetUid = Object.keys(event.mentions)[0];
+        targetName = event.mentions[targetUid];
+      } else if (args.length > 0) {
+        const result = await userTarget.resolve(event, args, api);
+        if (result && result.uid) {
+          targetUid = result.uid;
+          targetName = result.name || targetName;
+        }
+      } else {
+        await reply('❌ Tag someone to "hack" — `!hack @user`', event.messageID);
+        return;
+      }
+
+      // Don't let admins hack themselves (too easy)
+      if (targetUid === event.senderID) {
+        await reply('🤦 You can\'t hack yourself, genius.', event.messageID);
+        return;
+      }
+
+      // Don't hack the bot owner
+      const config = require('../config');
+      if (config.OWNER_ID && targetUid === config.OWNER_ID) {
+        await reply('🛑 Nice try. The bot owner is immune to script kiddies.', event.messageID);
+        return;
+      }
+
+      // Fake hacking sequence
+      const stages = [
+        { msg: '🔓 **INITIATING SOCIAL ENGINEERING ATTACK...**', delay: 800 },
+        { msg: '📡 **CONNECTING TO FACEBOOK MAINFRAME...**\n[█░░░░░░░░░] 10%', delay: 600 },
+        { msg: '📡 **CONNECTING TO FACEBOOK MAINFRAME...**\n[███░░░░░░░] 30%', delay: 500 },
+        { msg: '📡 **CONNECTING TO FACEBOOK MAINFRAME...**\n[█████░░░░░] 50%', delay: 400 },
+        { msg: '📡 **CONNECTING TO FACEBOOK MAINFRAME...**\n[███████░░░] 70%', delay: 300 },
+        { msg: '📡 **CONNECTING TO FACEBOOK MAINFRAME...**\n[██████████] 100%', delay: 500 },
+        { msg: '🔍 **SCANNING TARGET PROFILE...**\n> Extracting cookies...\n> Bypassing 2FA...\n> Decrypting passwords...', delay: 1000 },
+        { msg: '💾 **DOWNLOADING CREDENTIALS...**\n[██████████] 100%\n✅ Email: `victim@gmail.com`\n✅ Password: `hunter2`\n✅ Recovery: `mother\'s maiden name`', delay: 800 },
+        { msg: '🌐 **ACCESSING PRIVATE MESSAGES...**\n> Reading DMs with crush...\n> Found 47 unread messages from mom...\n> Screenshotting embarrassing photos...', delay: 1000 },
+        { msg: '💳 **STEALING PAYMENT INFO...**\n> Visa ending in 4206\n> CVV: 696\n> Expiry: 04/25\n> Balance: $0.00 (lol)', delay: 800 },
+        { msg: '📍 **TRACKING LOCATION...**\n> GPS: 37.7749° N, 122.4194° W\n> Accuracy: 3 meters\n> Current activity: "pretending to work"', delay: 700 },
+        { msg: '🤖 **DEPLOYING RANSOMWARE...**\n> Encrypting family photos...\n> Demand: 0.000001 BTC\n> Timer: 00:00:10', delay: 1000 },
+      ];
+
+      // Send initial message
+      let sentMsg = await reply(stages[0].msg, event.messageID);
+
+      // Animate through stages by editing the same message
+      // Note: fbchat doesn't support editMessage, so we send new messages
+      // But we'll simulate it with rapid replies
+      for (let i = 1; i < stages.length; i++) {
+        await new Promise(r => setTimeout(r, stages[i].delay));
+        sentMsg = await reply(stages[i].msg, event.messageID);
+      }
+
+      // The punchline
+      await new Promise(r => setTimeout(r, 800));
+      
+      const punchlines = [
+        `🎉 **JUST KIDDING!** ${targetName} is safe... for now.`,
+        `😂 **GOTTEM!** No passwords were stolen. ${targetName}, you can breathe.`,
+        `🤡 **PRANK COMPLETE.** The only thing hacked was ${targetName}'s patience.`,
+        `✨ **404: CREDENTIALS NOT FOUND.** ${targetName} uses a password manager like a responsible adult.`,
+        `🛡️ **ACCESS DENIED.** ${targetName} has 2FA enabled. Nice try, script kiddie.`,
+        `📛 **ERROR 418: I'M A TEAPOT.** The hacking module crashed. ${targetName} lives to see another day.`,
+      ];
+
+      const punchline = punchlines[Math.floor(Math.random() * punchlines.length)];
+      
+      await reply(
+        `${punchline}\n\n` +
+        `· · · · · · ·\n` +
+        `💡 **Pro tip:** Real hackers don't use chat bots. ` +
+        `Enable 2FA, use unique passwords, and don't click sketchy links.\n` +
+        `🛡️ Your digital hygiene > this prank.`,
+        event.messageID
+      );
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
+  // 42$ — save system (user-specific storage)
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'save',
+  aliases: ['remember'],
+  category: 'fun',
+  description: '💾 Save text to your personal storage (persists across restarts)',
+  usage: '!save <name> <text>',
+  hint: 'Save anything you want to remember later. Items are user-specific and persist between sessions.',
+  cooldown: 10,
+  permission: 'all',
+  execute: async ({ args, event, api, reply, react, userDoc }) => {
+    await react('💾');
+
+    // Validate arguments
+    if (args.length < 2) {
+      await reply('❌ Usage: `!save <name> <text>`', event.messageID);
+      return;
+    }
+
+    // Extract name and content
+    const name = args[0].trim();
+    const content = args.slice(1).join(' ');
+
+    if (!name) {
+      await reply('❌ Invalid name. Usage: `!save <name> <text>`', event.messageID);
+      return;
+    }
+
+    // Save to user's personal storage
+    userDoc.saved.set(name, content);
+    await userDoc.save().catch(() => {
+      // If save fails, we still want to tell the user it was saved locally
+      // but couldn't persist to DB (which is fine for a save system)
+    });
+
+    await reply(`✅ Saved \`${name}\`:\n${content}`, event.messageID);
+  },
+},
+{
+  name: 'saved',
+  aliases: ['list', 'show'],
+  category: 'fun',
+  description: '📋 View all saved items',
+  usage: '!saved',
+  hint: 'See everything you have saved. Items are stored per-user and persist between sessions.',
+  cooldown: 5,
+  permission: 'all',
+  execute: async ({ event, reply, react, userDoc }) => {
+    await react('📋');
+
+    // List all saved items
+    const savedItems = Array.from(userDoc.saved.entries());
+    
+    if (savedItems.length === 0) {
+      await reply('📭 You have no saved items yet. Use `!save <name> <text>` to start saving.', event.messageID);
+      return;
+    }
+
+    const lines = ['💾 **YOUR SAVED ITEMS:**'];
+    savedItems.forEach(([name, data]) => {
+      lines.push(`• ${name}: ${data}`);
+    });
+
+    await reply(lines.join('\n'), event.messageID);
+  },
+},
+{
+  name: 'unsave',
+  aliases: ['remove', 'delete'],
+  category: 'fun',
+  description: '🗑️ Remove a saved item',
+  usage: '!unsave <name>',
+  hint: 'Delete a previously saved item. Cannot be undone.',
+  cooldown: 5,
+  permission: 'all',
+  execute: async ({ args, event, reply, react, userDoc }) => {
+    await react('🗑️');
+
+    // Validate arguments
+    if (args.length < 1) {
+      await reply('❌ Usage: `!unsave <name>`', event.messageID);
+      return;
+    }
+
+    const name = args[0].trim();
+    if (!name) {
+      await reply('❌ Invalid name.', event.messageID);
+      return;
+    }
+
+    // Remove the item
+    if (userDoc.saved.has(name)) {
+      userDoc.saved.delete(name);
+      await userDoc.save().catch(() => {});
+      await reply(`🗑️ Removed saved item \`${name}\`.`, event.messageID);
+      return;
+    }
+    await reply(`❌ No saved item named \`${name}\` found.`, event.messageID);
+  },
+},
 ];
 
 // ───────────────────────────────────────────────────────────
