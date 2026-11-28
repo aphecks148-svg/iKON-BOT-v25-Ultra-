@@ -659,6 +659,45 @@ async function handleMessage(api, event) {
     }
   }
 
+  // ── REPLY HANDLERS FOR INTERACTIVE COMMANDS (TTT, etc.) ────────
+  // If the message is a reply to a registered game message, handle it
+  if (event.messageReply && event.messageReply.messageID) {
+    const replyHandler = cache.getReplyHandler(event.messageReply.messageID);
+    if (replyHandler && replyHandler.handler === 'ttt') {
+      // Verify the reply is from the expected player in the correct thread
+      if (String(replyHandler.uid) === String(senderID) && String(replyHandler.threadID) === String(threadID)) {
+        const body = String(event.body || '').trim();
+        // Check if it's a number 1-9
+        const square = Number.parseInt(body, 10);
+        if (Number.isFinite(square) && square >= 1 && square <= 9) {
+          // Simulate the tttplay command with the square as argument
+          const fakeArgs = [String(square)];
+          // We need to trigger the tttplay command handler
+          const cmd = loader.findCommand('tttplay', registry, aliases);
+          if (cmd) {
+            // Create a mock event for the tttplay command
+            const mockEvent = { ...event, args: fakeArgs, body: `!tttplay ${square}` };
+            // Mark as reply-handled to avoid double-processing
+            mockEvent._replyHandled = true;
+            await safe(() => cmd.execute({
+              api,
+              event: mockEvent,
+              args: fakeArgs,
+              config,
+              registry,
+              aliases,
+              ai: null,
+              reply: helpers.reply,
+              react: helpers.react,
+              userDoc: await cache.getOrCreateUser(senderID, api),
+            }), api, threadID, 'tttplay:reply');
+            return;
+          }
+        }
+      }
+    }
+  }
+
   // `parsed` was computed above, ahead of the spam gate, and is reused here.
   if (!parsed) {
     if (body) log(`[PARSE] no command for "${body.slice(0, 60)}" (prefix ${JSON.stringify(prefix)})`);

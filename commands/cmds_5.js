@@ -1046,17 +1046,28 @@ const commands = [];
         return;
       }
 
-      await reply(
-        `⭕ **BOARD OPEN** — ${userDoc.name} takes ⭕, ${challenger.name} takes ❌.\n\n${render()}`,
+      const boardMsg = await reply(
+        `⭕ **BOARD OPEN** — ${userDoc.name} takes ⭕, ${challenger.name} takes ❌.\n\n${render()}\n\n💡 Reply to this message with a number 1-9 to play!`,
         event.messageID,
       );
+
+      // Register the board message as replyable for ttt moves
+      if (boardMsg && boardMsg.messageID) {
+        cache.setReplyHandler(boardMsg.messageID, {
+          game: 'ttt',
+          threadID: event.threadID,
+          uid: hasSquare ? String(challenge.fromUid) : String(event.senderID), // Next player to move
+          handler: 'ttt',
+          ttlMs: 30 * 60 * 1000, // 30 minutes
+        });
+      }
 
       // Accepted without a square: open the board and let the acceptor move.
       if (!hasSquare) {
         cache.putPendingGame('tttplay', event.threadID, String(event.senderID), {
           toUid: String(challenge.fromUid), toName: challenger.name, bet, board, mark: '⭕',
         });
-        await reply(`⭕ ${userDoc.name}, your turn: \`!tttplay <1-9>\``, event.messageID);
+        await reply(`⭕ ${userDoc.name}, your turn: \`!tttplay <1-9>\` (or reply to the board)`, event.messageID);
         return;
       }
 
@@ -1094,7 +1105,7 @@ const commands = [];
 
       board[spot] = '❌';
       await sleep(600);
-      await reply(`❌ ${challenger.name} plays ${spot + 1}.\n\n${render()}`, event.messageID);
+      const autoMsg = await reply(`❌ ${challenger.name} plays ${spot + 1}.\n\n${render()}\n\n💡 ${userDoc.name}, reply with a number 1-9 to play!`, event.messageID);
 
       if (line('❌')) {
         await recordLoss(userDoc, 'game:ttt_loss');
@@ -1103,13 +1114,15 @@ const commands = [];
           + `💸 -${kc(bet)}\n📖 ${story()}`,
           event.messageID,
         );
+        if (autoMsg && autoMsg.messageID) cache.clearReplyHandler(autoMsg.messageID);
         return;
       }
 
       if (board.every((v) => v !== null)) {
-        await payout(userDoc, bet, 'game:ttt_draw', { bet });
-        await payout(challenger, bet, 'game:ttt_draw', { bet });
+        await payout(userDoc, bet, 'game:ttt_draw');
+        await payout(challenger, bet, 'game:ttt_draw');
         await reply(`🤝 **FULL BOARD, DRAW.** Stakes returned.`, event.messageID);
+        if (autoMsg && autoMsg.messageID) cache.clearReplyHandler(autoMsg.messageID);
         return;
       }
 
@@ -1117,7 +1130,17 @@ const commands = [];
         toUid: String(event.senderID), toName: userDoc.name, bet, board, mark: '❌',
       });
       if (parked) {
-        await reply(`⭕ Board open. ${challenger.name}, reply \`!tttplay <1-9>\`.`, event.messageID);
+        // Register the auto-move message as replyable
+        if (autoMsg && autoMsg.messageID) {
+          cache.setReplyHandler(autoMsg.messageID, {
+            game: 'ttt',
+            threadID: event.threadID,
+            uid: String(event.senderID),
+            handler: 'ttt',
+            ttlMs: 30 * 60 * 1000,
+          });
+        }
+        await reply(`⭕ Board open. ${challenger.name}, reply \`!tttplay <1-9>\` (or reply to the board)`, event.messageID);
       }
     }),
   });
@@ -1133,6 +1156,9 @@ const commands = [];
     permission: 'all',
     execute: async ({ args, event, userDoc, reply, react }) => guard(reply, event.messageID, 'tttplay', async () => {
       if (await bannedCheck(reply, userDoc, event)) return;
+
+      // Skip if already handled by reply handler
+      if (event._replyHandled) return;
 
       const challenge = cache.takePendingGame('tttplay', event.threadID, String(event.senderID));
       if (!challenge) {
@@ -1162,7 +1188,7 @@ const commands = [];
       );
 
       board[square - 1] = mark;
-      await reply(`${mark} ${userDoc.name} plays ${square}.\n\n${render()}`, event.messageID);
+      const moveMsg = await reply(`${mark} ${userDoc.name} plays ${square}.\n\n${render()}\n\n💡 ${challenge.toName}, reply with a number 1-9 to play!`, event.messageID);
 
       if (line(mark)) {
         await payout(userDoc, bet * 2, 'game:ttt_win', { bet, square });
@@ -1171,6 +1197,7 @@ const commands = [];
           + `💰 +${kc(bet * 2)}\n👛 Wallet: ${kc(userDoc.coins)}\n📖 ${story()}`,
           event.messageID,
         );
+        if (moveMsg && moveMsg.messageID) cache.clearReplyHandler(moveMsg.messageID);
         return;
       }
 
@@ -1179,13 +1206,25 @@ const commands = [];
         const other = await User.findOne({ uid: challenge.toUid });
         if (other) await payout(other, bet, 'game:ttt_draw', { bet });
         await reply('🤝 **DRAW.** Stakes returned.', event.messageID);
+        if (moveMsg && moveMsg.messageID) cache.clearReplyHandler(moveMsg.messageID);
         return;
       }
 
       cache.setPendingGame('tttplay', event.threadID, challenge.toUid, {
         toUid: String(event.senderID), toName: userDoc.name, bet, board, mark: opposite(mark),
       });
-      await reply(`${challenge.toName}, your turn: \`!tttplay <1-9>\``, event.messageID);
+
+      // Register the move message as replyable for the next player
+      if (moveMsg && moveMsg.messageID) {
+        cache.setReplyHandler(moveMsg.messageID, {
+          game: 'ttt',
+          threadID: event.threadID,
+          uid: String(challenge.toUid),
+          handler: 'ttt',
+          ttlMs: 30 * 60 * 1000,
+        });
+      }
+      await reply(`${challenge.toName}, your turn: \`!tttplay <1-9>\` (or reply to the board)`, event.messageID);
     }),
   });
 

@@ -404,6 +404,9 @@ function pendingGameFor(threadID, uid) {
 /** uid -> { game, payload, expires } — an unfinished puzzle or board. */
 const gameState = new Map();
 
+/** messageID -> { game, threadID, uid, handler, expires } — a message users can reply to. */
+const replyHandlers = new Map();
+
 function setGameState(uid, game, payload, ttlMs = 10 * 60 * 1000) {
   gameState.set(String(uid), { game, payload, expires: Date.now() + ttlMs });
 }
@@ -445,6 +448,53 @@ function sweepGames() {
   for (const [k, v] of pendingGames) if (!v || now >= v.expires) pendingGames.delete(k);
   for (const [k, v] of gameState) if (now >= v.expires) gameState.delete(k);
   for (const [k, v] of gameBans) if (now >= v) gameBans.delete(k);
+  for (const [k, v] of replyHandlers) if (now >= v.expires) replyHandlers.delete(k);
+}
+
+/**
+ * Register a message as replyable - users can reply to this message to interact.
+ * 
+ * @param {string} messageID The messageID that users can reply to
+ * @param {object} opts Options: { game, threadID, uid, handler, ttlMs }
+ * @returns {boolean}
+ */
+function setReplyHandler(messageID, opts) {
+  const { game, threadID, uid, handler, ttlMs = 10 * 60 * 1000 } = opts;
+  if (!messageID || !game || !handler) return false;
+  replyHandlers.set(String(messageID), {
+    game,
+    threadID: String(threadID),
+    uid: String(uid),
+    handler,
+    expires: Date.now() + ttlMs,
+  });
+  return true;
+}
+
+/**
+ * Get the reply handler for a messageID if it exists and hasn't expired.
+ * 
+ * @param {string} messageID
+ * @returns {object|null}
+ */
+function getReplyHandler(messageID) {
+  const hit = replyHandlers.get(String(messageID));
+  if (!hit) return null;
+  if (Date.now() >= hit.expires) {
+    replyHandlers.delete(String(messageID));
+    return null;
+  }
+  return hit;
+}
+
+/**
+ * Remove a reply handler (e.g., when game ends).
+ * 
+ * @param {string} messageID
+ * @returns {boolean}
+ */
+function clearReplyHandler(messageID) {
+  return replyHandlers.delete(String(messageID));
 }
 
 const size = () => store.size;
@@ -461,4 +511,6 @@ module.exports = {
   setPendingGame, putPendingGame, getPendingGame, takePendingGame, pendingGameFor,
   setGameState, getGameState, clearGameState,
   banFromGames, gameBanLeft, sweepGames,
+  // reply handlers for interactive commands
+  setReplyHandler, getReplyHandler, clearReplyHandler,
 };
