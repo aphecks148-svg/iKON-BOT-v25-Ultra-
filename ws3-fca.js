@@ -1024,20 +1024,24 @@ function reloadCommands() {
  * @returns {{uid:string,name:string}[]}
  */
 function changeParticipants(data) {
-  // Try multiple possible fields for added participants (admin-added vs self-join)
+  // Try multiple possible fields for added participants (join events: self-join, admin-add, invite link)
   const raw = Array.isArray(data && data.addedParticipants)
     ? data.addedParticipants
     : Array.isArray(data && data.added)
     ? data.added
     : Array.isArray(data && data.participants)
     ? data.participants
+    : Array.isArray(data && data.delta && data.delta.addedParticipants)
+    ? data.delta.addedParticipants
+    : Array.isArray(data && data.delta && data.delta.added)
+    ? data.delta.added
     : [];
 
   const people = raw.map((p) => {
     if (p == null) return null;
     if (typeof p === 'object') {
       // fbId is the field ws3-fca forwards; id/userId appear in some payloads.
-      const uid = p.fbId || p.id || p.userId || p.uid || p.actorFbId;
+      const uid = p.fbId || p.id || p.userId || p.uid || p.actorFbId || p.participantFbId;
       return uid ? { uid: String(uid), name: p.fullName || p.name || '' } : null;
     }
     const text = String(p).trim();
@@ -1050,8 +1054,14 @@ function changeParticipants(data) {
 
   if (people.length) return people;
 
-  // A departure carries exactly one id, under a different key.
-  const left = String((data && data.leftParticipantFbId) || '').trim();
+  // A departure carries exactly one id, under various possible keys.
+  const left = String(
+    (data && data.leftParticipantFbId) ||
+    (data && data.leftParticipant) ||
+    (data && data.removedParticipantFbId) ||
+    (data && data.participantFbId) ||
+    ''
+  ).trim();
   if (/^\d+$/.test(left)) return [{ uid: left, name: '' }];
 
   return [];
@@ -1282,11 +1292,22 @@ async function announce(api, threadID, kind, who, info, template, isGroup) {
   // The picture, in the same send. `thumbSrc` off the thread member list is
   // preferred over the getUserInfo endpoint: it is already in hand, it is a
   // direct CDN url, and it does not go through the graph redirect.
+  // For goodbye, the user may no longer be in the member list, so fall back to profile.picture
+  const profile = require('./bot/profile');
   const known = (info && info.users && info.users.get(String(who.uid))) || null;
+  let picUrl = (known && known.thumbSrc) || '';
+  if (!picUrl && kind === 'goodbye') {
+    // Fetch profile picture via profile module for leavers not in member list
+    try {
+      picUrl = await profile.fetchPictureUrl(who.uid, api) || '';
+    } catch (e) {
+      // Ignore, will use fallback in card
+    }
+  }
   try {
     const png = kind === 'goodbye'
-      ? await cards.goodbyeCard({ name: display, pic: (known && known.thumbSrc) || '', api })
-      : await cards.welcomeCard({ name: display, pic: (known && known.thumbSrc) || '', groupName: threadName, memberCount: (info && info.count) || 0, api });
+      ? await cards.goodbyeCard({ name: display, pic: picUrl, api })
+      : await cards.welcomeCard({ name: display, pic: picUrl, groupName: threadName, memberCount: (info && info.count) || 0, api });
     if (png) {
       // A stream, not a descriptor. ws3-fca 3.5.2 throws on
       // `{ type, data: { url } }`, and this used to turn that into a silent
@@ -1409,6 +1430,8 @@ async function handleGroupChange(api, event) {
   // ws3-fca reports joins/leaves as log:subscribe / log:unsubscribe.
   const action = event.logMessageType;
   const data = event.logMessageData || {};
+  // Debug logging
+  log(`[GROUP-CHANGE] action=${action} threadID=${threadID} dataKeys=${Object.keys(data).join(',')}`);
   // These events never carry `isGroup` — formatDeltaEvent (formatters.js:636)
   // omits it entirely — so it arrives here undefined. Left that way the send
   // falls back to a `t_` prefix test, which is right for every real group, but
@@ -1429,6 +1452,7 @@ async function handleGroupChange(api, event) {
       // the same log:subscribe as everybody else, so without this the chat is
       // told "welcome, iKON BOT to the group" the moment it starts up.
       const people = notMe(changeParticipants(data), selfId);
+      log(`[GROUP-CHANGE] join detected: ${people.map(p => `${p.name}(${p.uid})`).join(', ')}`);
 
       // Anti-raid, ahead of the welcome announcement and independent of it.
       //
@@ -1483,6 +1507,8 @@ async function handleGroupChange(api, event) {
     // Member left
     if (action === 'log:unsubscribe') {
       const group = await toggles.getGroup(threadID);
+      const people = notMe(changeParticipants(data), selfId);
+      log(`[GROUP-CHANGE] leave detected: ${people.map(p => `${p.name}(${p.uid})`).join(', ')}`);
 
       // !autoadd: invite the leaver straight back. gcmember is an MQTT publish,
       // so it resolves once the request is queued, not once Facebook confirms
@@ -1522,7 +1548,7 @@ async function handleGroupChange(api, event) {
       }
 
       if (group?.settings?.goodbye) {
-        const people = notMe(changeParticipants(data), selfId);
+        // Use already computed `people` from above
         // A dead account this bot just cleared out of the roster is not a loss.
         // It comes back as the same log:unsubscribe a person leaving does, with
         // nothing in the payload to tell the two apart — so `!gccleanup` was
