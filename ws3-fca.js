@@ -679,6 +679,7 @@ async function handleMessage(api, event) {
             const mockEvent = { ...event, args: fakeArgs, body: `!tttplay ${square}` };
             // Mark as reply-handled to avoid double-processing
             mockEvent._replyHandled = true;
+            const userDoc = await cache.getOrCreateUser(senderID, api);
             await safe(() => cmd.execute({
               api,
               event: mockEvent,
@@ -689,7 +690,7 @@ async function handleMessage(api, event) {
               ai: null,
               reply: helpers.reply,
               react: helpers.react,
-              userDoc: await cache.getOrCreateUser(senderID, api),
+              userDoc,
             }), api, threadID, 'tttplay:reply');
             return;
           }
