@@ -2163,6 +2163,292 @@ async function leaderboardCard(opts) {
   }
 }
 
+
+/**
+ * LB Leaderboard card. 1000x1200, Messenger safe with 60px margins.
+ * Top 3 with real Facebook pictures, ranks 4-10 as list rows.
+ */
+async function lbCard(opts) {
+  if (!canvasKit.available()) return null;
+  const o = opts || {};
+  const W = 1000, H = 1200;
+  try {
+    const cv = canvasKit.create(W, H);
+    const ctx = cv.ctx;
+
+    // Helper for text width
+    const textWidth = (txt, font) => {
+      const prev = ctx.font;
+      ctx.font = font;
+      const w = ctx.measureText(txt).width;
+      ctx.font = prev;
+      return w;
+    };
+
+    // Gradient background - black to dark gold
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, '#0a0a0a');
+    bg.addColorStop(0.5, '#1a1a0a');
+    bg.addColorStop(1, '#2a2a0a');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // 40 gold particle dots
+    for (let i = 0; i < 40; i++) {
+      const x = (i * 237) % W;
+      const y = (i * 149) % H;
+      const r = 2 + (i % 4);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r * 6);
+      g.addColorStop(0, 'rgba(255,215,0,0.35)');
+      g.addColorStop(1, 'transparent');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Helper to load and draw avatar with fallback
+    async function drawAvatar(uid, x, y, radius, ringColor, ringWidth, glowBlur, fallbackName) {
+      const url = await profile.fetchPictureUrl(uid, o.api);
+      let img = null;
+      if (url) {
+        try {
+          const axios = require('axios');
+          const res = await axios.get(url, {
+            responseType: 'arraybuffer',
+            timeout: 10000,
+            maxRedirects: 5,
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+          });
+          const buf = Buffer.isBuffer(res.data) ? res.data : Buffer.from(res.data || []);
+          if (buf.length >= 512) {
+            const { loadImage } = require('./canvas');
+            img = await loadImage(buf);
+          }
+        } catch (err) {
+          // fallback will be used
+        }
+      }
+
+      // Ring glow
+      ctx.save();
+      ctx.shadowColor = ringColor;
+      ctx.shadowBlur = glowBlur;
+      ctx.beginPath();
+      ctx.arc(x, y, radius + ringWidth + 2, 0, Math.PI * 2);
+      ctx.lineWidth = ringWidth;
+      ctx.strokeStyle = ringColor;
+      ctx.stroke();
+      ctx.restore();
+
+      // Clip circle
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.clip();
+
+      if (img) {
+        const scale = Math.max((radius * 2) / img.width, (radius * 2) / img.height);
+        ctx.drawImage(img, x - img.width * scale / 2, y - img.height * scale / 2, img.width * scale, img.height * scale);
+      } else {
+        // Fallback: circle with first letter
+        ctx.fillStyle = '#2a2a0a';
+        ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+        ctx.font = `bold ${Math.round(radius * 0.9)}px sans-serif`;
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const letter = (fallbackName || '?').charAt(0).toUpperCase();
+        ctx.fillText(letter, x, y + 2);
+      }
+      ctx.restore();
+
+      // Ring border
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.lineWidth = ringWidth;
+      ctx.strokeStyle = ringColor;
+      ctx.stroke();
+    }
+
+    // ========== HEADER ==========
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 15;
+    ctx.font = 'bold 48px sans-serif';
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText('TOP RICHEST KINGS', W / 2, 65);
+    ctx.shadowBlur = 0;
+    ctx.font = '18px serif';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('iKON LEADERBOARD', W / 2, 95);
+
+    // Decorative line
+    const dg = ctx.createLinearGradient(200, 110, 800, 110);
+    dg.addColorStop(0, 'transparent');
+    dg.addColorStop(0.5, '#ffd700');
+    dg.addColorStop(1, 'transparent');
+    ctx.strokeStyle = dg;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(200, 110);
+    ctx.lineTo(800, 110);
+    ctx.stroke();
+
+    // ========== TOP 3 - REAL FACEBOOK PICTURES BIG ==========
+    const top3 = o.rows.slice(0, 3);
+    const podiumPositions = [
+      { x: 500, y: 210, radius: 85, ring: '#ffd700', ringWidth: 6, glow: 25, label: '1st', podiumY: 400, podiumH: 45, podiumColor: '#ffd700' }, // 1st - center
+      { x: 230, y: 240, radius: 70, ring: '#c0c0c0', ringWidth: 5, glow: 20, label: '2nd', podiumY: 430, podiumH: 45, podiumColor: '#c0c0c0' }, // 2nd - left
+      { x: 770, y: 240, radius: 70, ring: '#cd7f32', ringWidth: 5, glow: 20, label: '3rd', podiumY: 430, podiumH: 45, podiumColor: '#cd7f32' }, // 3rd - right
+    ];
+
+    for (let i = 0; i < 3; i++) {
+      const user = top3[i];
+      if (!user) continue;
+      const pos = podiumPositions[i];
+
+      // Draw avatar
+      await drawAvatar(user.uid, pos.x, pos.y, pos.radius, pos.ring, pos.ringWidth, pos.glow, user.name);
+
+      // Crown for 1st place
+      if (i === 0) {
+        ctx.font = '40px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffd700';
+        ctx.fillText('K', pos.x, pos.y - pos.radius - 24);
+      }
+
+      // Name below avatar
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = 4;
+      ctx.fillText(user.name, pos.x, pos.y + pos.radius + 30);
+      ctx.shadowBlur = 0;
+
+      // Balance
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText(`${user.balance.toLocaleString()} K-Cash`, pos.x, pos.y + pos.radius + 55);
+
+      // Podium base
+      ctx.fillStyle = pos.podiumColor;
+      const podiumW = 180;
+      const podiumX = pos.x - podiumW / 2;
+      ctx.fillRect(podiumX, pos.podiumY, podiumW, pos.podiumH);
+      // Podium label
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillStyle = '#000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(pos.label, pos.x, pos.podiumY + pos.podiumH / 2);
+    }
+
+    // ========== RANKS 4-10 - LIST ROWS ==========
+    const ranks4to10 = o.rows.slice(3, 10);
+    let rowY = 480;
+    const rowHeight = 80;
+    const rowGap = 15;
+
+    for (let i = 0; i < ranks4to10.length; i++) {
+      const user = ranks4to10[i];
+      const y = rowY + i * (rowHeight + rowGap);
+
+      // Round rect background
+      const rx = 60, rw = 880, rh = rowHeight, rr = 16;
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.beginPath();
+      ctx.moveTo(rx + rr, y);
+      ctx.lineTo(rx + rw - rr, y);
+      ctx.quadraticCurveTo(rx + rw, y, rx + rw, y + rr);
+      ctx.lineTo(rx + rw, y + rh - rr);
+      ctx.quadraticCurveTo(rx + rw, y + rh, rx + rw - rr, y + rh);
+      ctx.lineTo(rx + rr, y + rh);
+      ctx.quadraticCurveTo(rx, y + rh, rx, y + rh - rr);
+      ctx.lineTo(rx, y + rr);
+      ctx.quadraticCurveTo(rx, y, rx + rr, y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Stroke
+      ctx.strokeStyle = 'rgba(255,215,0,0.4)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Rank box
+      const rankBoxX = 95, rankBoxY = y + 18, rankBoxW = 50, rankBoxH = 44;
+      ctx.fillStyle = '#ffd700';
+      ctx.beginPath();
+      ctx.moveTo(rankBoxX + 6, rankBoxY);
+      ctx.lineTo(rankBoxX + rankBoxW - 6, rankBoxY);
+      ctx.quadraticCurveTo(rankBoxX + rankBoxW, rankBoxY, rankBoxX + rankBoxW, rankBoxY + 6);
+      ctx.lineTo(rankBoxX + rankBoxW, rankBoxY + rankBoxH - 6);
+      ctx.quadraticCurveTo(rankBoxX + rankBoxW, rankBoxY + rankBoxH, rankBoxX + rankBoxW - 6, rankBoxY + rankBoxH);
+      ctx.lineTo(rankBoxX + 6, rankBoxY + rankBoxH);
+      ctx.quadraticCurveTo(rankBoxX, rankBoxY + rankBoxH, rankBoxX, rankBoxY + rankBoxH - 6);
+      ctx.lineTo(rankBoxX, rankBoxY + 6);
+      ctx.quadraticCurveTo(rankBoxX, rankBoxY, rankBoxX + 6, rankBoxY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Rank number
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillStyle = '#000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(user.rank), rankBoxX + rankBoxW / 2, rankBoxY + rankBoxH / 2 + 1);
+
+      // Small avatar
+      const avatarX = 190, avatarY = y + rowHeight / 2, avatarR = 24;
+      await drawAvatar(user.uid, avatarX, avatarY, avatarR, '#ffd700', 2, 0, user.name);
+
+      // Name
+      ctx.font = 'bold 19px sans-serif';
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = 3;
+      ctx.fillText(user.name, 225, avatarY);
+      ctx.shadowBlur = 0;
+
+      // Balance
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillStyle = '#ffd700';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${user.balance.toLocaleString()} K-Cash`, 910, avatarY);
+    }
+
+    // ========== FOOTER ==========
+    const fy = H - 60;
+    const fdg = ctx.createLinearGradient(200, fy - 16, 800, fy - 16);
+    fdg.addColorStop(0, 'transparent');
+    fdg.addColorStop(0.5, '#ffd700');
+    fdg.addColorStop(1, 'transparent');
+    ctx.strokeStyle = fdg;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(200, fy - 16);
+    ctx.lineTo(800, fy - 16);
+    ctx.stroke();
+
+    ctx.font = '16px serif';
+    ctx.fillStyle = '#aaa';
+    ctx.textAlign = 'center';
+    ctx.fillText('Made with love by iKON BOT', W / 2, fy);
+
+    return cv.canvas.toDataURL('image/png');
+  } catch (err) {
+    const { error } = require('./helpers');
+    error(`[CARD] lbCard failed: ${err.message}`);
+    return null;
+  }
+}
+
 /**
  * Cute kiss card. 800x500, romantic anime style. No emoji in fillText (boxes on Linux).
  */
@@ -3226,6 +3512,7 @@ module.exports = {
   richestCard,
   bankCard,
   profileCard,
+  lbCard,
   userCard,
   boardCard,
   pairCard,

@@ -1042,6 +1042,89 @@ module.exports = [
   },
 
   // ─────────────────────────────────────────────────────────
+  // 15b — LB: Top 10 Richest with real Facebook pictures
+  // ─────────────────────────────────────────────────────────
+  {
+    name: 'lb',
+    aliases: ['top10'],
+    category: 'economy',
+    description: '🏆 Top 10 Richest Kings — 1000x1200 canvas with real Facebook pictures',
+    usage: '.lb',
+    hint: 'Shows top 10 by total wealth (wallet + vault). Top 3 get big real Facebook pictures on podium. Ranks 4-10 as list rows.',
+    cooldown: 30,
+    permission: 'all',
+    execute: async ({ userDoc, reply, react, event, api }) => guard(reply, event.messageID, 'lb', async () => {
+      await react('🏆');
+
+      if (!mongo.isReady()) {
+        await reply('📖 The city grid is down right now — the ledger of the city is unavailable.', event.messageID);
+        return;
+      }
+
+      // Total wealth, wallet PLUS vault.
+      const top = await User.aggregate([
+        { $addFields: { total: { $add: [{ $ifNull: ['$coins', 0] }, { $ifNull: ['$bank', 0] }] } } },
+        { $match: { total: { $gt: 0 } } },
+        { $sort: { total: -1, coins: -1 } },
+        { $limit: 10 },
+        { $project: { uid: 1, name: 1, coins: 1, bank: 1, total: 1, level: 1, _id: 0 } },
+      ]);
+
+      if (!top.length) {
+        await reply('🏆 Nobody has any K-Cash yet. Be the first.', event.messageID);
+        return;
+      }
+
+      // Resolve real names via Facebook
+      const profile = require('../bot/profile');
+      const names = await Promise.all(top.map((u) => profile.fetchRealName(u.uid, api).catch(() => null)));
+      const total = top.reduce((s, u) => s + (u.total || 0), 0);
+
+      // Find user's rank
+      let userRank = 0;
+      const userUid = String(userDoc && userDoc.uid || '');
+      if (userUid) {
+        const idx = top.findIndex(u => String(u.uid) === userUid);
+        if (idx >= 0) userRank = idx + 1;
+      }
+
+      // Build rows for canvas card
+      const rows = top.map((u, i) => ({
+        rank: i + 1,
+        uid: u.uid,
+        name: names[i] || u.name || 'Unknown',
+        balance: u.total,
+        level: u.level || 1,
+      }));
+
+      // Generate canvas card
+      const cards = require('../bot/cards');
+      const card = await cards.lbCard({ rows, api });
+
+      // Build text body
+      const lines = rows.map((u, i) => {
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
+        return `${medal} ${u.name} — ${u.balance.toLocaleString()} K-Cash`;
+      });
+
+      const body =
+        `🏆 **TOP 10 RICHEST KINGS**\n\n` +
+        lines.join('\n') +
+        `\n\n💵 **Total on books:** ${(top.reduce((s, u) => s + (u.total || 0), 0)).toLocaleString()} K-Cash` +
+        (userRank ? `\n\n👤 **Your rank:** #${userRank} — ${userDoc.coins + userDoc.bank}` : '');
+
+      if (card) {
+        await reply({
+          body,
+          attachment: { type: 'image', data: { url: card } },
+        }, event.messageID);
+      } else {
+        await reply(body + `\n\n📖 ${require('../bot/helpers').story()}`, event.messageID);
+      }
+    }),
+  },
+
+  // ─────────────────────────────────────────────────────────
   // 15
   // ─────────────────────────────────────────────────────────
   {
