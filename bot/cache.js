@@ -497,6 +497,27 @@ function clearReplyHandler(messageID) {
   return replyHandlers.delete(String(messageID));
 }
 
+/**
+ * Register a custom reply handler for a game type.
+ * 
+ * @param {string} gameType The game type (e.g., 'ttt', 'chess', 'rps', 'hangman', 'trivia')
+ * @param {object} handler Object with validate and process functions
+ * @returns {void}
+ */
+const replyHandlerRegistry = new Map();
+
+function registerReplyHandler(gameType, handler) {
+  if (!gameType || !handler || typeof handler.validate !== 'function' || typeof handler.process !== 'function') {
+    return false;
+  }
+  replyHandlerRegistry.set(gameType, handler);
+  return true;
+}
+
+function getRegisteredReplyHandler(gameType) {
+  return replyHandlerRegistry.get(gameType) || null;
+}
+
 const size = () => store.size;
 const clear = () => store.clear();
 
