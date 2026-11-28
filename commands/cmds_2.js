@@ -896,7 +896,7 @@ module.exports = [
   // ─────────────────────────────────────────────────────────
   {
     name: 'leaderboard',
-    aliases: ['lb', 'top'],
+    aliases: ['top'],
     category: 'economy',
     description: '🏆 Who runs iKON City? Top 10 richest hunters',
     usage: '!leaderboard',
