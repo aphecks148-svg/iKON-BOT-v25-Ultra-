@@ -1024,8 +1024,13 @@ function reloadCommands() {
  * @returns {{uid:string,name:string}[]}
  */
 function changeParticipants(data) {
+  // Try multiple possible fields for added participants (admin-added vs self-join)
   const raw = Array.isArray(data && data.addedParticipants)
     ? data.addedParticipants
+    : Array.isArray(data && data.added)
+    ? data.added
+    : Array.isArray(data && data.participants)
+    ? data.participants
     : [];
 
   const people = raw.map((p) => {
