@@ -312,18 +312,37 @@ async function thumbBuffer(url) {
 }
 
 /**
- * Draw a circular avatar.
+ * Draw a circular avatar with fallback chain.
  *
  * @param {object} ctx
- * @param {Buffer|null} buf picture bytes, or null for the generated fallback
+ * @param {Buffer|null} buf picture bytes from Facebook, or null
  * @param {number} x centre x
  * @param {number} y centre y
  * @param {number} d diameter
+ * @param {string|number} [uid] user id for initial letter fallback
  * @returns {Promise<void>}
  */
-async function drawAvatar(ctx, buf, x, y, d) {
-  const img = await loadImage(buf);
+async function drawAvatar(ctx, buf, x, y, d, uid) {
+  let img = await loadImage(buf);
   const r = d / 2;
+
+  // Fallback chain: Facebook avatar -> placeholder image -> generated avatar with initial
+  if (!img && uid) {
+    try {
+      const axios = require('axios');
+      const res = await axios.get('https://i.imgur.com/placeholder.png', {
+        responseType: 'arraybuffer',
+        timeout: 5000,
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      });
+      const placeholderBuf = Buffer.isBuffer(res.data) ? res.data : Buffer.from(res.data || []);
+      if (placeholderBuf.length >= 128) {
+        img = await loadImage(placeholderBuf);
+      }
+    } catch (err) {
+      // Placeholder download failed, will use generated avatar
+    }
+  }
 
   // Outer glow ring.
   ctx.save();
@@ -346,6 +365,27 @@ async function drawAvatar(ctx, buf, x, y, d) {
     const w = img.width * scale;
     const h = img.height * scale;
     ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+  } else if (uid) {
+    // Generated avatar with initial letter
+    const id = String(uid);
+    let hash = 0;
+    for (let i = 0; i < id.length; i += 1) {
+      hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0;
+    }
+    const hue = Math.abs(hash) % 360;
+    const grad = ctx.createLinearGradient(x - r, y - r, x + r, y + r);
+    grad.addColorStop(0, `hsl(${hue}, 62%, 34%)`);
+    grad.addColorStop(1, `hsl(${(hue + 48) % 360}, 62%, 18%)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - r, y - r, d, d);
+
+    // Initial letter
+    const letter = id.replace(/\D/g, '').slice(-2) || id.slice(0, 1).toUpperCase() || '?';
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.font = `bold ${Math.round(d * 0.34)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(letter).slice(-2), x, y + 2);
   } else {
     ctx.fillStyle = '#2a2a44';
     ctx.fillRect(x - r, y - r, d, d);
@@ -473,8 +513,8 @@ async function duoCard({ title, emoji = '❤️', subtitle = '', threadID, chatN
     const d = 128;
     const xs = solo ? [W2 / 2] : [W2 / 2 - 95, W2 / 2 + 95];
 
-    await drawAvatar(ctx, a.pic, xs[0], cy, d);
-    if (b) await drawAvatar(ctx, b.pic, xs[1], cy, d);
+    await drawAvatar(ctx, a.pic, xs[0], cy, d, a.uid);
+    if (b) await drawAvatar(ctx, b.pic, xs[1], cy, d, b.uid);
 
     // Names, under the photos but pushed outwards so two long names cannot
     // collide in the middle of the card.
@@ -496,7 +536,7 @@ async function duoCard({ title, emoji = '❤️', subtitle = '', threadID, chatN
       ctx.font = 'bold 34px sans-serif';
       ctx.fillStyle = d.accent;
       ctx.textAlign = 'center';
-      ctx.fillText('❤️', W2 / 2, cy);
+      ctx.fillText('♥', W2 / 2, cy);
     }
 
     // Glass panel behind the body text.
@@ -698,7 +738,7 @@ async function userCard({ title, emoji, subtitle, rows, api, user, image, design
 
     // Avatar + name block on the left of the body.
     const pic = image ? await thumbBuffer(image) : await profile.picture(user && user.uid, api);
-    await drawAvatar(ctx, pic, 92, 208, 112);
+    await drawAvatar(ctx, pic, 92, 208, 112, user && user.uid);
 
     const name = await realName(user || {}, api);
     ctx.textAlign = 'left';
@@ -827,7 +867,7 @@ async function boardCard({ title, emoji, subtitle, rows, value, detail, api, lim
         ctx.fillText(`${i + 1}.`, 44, y);
       }
 
-      await drawAvatar(ctx, pics[i], 148, y, 60);
+      await drawAvatar(ctx, pics[i], 148, y, 60, shown[i].uid);
 
       ctx.font = 'bold 27px sans-serif';
       ctx.fillStyle = d.text;
@@ -1166,7 +1206,7 @@ async function arrivalCard({ kind, uid, name, threadName, threadID, picUrl = '',
     const buf = picUrl
       ? await thumbBuffer(picUrl)
       : await profile.picture(id, api);
-    await drawAvatar(ctx, buf || await profile.fallbackAvatar(id, 256), ARRIVAL_W / 2, 312, 212);
+    await drawAvatar(ctx, buf || await profile.fallbackAvatar(id, 256), ARRIVAL_W / 2, 312, 212, id);
 
     // The name, from the same lookup the caption uses, so the two cannot
     // disagree — a card saying WELCOME while the body says something else is
@@ -1331,7 +1371,7 @@ async function textCard({ title, emoji = '', subtitle = '', body = '', footer = 
     accentBar(ctx, 24, 148, W - 48, d.accent, d.accent2);
 
     const pic = user ? await thumbBuffer(await profile.picture(user.uid, api)) : null;
-    await drawAvatar(ctx, pic, 92, 208, 112);
+    await drawAvatar(ctx, pic, 92, 208, 112, user && user.uid);
 
     const name = await realName(user || {}, api);
     ctx.textAlign = 'left';
@@ -1437,11 +1477,11 @@ async function perfectPairCard(opts) {
     }
 
     // Floating emojis.
-    const emojis = ['🦋', '🌸', '💫', '✨', '💕', '💖', '⭐', '❤️', '🌹'];
+    const syms = ['*', '~', '+', '.', '<3', '♥', '*', '♥', '@'];
     ctx.font = '24px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (let i = 0; i < 36; i++) {
       ctx.globalAlpha = 0.4 + (i % 5) * 0.12;
-      ctx.fillText(emojis[i % emojis.length], (i * 97) % 780 + 10, (i * 61) % 580 + 10);
+      ctx.fillText(syms[i % syms.length], (i * 97) % 780 + 10, (i * 61) % 580 + 10);
     }
     ctx.globalAlpha = 1;
 
@@ -1450,11 +1490,11 @@ async function perfectPairCard(opts) {
     ctx.shadowColor = '#ff4fa3'; ctx.shadowBlur = 18;
     ctx.font = 'italic bold 46px serif';
     ctx.fillStyle = '#ff2d87';
-    ctx.fillText('💖 PERFECT PAIR 💖', 400, 70);
+    ctx.fillText('♥ PERFECT PAIR ♥', 400, 70);
     ctx.shadowBlur = 0;
     ctx.font = '22px serif'; ctx.fillStyle = '#fff';
-    ctx.fillText('✨', 170, 62); ctx.fillText('✨', 630, 62);
-    ctx.fillText('✨', 210, 80); ctx.fillText('✨', 590, 80);
+    ctx.fillText('*', 170, 62); ctx.fillText('*', 630, 62);
+    ctx.fillText('*', 210, 80); ctx.fillText('*', 590, 80);
 
     // Golden divider.
     const dg = ctx.createLinearGradient(140, 100, 660, 100);
@@ -1505,7 +1545,7 @@ async function perfectPairCard(opts) {
 
     // flying hearts/sparkles.
     ctx.font = '18px serif';
-    const flies = [{ x: hx - 110, y: hy - 60, t: '💕' }, { x: hx + 105, y: hy - 55, t: '✨' }, { x: hx - 95, y: hy + 55, t: '💖' }, { x: hx + 100, y: hy + 60, t: '✨' }, { x: hx - 130, y: hy + 10, t: '🌸' }, { x: hx + 125, y: hy + 5, t: '💫' }];
+    const flies = [{ x: hx - 110, y: hy - 60, t: '<3' }, { x: hx + 105, y: hy - 55, t: '*' }, { x: hx - 95, y: hy + 55, t: '♥' }, { x: hx + 100, y: hy + 60, t: '*' }, { x: hx - 130, y: hy + 10, t: '@' }, { x: hx + 125, y: hy + 5, t: '+' }];
     flies.forEach((f) => ctx.fillText(f.t, f.x, f.y));
 
     // Names.
@@ -1524,7 +1564,7 @@ async function perfectPairCard(opts) {
     ctx.beginPath(); ctx.moveTo(200, fy - 30); ctx.lineTo(600, fy - 30); ctx.stroke();
     ctx.font = 'italic 18px serif'; ctx.fillStyle = '#7c3aed';
     ctx.shadowColor = 'rgba(255,255,255,0.6)'; ctx.shadowBlur = 2;
-    ctx.fillText(o.footer || 'Made with 💖 by iKON BOT', 400, fy); ctx.shadowBlur = 0;
+    ctx.fillText(o.footer || 'Made with <3 by iKON BOT', 400, fy); ctx.shadowBlur = 0;
     ctx.font = '14px serif'; ctx.fillStyle = '#ff4fa3';
     ctx.fillText('• ── ♡ ── •', 400, fy + 22);
     ctx.font = '16px serif'; ctx.fillStyle = '#7c3aed';
@@ -1653,21 +1693,21 @@ async function welcomeCard(opts) {
     ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
     // bokeh
     for(let i=0;i<16;i++){const x=(i*131)%W,y=(i*83)%H,r=40+(i%4)*20;const g=ctx.createRadialGradient(x,y,0,x,y,r);const c=['#fff','#ffd6a5','#b5e8ff','#ffc4e0'];g.addColorStop(0,c[i%c.length]+'55');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
-    const emojis=['🌸','💖','⭐','🎈','✨','🎊','👑'];
+    const syms = ['@', '<3', '*', 'o', '.', '+', 'K'];
     ctx.font='26px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    for(let i=0;i<32;i++){ctx.globalAlpha=0.5+(i%5)*0.1;ctx.fillText(emojis[i%emojis.length],(i*97)%780+10,(i*61)%480+10);}ctx.globalAlpha=1;
+    for(let i=0;i<32;i++){ctx.globalAlpha=0.5+(i%5)*0.1;ctx.fillText(syms[i%syms.length],(i*97)%780+10,(i*61)%480+10);}ctx.globalAlpha=1;
     // header
     ctx.textAlign='center'; ctx.shadowColor='#ff69b4'; ctx.shadowBlur=16;
     ctx.font='bold 38px sans-serif'; ctx.fillStyle='#fff';
-    ctx.fillText('🎉 WELCOME TO THE FAMILY! 🎉', W/2, 52);
+    ctx.fillText('!!! WELCOME TO THE FAMILY !!!', W/2, 52);
     if (o.groupName){ ctx.font='bold 22px sans-serif'; ctx.fillStyle='#fff'; ctx.fillText('('+o.groupName+')', W/2, 84); }
     ctx.shadowBlur=0;
     ctx.font='20px serif'; ctx.fillStyle='#fff';
-    ctx.fillText('🎊', W/2-230, 50); ctx.fillText('✨', W/2+230, 50); ctx.fillText('👑', W/2, 20);
+    ctx.fillText('+', W/2-230, 50); ctx.fillText('*', W/2+230, 50); ctx.fillText('K', W/2, 20);
     const dg=ctx.createLinearGradient(140,108,660,108);
     dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#ffd700');dg.addColorStop(0.5,'#fff3b0');dg.addColorStop(0.7,'#ffd700');dg.addColorStop(1,'transparent');
     ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,108);ctx.lineTo(660,108);ctx.stroke();
-    ctx.font='16px serif'; ctx.fillStyle='#ff69b4'; ctx.fillText('• ── 🌸 ── •', W/2, 120);
+    ctx.font='16px serif'; ctx.fillStyle='#ff69b4'; ctx.fillText('• ── @ ── •', W/2, 120);
     // avatar center
     const cx=W/2, cy=270, r=95;
     // rays
@@ -1676,8 +1716,8 @@ async function welcomeCard(opts) {
     // golden ring
     ctx.save(); ctx.shadowColor='#ffd700'; ctx.shadowBlur=30;
     ctx.beginPath(); ctx.arc(cx,cy,r+6,0,Math.PI*2); ctx.lineWidth=8; ctx.strokeStyle='#ffd700'; ctx.stroke(); ctx.restore();
-    // crown
-    ctx.font='46px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('👑', cx, cy-r-30);
+    // crown (draw K instead of crown emoji)
+    ctx.font='46px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('K', cx, cy-r-30);
     ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.clip();
     const buf = o.pic ? await thumbBuffer(o.pic) : null;
     if(buf){const img=await loadImage(buf); if(img){const sc=Math.max(190/img.width,190/img.height);ctx.drawImage(img,cx-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);}else{ctx.fillStyle='#2a2a44';ctx.fillRect(cx-r,cy-r,190,190);}}
@@ -1687,9 +1727,9 @@ async function welcomeCard(opts) {
     // names
     ctx.font='bold 28px sans-serif'; ctx.fillStyle='#fff'; ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=6;
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('Welcome, '+(o.name||'Alex')+'! ♡', cx, cy+r+52);
+    ctx.fillText('Welcome, '+(o.name||'Alex')+'! <3', cx, cy+r+52);
     ctx.font='18px sans-serif'; ctx.shadowBlur=0;
-    ctx.fillText('You are our '+(o.memberCount||'1,250')+'th member 🥳', cx, cy+r+80);
+    ctx.fillText('You are our '+(o.memberCount||'1,250')+'th member !', cx, cy+r+80);
     // footer
     const fy=H-50;
     const fdg=ctx.createLinearGradient(120,fy-20,680,fy-20);
@@ -1697,9 +1737,9 @@ async function welcomeCard(opts) {
     ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-20);ctx.lineTo(680,fy-20);ctx.stroke();
     ctx.font='italic 15px serif'; ctx.fillStyle='#7c3aed';
     ctx.shadowColor='rgba(255,255,255,0.6)'; ctx.shadowBlur=2;
-    ctx.fillText('• ── 💖 Made with 🌸 by iKON BOT • Enjoy Your Stay! 🌸 ── •', W/2, fy); ctx.shadowBlur=0;
+    ctx.fillText('• ── <3 Made with @ by iKON BOT • Enjoy Your Stay! @ ── •', W/2, fy); ctx.shadowBlur=0;
     ctx.font='16px serif'; ctx.fillStyle='#ff69b4';
-    ctx.fillText('Welcome to '+(o.groupName||'[Group Name]')+' 🌸', W/2, fy+20);
+    ctx.fillText('Welcome to '+(o.groupName||'[Group Name]')+' @', W/2, fy+20);
     return cv.canvas.toDataURL('image/png');
   } catch (err) {
     const { error } = require('./helpers');
@@ -1726,29 +1766,29 @@ async function goodbyeCard(opts) {
     // rain drops
     ctx.strokeStyle='rgba(200,220,255,0.35)'; ctx.lineWidth=1.5;
     for(let i=0;i<40;i++){const x=(i*47)%W,y=(i*31)%H;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+2,y+12);ctx.stroke();}
-    const emojis=['😢','💔','🥀','☁️','🕊️','💫'];
+    const syms = [':(', '<3', '@', 'o', 'v', '+'];
     ctx.font='24px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    for(let i=0;i<26;i++){ctx.globalAlpha=0.45+(i%4)*0.1;ctx.fillText(emojis[i%emojis.length],(i*103)%780+10,(i*67)%480+10);}ctx.globalAlpha=1;
+    for(let i=0;i<26;i++){ctx.globalAlpha=0.45+(i%4)*0.1;ctx.fillText(syms[i%syms.length],(i*103)%780+10,(i*67)%480+10);}ctx.globalAlpha=1;
     // sunset glow behind avatar
     const sg=ctx.createRadialGradient(W/2,260,0,W/2,260,200);sg.addColorStop(0,'rgba(255,150,120,0.35)');sg.addColorStop(1,'transparent');ctx.fillStyle=sg;ctx.beginPath();ctx.arc(W/2,260,200,0,Math.PI*2);ctx.fill();
     // header
     ctx.textAlign='center'; ctx.shadowColor='rgba(255,255,255,0.5)'; ctx.shadowBlur=12;
     ctx.font='bold 34px sans-serif'; ctx.fillStyle='#f0f0ff';
-    ctx.fillText('😢 GOODBYE, WE WILL MISS YOU! 😢', W/2, 52);
+    ctx.fillText(':,( GOODBYE, WE WILL MISS YOU! :,', W/2, 52);
     ctx.shadowBlur=0;
     ctx.font='20px serif'; ctx.fillStyle='#f0f0ff';
-    ctx.fillText('💔', W/2-210, 50); ctx.fillText('☁️', W/2+210, 50);
+    ctx.fillText('<3', W/2-210, 50); ctx.fillText('o', W/2+210, 50);
     const dg=ctx.createLinearGradient(140,88,660,88);
     dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#a0a0c0');dg.addColorStop(0.5,'#d0d0e8');dg.addColorStop(0.7,'#a0a0c0');dg.addColorStop(1,'transparent');
     ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,88);ctx.lineTo(660,88);ctx.stroke();
-    ctx.font='16px serif'; ctx.fillStyle='#c8c8e8'; ctx.fillText('• ── 🕊️ ── •', W/2, 100);
+    ctx.font='16px serif'; ctx.fillStyle='#c8c8e8'; ctx.fillText('• ── v ── •', W/2, 100);
     // avatar
     const cx=W/2, cy=270, r=90;
     ctx.save(); ctx.shadowColor='#a0a0c0'; ctx.shadowBlur=24;
     ctx.beginPath(); ctx.arc(cx,cy,r+6,0,Math.PI*2); ctx.lineWidth=8; ctx.strokeStyle='rgba(180,180,220,0.6)'; ctx.stroke(); ctx.restore();
-    // angel wings
+    // angel wings (use v for wings)
     ctx.font='44px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('👼', cx-r-30, cy); ctx.fillText('👼', cx+r+30, cy);
+    ctx.fillText('v', cx-r-30, cy); ctx.fillText('v', cx+r+30, cy);
     ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.clip();
     const buf = o.pic ? await thumbBuffer(o.pic) : null;
     if(buf){const img=await loadImage(buf); if(img){const sc=Math.max(180/img.width,180/img.height);ctx.globalAlpha=0.85;ctx.drawImage(img,cx-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);ctx.globalAlpha=1;}else{ctx.fillStyle='#2a2a44';ctx.fillRect(cx-r,cy-r,180,180);}}
@@ -1757,9 +1797,9 @@ async function goodbyeCard(opts) {
     // names
     ctx.font='bold 26px sans-serif'; ctx.fillStyle='#f0f0ff'; ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=6;
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText('Goodbye, '+(o.name||'Alex')+' ♡', cx, cy+r+36);
+    ctx.fillText('Goodbye, '+(o.name||'Alex')+' <3', cx, cy+r+36);
     ctx.font='18px sans-serif'; ctx.shadowBlur=0;
-    ctx.fillText('Hope to see you again soon! 💫', cx, cy+r+64);
+    ctx.fillText('Hope to see you again soon! +', cx, cy+r+64);
     // footer
     const fy=H-50;
     const fdg=ctx.createLinearGradient(120,fy-20,680,fy-20);
@@ -1767,7 +1807,7 @@ async function goodbyeCard(opts) {
     ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-20);ctx.lineTo(680,fy-20);ctx.stroke();
     ctx.font='italic 15px serif'; ctx.fillStyle='#d0d0e8';
     ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=2;
-    ctx.fillText('• ── 🥀 Made with 💔 by iKON BOT • Good Luck! 🕊️ ── •', W/2, fy); ctx.shadowBlur=0;
+    ctx.fillText('• ── @ Made with <3 by iKON BOT • Good Luck! v ── •', W/2, fy); ctx.shadowBlur=0;
     return cv.canvas.toDataURL('image/png');
   } catch (err) {
     const { error } = require('./helpers');
@@ -1777,12 +1817,12 @@ async function goodbyeCard(opts) {
 }
 
 /**
- * Premium profile card. 800x550, modern gaming aesthetic.
+ * Premium profile card. 1000x600, modern gaming aesthetic.
  */
 async function profileCard(opts) {
   if (!canvasKit.available()) return null;
   const o = opts || {};
-  const W = 800, H = 550;
+  const W = 1000, H = 600;
   try {
     const cv = canvasKit.create(W, H);
     const ctx = cv.ctx;
@@ -1790,30 +1830,30 @@ async function profileCard(opts) {
     bg.addColorStop(0,'#0a0f2e'); bg.addColorStop(0.5,'#1a1040'); bg.addColorStop(1,'#2d1050');
     ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
     // particles
-    for(let i=0;i<24;i++){const x=(i*137)%W,y=(i*89)%H,r=2+(i%3);const g=ctx.createRadialGradient(x,y,0,x,y,r*4);g.addColorStop(0,'rgba(180,150,255,0.6)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r*4,0,Math.PI*2);ctx.fill();}
-    const emojis=['💎','✨','🔥','⭐','👑'];
+    for(let i=0;i<30;i++){const x=(i*137)%W,y=(i*89)%H,r=2+(i%3);const g=ctx.createRadialGradient(x,y,0,x,y,r*4);g.addColorStop(0,'rgba(180,150,255,0.6)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r*4,0,Math.PI*2);ctx.fill();}
+    const syms = ['#', '*', '!', '@', 'K'];
     ctx.font='24px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    for(let i=0;i<22;i++){ctx.globalAlpha=0.4+(i%4)*0.12;ctx.fillText(emojis[i%emojis.length],(i*113)%780+10,(i*71)%530+10);}ctx.globalAlpha=1;
+    for(let i=0;i<28;i++){ctx.globalAlpha=0.4+(i%4)*0.12;ctx.fillText(syms[i%syms.length],(i*113)%980+10,(i*71)%580+10);}ctx.globalAlpha=1;
     // header
     ctx.textAlign='center'; ctx.shadowColor='#c084fc'; ctx.shadowBlur=18;
-    ctx.font='bold 40px sans-serif'; ctx.fillStyle='#fff';
-    ctx.fillText('👤 USER PROFILE 👤', W/2, 52);
+    ctx.font='bold 48px sans-serif'; ctx.fillStyle='#fff';
+    ctx.fillText('[ USER PROFILE ]', W/2, 58);
     ctx.shadowBlur=0;
-    ctx.font='20px serif'; ctx.fillStyle='#fff';
-    ctx.fillText('✨', W/2-200, 48); ctx.fillText('💎', W/2+200, 48);
-    const dg=ctx.createLinearGradient(140,88,660,88);
+    ctx.font='22px serif'; ctx.fillStyle='#fff';
+    ctx.fillText('*', W/2-220, 54); ctx.fillText('#', W/2+220, 54);
+    const dg=ctx.createLinearGradient(160,96,840,96);
     dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#c084fc');dg.addColorStop(0.5,'#ffd700');dg.addColorStop(0.7,'#c084fc');dg.addColorStop(1,'transparent');
-    ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,88);ctx.lineTo(660,88);ctx.stroke();
-    ctx.font='16px serif'; ctx.fillStyle='#c084fc'; ctx.fillText('• ── 💎 ── •', W/2, 100);
+    ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(160,96);ctx.lineTo(840,96);ctx.stroke();
+    ctx.font='18px serif'; ctx.fillStyle='#c084fc'; ctx.fillText('• ── # ── •', W/2, 108);
     // avatar left
-    const ax=200, ay=290, r=95;
+    const ax=250, ay=320, r=110;
     // double ring
     ctx.save(); ctx.shadowColor='#c084fc'; ctx.shadowBlur=26;
     ctx.beginPath(); ctx.arc(ax,ay,r+10,0,Math.PI*2); ctx.lineWidth=6; ctx.strokeStyle='#c084fc'; ctx.stroke(); ctx.restore();
     ctx.save(); ctx.shadowColor='#ffd700'; ctx.shadowBlur=18;
     ctx.beginPath(); ctx.arc(ax,ay,r+2,0,Math.PI*2); ctx.lineWidth=4; ctx.strokeStyle='#ffd700'; ctx.stroke(); ctx.restore();
-    // crown
-    ctx.font='40px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('👑', ax, ay-r-26);
+    // crown (use K instead of crown emoji)
+    ctx.font='40px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('K', ax, ay-r-26);
     // avatar
     ctx.save(); ctx.beginPath(); ctx.arc(ax,ay,r,0,Math.PI*2); ctx.clip();
     const buf = o.pic ? await thumbBuffer(o.pic) : null;
@@ -1825,44 +1865,44 @@ async function profileCard(opts) {
     ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.stroke();
     // level badge
     ctx.save(); ctx.shadowColor='#ffd700'; ctx.shadowBlur=14;
-    ctx.beginPath(); ctx.arc(ax+r-8, ay+r+8, 26,0,Math.PI*2); ctx.fillStyle='#ffd700'; ctx.fill(); ctx.restore();
-    ctx.font='bold 14px sans-serif'; ctx.fillStyle='#1a1040'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.beginPath(); ctx.arc(ax+r-8, ay+r+8, 30,0,Math.PI*2); ctx.fillStyle='#ffd700'; ctx.fill(); ctx.restore();
+    ctx.font='bold 16px sans-serif'; ctx.fillStyle='#1a1040'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('LVL '+(o.level||25), ax+r-8, ay+r+8);
     // info box glassmorphism
-    const bx=330, by=130, bw=440, bh=360;
+    const bx=400, by=150, bw=560, bh=400;
     ctx.save();
     ctx.fillStyle='rgba(255,255,255,0.08)';
     // rounded rect
-    const rad=20;
+    const rad=24;
     ctx.beginPath(); ctx.moveTo(bx+rad,by); ctx.lineTo(bx+bw-rad,by); ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+rad); ctx.lineTo(bx+bw,by+bh-rad); ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-rad,by+bh); ctx.lineTo(bx+rad,by+bh); ctx.quadraticCurveTo(bx,by+bh,bx,by+bh-rad); ctx.lineTo(bx,by+rad); ctx.quadraticCurveTo(bx,by,bx+rad,by); ctx.closePath();
     ctx.fill();
     ctx.strokeStyle='rgba(192,132,252,0.5)'; ctx.lineWidth=2; ctx.stroke();
     ctx.restore();
-    // info text
+    // info text (no emojis in canvas)
     const lines = [
-      '♡ Name: '+(o.name||'Alex Carter')+' ♡',
-      '🆔 UID: '+(o.uid||'100012345678'),
-      '💰 Balance: '+(o.balance||'12,500')+' coins',
-      '⭐ Level: '+(o.level||25)+' • EXP: '+(o.exp||'2,340'),
-      '💬 Messages: '+(o.messages||'1,890'),
-      '🎖️ Rank: '+(o.rank||'Legend 👑'),
-      '📅 Joined: '+(o.joined||'12 Jan 2026'),
+      '<3 Name: '+(o.name||'Alex Carter')+' <3',
+      'UID: '+(o.uid||'100012345678'),
+      '$ Balance: '+(o.balance||'12,500')+' coins',
+      '* Level: '+(o.level||25)+' • EXP: '+(o.exp||'2,340'),
+      '@ Messages: '+(o.messages||'1,890'),
+      '! Rank: '+(o.rank||'Legend K'),
+      '+ Joined: '+(o.joined||'12 Jan 2026'),
     ];
-    ctx.font='bold 20px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.font='bold 24px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.textBaseline='middle';
     ctx.shadowColor='rgba(0,0,0,0.4)'; ctx.shadowBlur=4;
-    let y=by+30;
-    for (const l of lines){ ctx.fillText(l, bx+24, y); y+=44; }
+    let y=by+40;
+    for (const l of lines){ ctx.fillText(l, bx+30, y); y+=52; }
     ctx.shadowBlur=0;
     // footer
-    const fy=H-40;
-    const fdg=ctx.createLinearGradient(120,fy-16,680,fy-16);
+    const fy=H-50;
+    const fdg=ctx.createLinearGradient(160,fy-16,840,fy-16);
     fdg.addColorStop(0,'transparent');fdg.addColorStop(0.5,'#c084fc');fdg.addColorStop(1,'transparent');
-    ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-16);ctx.lineTo(680,fy-16);ctx.stroke();
-    ctx.font='italic 15px serif'; ctx.fillStyle='#c084fc'; ctx.textAlign='center';
+    ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(160,fy-16);ctx.lineTo(840,fy-16);ctx.stroke();
+    ctx.font='italic 18px serif'; ctx.fillStyle='#c084fc'; ctx.textAlign='center';
     ctx.shadowColor='rgba(255,255,255,0.5)'; ctx.shadowBlur=2;
-    ctx.fillText('• ── 💖 Made with 👑 by iKON BOT • Your Profile • ── •', W/2, fy); ctx.shadowBlur=0;
-    ctx.font='16px serif'; ctx.fillStyle='#ffd700';
-    ctx.fillText('🌟 ✨ 💎 ✨ 🌟', W/2, fy+18);
+    ctx.fillText('• ── <3 Made with K by iKON BOT • Your Profile • ── •', W/2, fy); ctx.shadowBlur=0;
+    ctx.font='18px serif'; ctx.fillStyle='#ffd700';
+    ctx.fillText('* # * # *', W/2, fy+22);
     return cv.canvas.toDataURL('image/png');
   } catch (err) {
     const { error } = require('./helpers');
@@ -1886,27 +1926,27 @@ async function richestCard(opts) {
     ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
     // bokeh gold
     for(let i=0;i<18;i++){const x=(i*157)%W,y=(i*101)%H,r=40+(i%5)*18;const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,'rgba(255,215,0,0.22)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
-    const emojis=['💰','💎','👑','💸','💵','✨'];
+    const syms = ['$', '#', 'K', '$', '$', '*'];
     ctx.font='26px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    for(let i=0;i<30;i++){ctx.globalAlpha=0.45+(i%4)*0.12;ctx.fillText(emojis[i%emojis.length],(i*109)%880+10,(i*73)%580+10);}ctx.globalAlpha=1;
+    for(let i=0;i<30;i++){ctx.globalAlpha=0.45+(i%4)*0.12;ctx.fillText(syms[i%syms.length],(i*109)%880+10,(i*73)%580+10);}ctx.globalAlpha=1;
     // falling coins
     ctx.font='18px serif';
-    for(let i=0;i<12;i++){ctx.globalAlpha=0.6;ctx.fillText('🪙',(i*73)%880+10,(i*41+ (i*7))%580+10);}ctx.globalAlpha=1;
+    for(let i=0;i<12;i++){ctx.globalAlpha=0.6;ctx.fillText('$',(i*73)%880+10,(i*41+ (i*7))%580+10);}ctx.globalAlpha=1;
     // header
     ctx.textAlign='center'; ctx.shadowColor='#ffd700'; ctx.shadowBlur=20;
     ctx.font='bold 42px sans-serif'; ctx.fillStyle='#ffd700';
-    ctx.fillText('👑 TOP RICHEST KINGS 👑', W/2, 56);
+    ctx.fillText('K TOP RICHEST KINGS K', W/2, 56);
     ctx.shadowBlur=0;
     ctx.font='22px serif'; ctx.fillStyle='#fff';
-    ctx.fillText('💰', W/2-260, 52); ctx.fillText('💎', W/2+260, 52); ctx.fillText('👑', W/2, 22);
+    ctx.fillText('$', W/2-260, 52); ctx.fillText('#', W/2+260, 52); ctx.fillText('K', W/2, 22);
     const dg=ctx.createLinearGradient(140,92,760,92);
     dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#ffd700');dg.addColorStop(0.5,'#fff3b0');dg.addColorStop(0.7,'#ffd700');dg.addColorStop(1,'transparent');
     ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,92);ctx.lineTo(760,92);ctx.stroke();
-    ctx.font='16px serif'; ctx.fillStyle='#ffd700'; ctx.fillText('• ── 💰 ── •', W/2, 104);
+    ctx.font='16px serif'; ctx.fillStyle='#ffd700'; ctx.fillText('• ── $ ── •', W/2, 104);
     const rows = (o.rows && o.rows.length) ? o.rows : [
-      {rank:1,name:'Alex',bal:'1,250,000',emoji:'🥇'},
-      {rank:2,name:'Emma',bal:'980,000',emoji:'🥈'},
-      {rank:3,name:'John',bal:'750,000',emoji:'🥉'},
+      {rank:1,name:'Alex',bal:'1,250,000',emoji:'1'},
+      {rank:2,name:'Emma',bal:'980,000',emoji:'2'},
+      {rank:3,name:'John',bal:'750,000',emoji:'3'},
       {rank:4,name:'Sarah',bal:'620,000',emoji:'4'},
       {rank:5,name:'Mike',bal:'510,000',emoji:'5'},
     ];
@@ -1923,36 +1963,21 @@ async function richestCard(opts) {
       if(buf){const img=await loadImage(buf); if(img){const sc=Math.max(p.r*2/img.width,p.r*2/img.height);ctx.drawImage(img,p.x-img.width*sc/2,p.y-img.height*sc/2,img.width*sc,img.height*sc);}else{ctx.fillStyle='#2a2a1a';ctx.fillRect(p.x-p.r,p.y-p.r,p.r*2,p.r*2);}}
       else {ctx.fillStyle='#2a2a1a';ctx.fillRect(p.x-p.r,p.y-p.r,p.r*2,p.r*2);}
       ctx.restore();
-      if(idx===1){ctx.font='40px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('👑',p.x,p.y-p.r-24);}
+      if(idx===1){ctx.font='40px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('K',p.x,p.y-p.r-24);}
       ctx.font='bold 16px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=4;
       ctx.fillText(u.emoji+' '+u.name, p.x, p.y+p.r+24);
       ctx.font='bold 14px sans-serif'; ctx.fillStyle=p.ring;
       ctx.fillText(u.bal+' coins', p.x, p.y+p.r+44);
       ctx.shadowBlur=0;
     }
-    // list rows
-    const listStart=370;
-    const show = rows.slice(3, (o.limit||8));
-    let y=listStart;
-    for (const u of show){
-      // glass row
-      ctx.fillStyle='rgba(255,255,255,0.07)';
-      ctx.beginPath(); const rr=12; ctx.moveTo(80+rr,y); ctx.lineTo(W-80-rr,y); ctx.quadraticCurveTo(W-80,y,W-80,y+rr); ctx.lineTo(W-80,y+44-rr); ctx.quadraticCurveTo(W-80,y+44,W-80-rr,y+44); ctx.lineTo(80+rr,y+44); ctx.quadraticCurveTo(80,y+44,80,y+44-rr); ctx.lineTo(80,y+rr); ctx.quadraticCurveTo(80,y,80+rr,y); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle='rgba(255,215,0,0.3)'; ctx.lineWidth=1; ctx.stroke();
-      ctx.font='bold 20px sans-serif'; ctx.fillStyle='#ffd700'; ctx.textAlign='left'; ctx.textBaseline='middle';
-      ctx.fillText(u.emoji+'  '+(u.rank||'')+'.  '+(u.name||''), 100, y+22);
-      ctx.textAlign='right'; ctx.fillStyle='#fff';
-      ctx.fillText((u.bal||'0')+' coins 💰', W-100, y+22);
-      y+=52;
-    }
-    // footer
+    // footer - only show top 3 on canvas
     const fy=H-40;
     const fdg=ctx.createLinearGradient(120,fy-16,780,fy-16);
     fdg.addColorStop(0,'transparent');fdg.addColorStop(0.5,'#ffd700');fdg.addColorStop(1,'transparent');
     ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-16);ctx.lineTo(780,fy-16);ctx.stroke();
     ctx.font='italic 15px serif'; ctx.fillStyle='#ffd700'; ctx.textAlign='center';
     ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=2;
-    ctx.fillText('• ── 💰 Made with 👑 by iKON BOT • Who is the richest? 💎 ── •', W/2, fy); ctx.shadowBlur=0;
+    ctx.fillText('• ── $ Made with K by iKON BOT • Top 3 Only # ── •', W/2, fy); ctx.shadowBlur=0;
     return cv.canvas.toDataURL('image/png');
   } catch (err) {
     const { error } = require('./helpers');
@@ -1980,29 +2005,29 @@ async function leaderboardCard(opts) {
     for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
     // bokeh
     for(let i=0;i<16;i++){const x=(i*163)%W,y=(i*97)%H,r=30+(i%4)*15;const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,'rgba(0,200,255,0.18)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
-    const emojis=['🔥','⚡','💫','🏆','✨'];
+    const syms = ['!', '@', '+', '#', '*'];
     ctx.font='24px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    for(let i=0;i<24;i++){ctx.globalAlpha=0.4+(i%4)*0.12;ctx.fillText(emojis[i%emojis.length],(i*127)%880+10,(i*67)%580+10);}ctx.globalAlpha=1;
+    for(let i=0;i<24;i++){ctx.globalAlpha=0.4+(i%4)*0.12;ctx.fillText(syms[i%syms.length],(i*127)%880+10,(i*67)%580+10);}ctx.globalAlpha=1;
     // header
     ctx.textAlign='center'; ctx.shadowColor='#00c8ff'; ctx.shadowBlur=20;
     ctx.font='bold 44px sans-serif'; ctx.fillStyle='#00c8ff';
-    ctx.fillText('🏆 LEADERBOARD 🏆', W/2, 56);
+    ctx.fillText('# LEADERBOARD #', W/2, 56);
     ctx.shadowBlur=0;
     ctx.font='22px serif'; ctx.fillStyle='#fff';
-    ctx.fillText('🔥', W/2-230, 52); ctx.fillText('⭐', W/2+230, 52);
+    ctx.fillText('!', W/2-230, 52); ctx.fillText('#', W/2+230, 52);
     const dg=ctx.createLinearGradient(140,92,760,92);
     dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#00c8ff');dg.addColorStop(0.5,'#fff3b0');dg.addColorStop(0.7,'#00c8ff');dg.addColorStop(1,'transparent');
     ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,92);ctx.lineTo(760,92);ctx.stroke();
-    ctx.font='16px serif'; ctx.fillStyle='#00c8ff'; ctx.fillText('• ── ⚡ ── •', W/2, 104);
+    ctx.font='16px serif'; ctx.fillStyle='#00c8ff'; ctx.fillText('• ── @ ── •', W/2, 104);
     const rows = (o.rows && o.rows.length) ? o.rows : [
-      {rank:1,name:'Alex',level:45,xp:15200,max:20000,medal:'🥇'},
-      {rank:2,name:'Emma',level:42,xp:13800,max:20000,medal:'🥈'},
-      {rank:3,name:'John',level:38,xp:11000,max:20000,medal:'🥉'},
+      {rank:1,name:'Alex',level:45,xp:15200,max:20000,medal:'1'},
+      {rank:2,name:'Emma',level:42,xp:13800,max:20000,medal:'2'},
+      {rank:3,name:'John',level:38,xp:11000,max:20000,medal:'3'},
       {rank:4,name:'Sarah',level:35,xp:9800,max:20000,medal:'4'},
       {rank:5,name:'Mike',level:32,xp:8500,max:20000,medal:'5'},
     ];
     let y=130;
-    for (const u of rows.slice(0, (o.limit||10))){
+    for (const u of rows.slice(0, 3)){
       // glass row
       ctx.fillStyle='rgba(255,255,255,0.06)';
       const rr=14;
@@ -2044,7 +2069,7 @@ async function leaderboardCard(opts) {
     ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-16);ctx.lineTo(780,fy-16);ctx.stroke();
     ctx.font='italic 15px serif'; ctx.fillStyle='#00c8ff'; ctx.textAlign='center';
     ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=2;
-    ctx.fillText('• ── 🏆 Made with ⚡ by iKON BOT • Keep Grinding! 🔥 ── •', W/2, fy); ctx.shadowBlur=0;
+    ctx.fillText('• ── # Made with @ by iKON BOT • Keep Grinding! ! ── •', W/2, fy); ctx.shadowBlur=0;
     return cv.canvas.toDataURL('image/png');
   } catch (err) {
     const { error } = require('./helpers');
@@ -2641,6 +2666,7 @@ async function divorceCard(opts) {
 
 /**
  * Cool rizz/aura card. 800x500, swag style. No emoji in fillText.
+ * Simplified version based on flexCard pattern.
  */
 async function rizzCard(opts) {
   if (!canvasKit.available()) return null;
@@ -2652,13 +2678,12 @@ async function rizzCard(opts) {
     const bg = ctx.createLinearGradient(0,0,W,H);
     bg.addColorStop(0,'#1a0a2e'); bg.addColorStop(0.5,'#0f0a1f'); bg.addColorStop(1,'#000000');
     ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
-    // neon glow
-    for(let i=0;i<18;i++){const x=(i*163)%W,y=(i*97)%H,r=30+(i%4)*15;const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,'rgba(180,0,255,0.28)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
-    // lightning
-    ctx.strokeStyle='rgba(180,0,255,0.4)'; ctx.lineWidth=2;
-    for(let i=0;i<4;i++){const x=100+i*200;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x-20,60);ctx.lineTo(x+10,60);ctx.lineTo(x-10,120);ctx.stroke();}
+    // simple glow particles
+    for(let i=0;i<18;i++){const x=(i*157)%W,y=(i*101)%H,r=30+(i%4)*15;const g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,'rgba(180,0,255,0.22)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+    // rizz particles
+    ctx.font='20px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let i=0;i<20;i++){ctx.globalAlpha=0.5;ctx.fillText('*',(i*73)%880+10,(i*41)%580+10);}ctx.globalAlpha=1;
     const syms=['•','★','X'];
-    ctx.font='24px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let i=0;i<24;i++){ctx.globalAlpha=0.4+(i%4)*0.12;ctx.fillText(syms[i%syms.length],(i*127)%780+10,(i*67)%480+10);}ctx.globalAlpha=1;
     // header
     ctx.textAlign='center'; ctx.shadowColor='#b400ff'; ctx.shadowBlur=20;
@@ -2669,9 +2694,9 @@ async function rizzCard(opts) {
     dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#b400ff');dg.addColorStop(0.5,'#fff3b0');dg.addColorStop(0.7,'#b400ff');dg.addColorStop(1,'transparent');
     ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,92);ctx.lineTo(660,92);ctx.stroke();
     ctx.font='16px serif'; ctx.fillStyle='#b400ff'; ctx.fillText('• ──  ── •', W/2, 104);
-    // avatar center with purple aura
+    // avatar center
     const cx=W/2, cy=250, r=90;
-    const ag=ctx.createRadialGradient(cx,cy,0,cx,cy,r*1.8); ag.addColorStop(0,'rgba(180,0,255,0.5)'); ag.addColorStop(1,'transparent');
+    const ag=ctx.createRadialGradient(cx,cy,0,cx,cy,r*1.8); ag.addColorStop(0,'rgba(180,0,255,0.4)'); ag.addColorStop(1,'transparent');
     ctx.fillStyle=ag; ctx.beginPath(); ctx.arc(cx,cy,r*1.8,0,Math.PI*2); ctx.fill();
     ctx.save(); ctx.shadowColor='#b400ff'; ctx.shadowBlur=30;
     ctx.beginPath(); ctx.arc(cx,cy,r+8,0,Math.PI*2); ctx.lineWidth=10; ctx.strokeStyle='#b400ff'; ctx.stroke(); ctx.restore();
@@ -2680,26 +2705,24 @@ async function rizzCard(opts) {
     if(buf){const img=await loadImage(buf); if(img){const sc=Math.max(180/img.width,180/img.height);ctx.drawImage(img,cx-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);}else{ctx.fillStyle='#1a1a2e';ctx.fillRect(cx-r,cy-r,180,180);}}
     else {ctx.fillStyle='#1a1a2e';ctx.fillRect(cx-r,cy-r,180,180);}
     ctx.restore();
-    // sunglasses
-    ctx.fillStyle='rgba(0,0,0,0.75)'; ctx.fillRect(cx-42,cy-14,84,20);
-    ctx.fillStyle='#b400ff'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('COOL', cx, cy-4);
     // rizz level text
-    ctx.font='bold 30px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='bold 28px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.shadowColor='#b400ff'; ctx.shadowBlur=14;
-    ctx.fillText('RIZZ LEVEL: '+(o.rizz||95)+'%', W/2, cy+r+30);
+    ctx.fillText('RIZZ LEVEL: '+(o.rizz||0)+'%', W/2, cy+r+30);
     ctx.shadowBlur=0;
     // aura bar
     const barX=250, barY=cy+r+52, barW=300, barH=12;
     ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(barX,barY,barW,barH);
-    const pct=Math.min(1,(o.rizz||95)/100);
+    const pct=Math.min(1,(o.rizz||0)/100);
     const grad=ctx.createLinearGradient(barX,barY,barX+barW*pct,barY);
     grad.addColorStop(0,'#b400ff'); grad.addColorStop(1,'#ff00ff');
     ctx.fillStyle=grad; ctx.fillRect(barX,barY,barW*pct,barH);
     ctx.strokeStyle='rgba(180,0,255,0.5)'; ctx.lineWidth=1; ctx.strokeRect(barX,barY,barW,barH);
     // text
-    ctx.font='bold 22px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='bold 20px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=6;
-    ctx.fillText((o.name||'Alex')+' has ULTRA RIZZ!', W/2, cy+r+82);
+    const verdict = (o.rizz||0) > 80 ? 'CERTIFIED RIZZ' : (o.rizz||0) > 55 ? 'HAS SOME RIZZ' : (o.rizz||0) > 30 ? 'TRYING' : 'NO RIZZ DETECTED';
+    ctx.fillText((o.name||'Alex')+' - '+verdict, W/2, cy+r+80);
     ctx.shadowBlur=0;
     // footer
     const fy=H-45;

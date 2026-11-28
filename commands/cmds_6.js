@@ -391,6 +391,12 @@ function gcfg(group) {
     if (c.flood[field] === undefined || !Number.isFinite(Number(c.flood[field]))) c.flood[field] = value;
   }
   if (c.flood.on !== true && c.flood.on !== false) c.flood.on = floodDefaults.on;
+  if (!c.antiDup || typeof c.antiDup !== 'object') c.antiDup = {};
+  if (typeof c.antiDup.enabled !== 'boolean') c.antiDup.enabled = false;
+  if (typeof c.antiDup.threshold !== 'number' || !Number.isFinite(c.antiDup.threshold)) c.antiDup.threshold = 10;
+  if (typeof c.antiDup.windowSec !== 'number' || !Number.isFinite(c.antiDup.windowSec)) c.antiDup.windowSec = 30;
+  if (c.antiDup.threshold < 1) c.antiDup.threshold = 10;
+  if (c.antiDup.windowSec < 1) c.antiDup.windowSec = 30;
   if (c.antiRaid.burst === undefined || !Number.isFinite(c.antiRaid.burst)) c.antiRaid.burst = 5;
   if (c.antiRaid.windowMs === undefined || !Number.isFinite(c.antiRaid.windowMs)) c.antiRaid.windowMs = 10000;
   if (c.warzone.tax === undefined || !Number.isFinite(c.warzone.tax)) c.warzone.tax = 50;
@@ -1297,6 +1303,79 @@ const commands = [];
         + `⏳ Penalty: ${num(f.muteSec)}s, doubling to ${num(f.maxMuteSec)}s\n\n`
         + `👁️ Watching: ${num(live.people)} sender(s), ${num(live.held)} held, ${num(live.sealed)} chat(s) sealed\n\n`
         + `\`!flood on|off\` · \`!flood set maxPerUser 5\``,
+        event.messageID,
+      );
+    }),
+  });
+
+  commands.push({
+    name: 'antispam',
+    aliases: ['dupkill', 'antidupe'],
+    category: 'group',
+    description: '🛡️ Auto-remove users who send the same message 10+ times in 30s',
+    usage: '!antispam on|off | set <field> <value>',
+    hint: 'Fields: enabled (true/false), threshold (msgs, default 10), windowSec (seconds, default 30). Bot admins are never kicked.',
+    cooldown: 10,
+    permission: 'groupAdmin',
+    execute: async ({ args, event, api, reply, react }) => guard(reply, event.messageID, 'antispam', async () => {
+      await react('🛡️');
+      const group = await liveGroup(event);
+      if (!group) {
+        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
+        return;
+      }
+      const settings = ensureSettings(group);
+      const a = settings.antiDup || {};
+
+      const on = onOff(args);
+      if (on !== null) {
+        a.enabled = on;
+        settings.antiDup = a;
+        await save(group);
+        await reply(
+          on
+            ? `🛡️ **ANTISPAM ON.** Users who send the same message ${a.threshold || 10} times within ${a.windowSec || 30}s will be removed.`
+            : '🛡️ Anti-spam duplicate removal is off.',
+          event.messageID,
+        );
+        return;
+      }
+
+      if (String(args[0] || '').toLowerCase() === 'set') {
+        const field = String(args[1] || '').trim();
+        const raw = Number(args[2]);
+        const allowed = ['enabled', 'threshold', 'windowSec'];
+        if (!allowed.includes(field)) {
+          await reply(
+            `⚠️ Unknown setting \`${field || '?'}\`. Valid: ${allowed.map((k) => `\`${k}\``).join(', ')}`,
+            event.messageID,
+          );
+          return;
+        }
+        if (!Number.isFinite(raw) || raw < 0) {
+          await reply(`⚠️ \`${field}\` needs a number, not \`${args[2] || ''}\`.`, event.messageID);
+          return;
+        }
+        if (field === 'threshold' && raw < 1) {
+          await reply('⚠️ `threshold` must be at least 1.', event.messageID);
+          return;
+        }
+        if (field === 'windowSec' && raw < 1) {
+          await reply('⚠️ `windowSec` must be at least 1.', event.messageID);
+          return;
+        }
+        a[field] = raw;
+        settings.antiDup = a;
+        await save(group);
+        await reply(`🛡️ \`${field}\` is now **${raw}**.`, event.messageID);
+        return;
+      }
+
+      await reply(
+        `🛡️ **ANTISPAM** — **${yesNo(!!a.enabled)}**\n`
+        + `👥 Threshold: ${a.threshold || 10} same messages\n`
+        + `⏱️ Window: ${a.windowSec || 30}s\n`
+        + `\`!antispam on|off\` · \`!antispam set threshold 10\` · \`!antispam set windowSec 30\``,
         event.messageID,
       );
     }),

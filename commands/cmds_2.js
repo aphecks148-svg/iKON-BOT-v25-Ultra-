@@ -121,6 +121,7 @@ const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = (arr) => arr[rand(0, arr.length - 1)];
 const clamp = (v) => Math.max(0, Math.floor(Number(v) || 0));
 const kc = (v) => `${Number(v || 0).toLocaleString('en-US')} ${CASH}`;
+const num = (v) => Number(v || 0).toLocaleString('en-US');
 
 /** Small story line to keep replies feeling like a city, not a spreadsheet. */
 const story = () => pick([
@@ -935,10 +936,15 @@ module.exports = [
         emoji: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1),
         medal: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1),
       }));
-      const card = await cards.richestCard({ rows, limit: 10, api });
+      const card = await cards.richestCard({ rows: rows.slice(0, 3), limit: 3, api });
       if (card) {
+        // Build text body with 4-10
+        const restLines = top.slice(3, 10).map((u, i) => 
+          `${i + 4}. ${names[i + 3]} — ${kc(u.total)} (Lv ${u.level || 1})`
+        );
         await reply({
-          body: `🏆 **RICHEST HUNTERS**\n💵 ${kc(total)} on the books.`,
+          body: `🏆 **RICHEST HUNTERS**\n💵 ${kc(total)} on the books.\n\n` + 
+            (restLines.length > 0 ? `**4-10:**\n${restLines.join('\n')}` : ''),
           attachment: { type: 'image', data: { url: card } },
         }, event.messageID);
         return;
@@ -996,10 +1002,15 @@ module.exports = [
         emoji: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1),
         medal: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1),
       }));
-      const card = await cards.richestCard({ rows, limit: 10, api });
+      const card = await cards.richestCard({ rows: rows.slice(0, 3), limit: 3, api });
       if (card) {
+        // Build text body with 4-10
+        const restLines = top.slice(3, 10).map((u, i) => 
+          `${i + 4}. ${names[i + 3]} — ${kc(u.bank)} (Lv ${u.level || 1})`
+        );
         await reply({
-          body: `🏦 **VAULT KINGS**\n🔐 ${kc(total)} locked away.`,
+          body: `🏦 **VAULT KINGS**\n🔐 ${kc(total)} locked away.\n\n` + 
+            (restLines.length > 0 ? `**4-10:**\n${restLines.join('\n')}` : ''),
           attachment: { type: 'image', data: { url: card } },
         }, event.messageID);
         return;

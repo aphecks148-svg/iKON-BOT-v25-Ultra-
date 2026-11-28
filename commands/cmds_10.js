@@ -909,20 +909,7 @@ commands.push({
     await react('🌾');
     const fm = s(userDoc).farm;
 
-    // Land tax is charged here so it cannot be avoided by never opening the
-    // farm. It is the only command in this module that charges for looking, and
-    // the reply says exactly what it took.
-    let taxed = 0;
-    const lastTax = fm.taxAt ? Date.parse(fm.taxAt) : 0;
-    if (Date.now() - lastTax >= DAILY_MS && clamp(userDoc.coins) >= LAND_TAX) {
-      await take(userDoc, LAND_TAX, 'farm:landtax');
-      taxed = LAND_TAX;
-      fm.taxAt = new Date().toISOString();
-      await save(userDoc);
-    }
-
-    await send(api, event.threadID, await farmCard(fm, userDoc.name), event.messageID, event.isGroup);
-
+    // Build the text body with all farm info
     const plots = Array.from({ length: clamp(fm.plots) }, (_, i) => {
       const p = (Array.isArray(fm.land) ? fm.land[i] : null) || {};
       const crop = p.crop ? row(CROPS, p.crop) : null;
@@ -933,15 +920,31 @@ commands.push({
     }).join('\n');
 
     const seedTypes = Object.keys(fm.seeds).filter((k) => clamp(fm.seeds[k]) > 0).length;
+    const bag = num(bagValue(fm.crops, CROPS, 3));
+    const food = num(fm.food);
+    const harvested = num(fm.totalHarvest);
 
-    await reply(
-      `🌾 **${userDoc.name}**'s farm — \`Lv ${clamp(fm.level)}\` · ${clamp(fm.plots)}/${MAX_PLOTS} plots`
-      + `${clamp(fm.prestige) ? ` · \u{2B50} ${clamp(fm.prestige)}` : ''}\n\n${plots}\n\n`
-      + `Stores \u{1F33E} ${num(bagValue(fm.crops, CROPS, 3))} · \u{1F33D} ${num(seedTypes)} seed types · food ${num(fm.food)}\n`
-      + `Harvested ${num(fm.totalHarvest)} · land tax ${kc(LAND_TAX)}/day`
-      + `${taxed ? ` — **charged ${kc(taxed)}**` : ''}`,
-      event.messageID,
-    );
+    // Build farmCard with all the data we need
+    const card = await farmCard({
+      pic: userDoc.thumbSrc || null,
+      coins: userDoc.coins || 0,
+      seeds: Object.values(fm.seeds).reduce((a, b) => a + clamp(b), 0),
+      level: fm.level || 1,
+      name: userDoc.name,
+    });
+
+    // Send single message with body + attachment
+    if (card) {
+      await reply({
+        body: `🌾 **${userDoc.name}'s farm** — \`Lv ${clamp(fm.level)}\` · ${clamp(fm.plots)}/${MAX_PLOTS} plots\n\n${plots}\n\nStores: ${bag} · Seed types: ${seedTypes} · Food: ${food}\nHarvested: ${harvested}`,
+        attachment: { type: 'image', data: { url: card } }
+      }, event.messageID);
+    } else {
+      await reply(
+        `🌾 **${userDoc.name}'s farm** — \`Lv ${clamp(fm.level)}\` · ${clamp(fm.plots)}/${MAX_PLOTS} plots\n\n${plots}\n\nStores: ${bag} · Seed types: ${seedTypes} · Food: ${food}\nHarvested: ${harvested}`,
+        event.messageID,
+      );
+    }
   }),
 });
 

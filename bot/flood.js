@@ -76,6 +76,8 @@ const threads = new Map();
 const people = new Map();
 /** `${threadID}::${uid}::${normalised body}` -> timestamp of the last copy. */
 const repeats = new Map();
+/** `${threadID}::${uid}::${normalised body}` -> { count, firstSeen } — anti-dupe kick tracking. */
+const dupCounts = new Map();
 
 const key = (threadID, uid) => `${threadID}::${uid}`;
 

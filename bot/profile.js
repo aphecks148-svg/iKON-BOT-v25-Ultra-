@@ -44,8 +44,47 @@ const nameCache = new Map();
 /** uid -> Buffer */
 const picCache = new Map();
 
-/** Picture edge length. 720 is what getUserInfo asks Facebook for. */
-const PIC_SIZE = 256;
+/** Picture edge length. 512 is what we request for better quality. */
+const PIC_SIZE = 512;
+
+/**
+ * Extract access_token from api cookies (c_user + xs).
+ * Facebook's Graph API requires this for profile picture access.
+ * @param {object} api ws3-fca client
+ * @returns {string|null}
+ */
+function getAccessToken(api) {
+  if (!api || typeof api.getAppState !== 'function') return null;
+  try {
+    const cookies = api.getAppState();
+    if (!Array.isArray(cookies)) return null;
+    const c_user = cookies.find(c => c.key === 'c_user');
+    const xs = cookies.find(c => c.key === 'xs');
+    if (c_user && xs) {
+      // Format: c_user value + "|" + xs value (standard FB access token format)
+      return `${c_user.value}|${xs.value}`;
+    }
+  } catch (err) {
+    error(`[PROFILE] getAccessToken failed: ${err.message}`);
+  }
+  return null;
+}
+
+/**
+ * Build the Facebook Graph API picture URL with access_token.
+ * @param {string|number} uid
+ * @param {object} api ws3-fca client
+ * @returns {string|null}
+ */
+function buildPictureUrl(uid, api) {
+  const id = String(uid);
+  const accessToken = getAccessToken(api);
+  if (accessToken) {
+    return `https://graph.facebook.com/${id}/picture?width=512&height=512&access_token=${encodeURIComponent(accessToken)}`;
+  }
+  // Fallback without access_token (public endpoint)
+  return `https://graph.facebook.com/${id}/picture?width=512&height=512`;
+}
 
 /**
  * Is this a name the API made up rather than a real one?
@@ -97,27 +136,16 @@ async function fetchRealName(uid, api, opts = {}) {
 /**
  * The picture URL for a uid, or null.
  *
- * `thumbSrc` first: it is the direct CDN url Facebook hands over with a thread's
- * member list — no access token, no redirect to follow — and `getThreadInfo`
- * already carries it. `profilePicUrl` is the graph.facebook.com endpoint this
- * build of ws3-fca builds by hand, and is the fallback for a member who had not
- * shown up in that list yet. Both shapes are accepted because callers hold
- * either one: the thread list gives the first, getUserInfo gives the second.
+ * Uses the Facebook Graph API endpoint with access_token for reliable access.
+ * Falls back to public endpoint if access_token unavailable.
  *
  * @param {string|number} uid
  * @param {object} api ws3-fca client
  * @returns {Promise<string|null>}
  */
 async function fetchPictureUrl(uid, api) {
-  if (!uid || !api || typeof api.getUserInfo !== 'function') return null;
-  try {
-    const c = require('./cache');
-    const info = await c.getUserInfoCached(uid, api);
-    const url = info && (info.thumbSrc || info.profilePicUrl);
-    return url ? String(url) : null;
-  } catch {
-    return null;
-  }
+  if (!uid || !api) return null;
+  return buildPictureUrl(uid, api);
 }
 
 /**

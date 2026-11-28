@@ -1649,22 +1649,28 @@ const commands = [];
       }
 
       await react('💞');
+      // Fetch real names from Facebook if not in DB
+      const [aRealName, bRealName] = await Promise.all([
+        a.name || profile.fetchRealName(aUid, api),
+        b.name || profile.fetchRealName(bUid, api)
+      ]);
+      
       const sent = await art(reply, event.messageID, {
-      title: "💘 THE MATCHMAKER SAID SOME SHIT",
-        subtitle: `${a.name} + ${b.name}`,
+        title: "💘 PERFECT MATCH!",
+        subtitle: `${aRealName} + ${bRealName}`,
         api,
         threadID: event.threadID,
-        left: { uid: a.uid, name: a.name },
-        right: { uid: b.uid, name: b.name },
+        left: { uid: aUid, name: aRealName },
+        right: { uid: bUid, name: bRealName },
         body: `Ship score ${num(scored.score)}. It counts now, same as any other pair in here.`,
         footer: "PAIRED BY THE MATCHMAKER · NOT BY EITHER OF THEM",
         accent: canvasKit.theme.accent2,
       });
       if (!sent) {
         await reply(
-          `💘 **THE MATCHMAKER SAID SOME SHIT**\n`
+          `💘 **PERFECT MATCH!**\n`
           + '· · · · · · ·\n'
-          + `**${a.name}** + **${b.name}**\n`
+          + `**${aRealName}** + **${bRealName}**\n`
           + `💘 Ship score: ${num(scored.score)}${scored.score > added ? ` (+${num(added)})` : ''}\n`
           + (married.length ? `⚠️ ${married.join(' · ')}\n` : '')
           + (userDoc.uid === aUid || userDoc.uid === bUid
@@ -2564,28 +2570,55 @@ commands.push({
         return names.get(uid);
       };
 
-      // Both partners' real photos, with real Facebook names.
-      const card = await cards.pairCard({
-        emoji: '💑',
-        title: 'THE COUPLES',
-        subtitle: group
-          ? `${wedded.length} married · ${shipped.length} shipped in this chat`
-          : `${wedded.length} married across the server`,
-        pairs: rows,
-        api,
-        value: (p) => (p.married
-          ? (p.days > 0 ? `${num(p.days)} day(s)` : 'today')
-          : `${num(p.score)} 💘`),
-        limit: 10,
-        design: { bg1: '#0a160a', bg2: '#0f2a0f', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
-      });
-
-      // The asker's own row, named the same way on both paths. This read the
-      // raw stored name before, so the text fallback could answer "you are
-      // married to Facebook User" — the placeholder ws3-fca invents.
+      // The asker's own row, named the same way on both paths.
       const mine = userDoc.spouse
         ? `💖 You are married to ${await nameFor(String(userDoc.spouse))}.`
         : '💔 You are single. 5,000 fixes that.';
+
+      // Build a card for the user's own marriage (if married) or first couple in list
+      let card = null;
+      if (userDoc.spouse) {
+        // User is married - show their marriage
+        const spouseUid = String(userDoc.spouse);
+        const [myName, spouseName] = await Promise.all([
+          nameFor(userDoc.uid),
+          nameFor(spouseUid)
+        ]);
+        const [myPic, spousePic] = await Promise.all([
+          profile.picture(userDoc.uid, api),
+          profile.picture(spouseUid, api)
+        ]);
+        card = await cards.duoCard({
+          title: '💍 YOUR MARRIAGE',
+          subtitle: `${myName} + ${spouseName}`,
+          body: `Married for ${userDoc.marriedAt ? Math.max(0, Math.floor((Date.now() - new Date(userDoc.marriedAt).getTime()) / 86400000)) : 0} day(s)`,
+          footer: 'MADE OFFICIAL BY THE MATCHMAKER',
+          api,
+          left: { uid: userDoc.uid, name: myName, thumbSrc: myPic ? 'local' : '' },
+          right: { uid: spouseUid, name: spouseName, thumbSrc: spousePic ? 'local' : '' },
+          design: { bg1: '#0a160a', bg2: '#0f2a0f', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
+        });
+      } else if (rows.length > 0) {
+        // User not married - show first couple from the list
+        const first = rows[0];
+        const [an, bn] = await Promise.all([nameFor(first.a), nameFor(first.b)]);
+        const [aPic, bPic] = await Promise.all([
+          profile.picture(first.a, api),
+          profile.picture(first.b, api)
+        ]);
+        card = await cards.duoCard({
+          title: first.married ? '💍 MARRIED COUPLE' : '💘 SHIPPED PAIR',
+          subtitle: `${an} + ${bn}`,
+          body: first.married 
+            ? (first.days > 0 ? `Married ${first.days} day(s) ago` : 'Just married today!')
+            : `Ship score: ${num(first.score)}`,
+          footer: first.married ? 'OFFICIALLY MARRIED' : 'SHIPPED BY THE MATCHMAKER',
+          api,
+          left: { uid: first.a, name: an, thumbSrc: aPic ? 'local' : '' },
+          right: { uid: first.b, name: bn, thumbSrc: bPic ? 'local' : '' },
+          design: { bg1: '#0a160a', bg2: '#0f2a0f', accent: '#00e676', accent2: '#69f0ae', border: '#00e676' },
+        });
+      }
 
       if (card) {
         await reply({
