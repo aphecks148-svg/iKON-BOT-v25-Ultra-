@@ -1307,6 +1307,7 @@ const commands = [];
       }
 
     }),
+  });
 
 // ───────────────────────────────────────────────────────────
 // RELATIONSHIPS — the two expensive commands in the module
