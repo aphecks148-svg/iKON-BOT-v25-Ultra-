@@ -1627,15 +1627,6 @@ const commands = [];
 // ───────────────────────────────────────────────────────────
 // METERS
 //
-// All seven read the same record and differ only in what they weigh. None of
-// them invent a number: every figure is derived from counters and balances that
-// already exist, so a meter can be wrong but it cannot be a lie.
-// ───────────────────────────────────────────────────────────
-
-  commands.push();
-
-  
-  
   commands.push({
     name: 'rizz',
     category: 'fun',
@@ -1691,9 +1682,6 @@ const commands = [];
     }),
   });
 
-  commands.push();
-
-  
   commands.push({
     name: 'flex',
     // `showoff` and `brag` are the spellings the retired picture-flex
