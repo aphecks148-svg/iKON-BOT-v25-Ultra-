@@ -376,13 +376,24 @@ module.exports = [
         : coins + bank >= 250000 ? 'TYCOON'
           : coins + bank >= 50000 ? 'ELITE' : 'STREET';
 
+      // Fetch real Facebook profile picture
+      const profile = require('../bot/profile');
+      const fbPic = await profile.picture(userDoc.uid, api);
+
       const bankPng = await cards.bankCard({
-        name: userDoc.name,
-        pic: null,
-        balance: num(bank),
-        interest: Math.round(bank * 0.05),
-        api,
-      });
+          name: userDoc.name,
+          uid: userDoc.uid,
+          pic: fbPic,
+          wallet: num(coins),
+          vault: num(bank),
+          networth: num(coins + bank),
+          tier,
+          level: userDoc.level || 1,
+          interest: Math.round(bank * 0.05),
+          joined: userDoc.createdAt ? new Date(userDoc.createdAt).toLocaleDateString() : '—',
+          story: story(),
+          api,
+        });
       if (bankPng) {
         await reply({ attachment: { type: 'image', data: { url: bankPng } } }, event.messageID);
       } else {

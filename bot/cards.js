@@ -2900,67 +2900,140 @@ async function flexCard(opts) {
 /**
  * Bank vault card. 800x500, bank secure style. No emoji in fillText.
  */
+/**
+ * Bank vault card. 1000x680, modern gaming aesthetic.
+ * Shows: name, UID, wallet, vault, net worth, tier, level, real Facebook picture.
+ */
 async function bankCard(opts) {
   if (!canvasKit.available()) return null;
   const o = opts || {};
-  const W = 800, H = 500;
+  const W = 1000, H = 680;
   try {
     const cv = canvasKit.create(W, H);
     const ctx = cv.ctx;
+
+    // Helper for text width
+    const textWidth = (txt, font) => {
+      const prev = ctx.font;
+      ctx.font = font;
+      const w = ctx.measureText(txt).width;
+      ctx.font = prev;
+      return w;
+    };
+
+    // Gradient background - bank/vault theme
     const bg = ctx.createLinearGradient(0,0,W,H);
     bg.addColorStop(0,'#0a1a2a'); bg.addColorStop(0.5,'#10203a'); bg.addColorStop(1,'#0a1424');
     ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
-    // secure grid
-    ctx.strokeStyle='rgba(0,150,255,0.12)'; ctx.lineWidth=1;
+
+    // Secure grid particles
+    ctx.strokeStyle='rgba(0,150,255,0.08)'; ctx.lineWidth=1;
     for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
     for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
-    // money particles
-    ctx.font='20px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    for(let i=0;i<20;i++){ctx.globalAlpha=0.5;ctx.fillText('$',(i*73)%880+10,(i*41)%580+10);}ctx.globalAlpha=1;
-    const syms=['•','★','O'];
-    for(let i=0;i<24;i++){ctx.globalAlpha=0.4+(i%4)*0.12;ctx.fillText(syms[i%syms.length],(i*127)%780+10,(i*67)%480+10);}ctx.globalAlpha=1;
-    // header
+
+    // Decorative symbols
+    const syms = ['$', '#', '!', '@', 'K'];
+    ctx.font='24px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let i=0;i<28;i++){ctx.globalAlpha=0.4+(i%4)*0.12;ctx.fillText(syms[i%syms.length],(i*113)%980+10,(i*71)%580+10);}ctx.globalAlpha=1;
+
+    // Header
     ctx.textAlign='center'; ctx.shadowColor='#00c8ff'; ctx.shadowBlur=20;
     ctx.font='bold 48px sans-serif'; ctx.fillStyle='#fff';
-    ctx.fillText('BANK VAULT!', W/2, 56);
+    ctx.fillText('[ BANK VAULT ]', W/2, 58);
     ctx.shadowBlur=0;
-    const dg=ctx.createLinearGradient(140,92,660,92);
+    ctx.font='22px serif'; ctx.fillStyle='#fff';
+    ctx.fillText('$', W/2-220, 54); ctx.fillText('#', W/2+220, 54);
+    const dg=ctx.createLinearGradient(160,96,840,96);
     dg.addColorStop(0,'transparent');dg.addColorStop(0.3,'#00c8ff');dg.addColorStop(0.5,'#fff3b0');dg.addColorStop(0.7,'#00c8ff');dg.addColorStop(1,'transparent');
-    ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(140,92);ctx.lineTo(660,92);ctx.stroke();
-    ctx.font='16px serif'; ctx.fillStyle='#00c8ff'; ctx.fillText('• ──  ── •', W/2, 104);
-    // avatar center with blue secure glow
-    const cx=W/2, cy=240, r=90;
-    const ag=ctx.createRadialGradient(cx,cy,0,cx,cy,r*1.8); ag.addColorStop(0,'rgba(0,200,255,0.4)'); ag.addColorStop(1,'transparent');
-    ctx.fillStyle=ag; ctx.beginPath(); ctx.arc(cx,cy,r*1.8,0,Math.PI*2); ctx.fill();
-    ctx.save(); ctx.shadowColor='#00c8ff'; ctx.shadowBlur=30;
-    ctx.beginPath(); ctx.arc(cx,cy,r+8,0,Math.PI*2); ctx.lineWidth=10; ctx.strokeStyle='#00c8ff'; ctx.stroke(); ctx.restore();
-    ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.clip();
+    ctx.strokeStyle=dg; ctx.lineWidth=3; ctx.beginPath();ctx.moveTo(160,96);ctx.lineTo(840,96);ctx.stroke();
+    ctx.font='18px serif'; ctx.fillStyle='#00c8ff'; ctx.fillText('• ── $ ── •', W/2, 108);
+
+    // Avatar left — real Facebook profile picture when available
+    const ax=250, ay=330, r=115;
+    ctx.save(); ctx.shadowColor='#00c8ff'; ctx.shadowBlur=26;
+    ctx.beginPath(); ctx.arc(ax,ay,r+10,0,Math.PI*2); ctx.lineWidth=6; ctx.strokeStyle='#00c8ff'; ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.shadowColor='#fff3b0'; ctx.shadowBlur=18;
+    ctx.beginPath(); ctx.arc(ax,ay,r+2,0,Math.PI*2); ctx.lineWidth=4; ctx.strokeStyle='#fff3b0'; ctx.stroke(); ctx.restore();
+    ctx.font='40px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='#fff'; ctx.fillText('K', ax, ay-r-28);
+    ctx.save(); ctx.beginPath(); ctx.arc(ax,ay,r,0,Math.PI*2); ctx.clip();
     const buf = o.pic ? await thumbBuffer(o.pic) : null;
-    if(buf){const img=await loadImage(buf); if(img){const sc=Math.max(180/img.width,180/img.height);ctx.drawImage(img,cx-img.width*sc/2,cy-img.height*sc/2,img.width*sc,img.height*sc);}else{ctx.fillStyle='#0a1a2a';ctx.fillRect(cx-r,cy-r,180,180);}}
-    else {ctx.fillStyle='#0a1a2a';ctx.fillRect(cx-r,cy-r,180,180);}
+    if(buf){
+      const img=await loadImage(buf);
+      if(img){
+        const sc=Math.max(230/img.width,230/img.height);
+        ctx.drawImage(img,ax-img.width*sc/2,ay-img.height*sc/2,img.width*sc,img.height*sc);
+      } else {
+        ctx.fillStyle='#0a1a2a'; ctx.fillRect(ax-r,ay-r,230,230);
+      }
+    } else {
+      ctx.fillStyle='#0a1a2a'; ctx.fillRect(ax-r,ay-r,230,230);
+    }
     ctx.restore();
-    // lock icon
-    ctx.font='40px serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='#00c8ff'; ctx.fillText('O', cx, cy-r-24);
-    ctx.font='bold 14px sans-serif'; ctx.fillText('SECURE', cx, cy-r-6);
-    // vault text
-    ctx.font='bold 28px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=6;
-    ctx.fillText((o.name||'Alex')+"'s Vault:", W/2, cy+r+28);
+    // Vault status dot (gold = secured)
+    ctx.fillStyle='#fff3b0'; ctx.beginPath(); ctx.arc(ax+r-10, ay+r-10, 12,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.stroke();
+    // Level badge
+    ctx.save(); ctx.shadowColor='#fff3b0'; ctx.shadowBlur=14;
+    ctx.beginPath(); ctx.arc(ax+r-8, ay+r+8, 32,0,Math.PI*2); ctx.fillStyle='#fff3b0'; ctx.fill(); ctx.restore();
+    ctx.font='bold 18px sans-serif'; ctx.fillStyle='#0a1a2a'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('LVL '+(o.level||1), ax+r-8, ay+r+8);
+
+    // Info box glassmorphism
+    const bx=410, by=150, bw=550, bh=510;
+    ctx.save();
+    ctx.fillStyle='rgba(255,255,255,0.07)';
+    const rad=26;
+    ctx.beginPath(); ctx.moveTo(bx+rad,by); ctx.lineTo(bx+bw-rad,by); ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+rad); ctx.lineTo(bx+bw,by+bh-rad); ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-rad,by+bh); ctx.lineTo(bx+rad,by+bh); ctx.quadraticCurveTo(bx,by+bh,bx,by+bh-rad); ctx.lineTo(bx,by+rad); ctx.quadraticCurveTo(bx,by,bx+rad,by); ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle='rgba(0,200,255,0.45)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.restore();
+
+    // Extract all balance data
+    const name  = String(o.name||'Hunter');
+    const uid   = String(o.uid||'—');
+    const wallet = String(o.wallet||'0');
+    const vault = String(o.vault||'0');
+    const networth = String(o.networth||'0');
+    const tier  = String(o.tier||'STREET');
+    const lvl   = Number(o.level||1);
+    const interest = String(o.interest||'0');
+    const joined= String(o.joined||'—');
+
+    // Info text rendering
+    ctx.font='bold 22px sans-serif'; ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(0,0,0,0.35)'; ctx.shadowBlur=3;
+
+    let y=by+34;
+    const put=(label,value,color='#e0e0e0')=>{
+      ctx.fillStyle='#fff3b0'; ctx.fillText(label+': ', bx+30, y);
+      ctx.fillStyle=color; ctx.fillText(value, bx+30+textWidth(label+': ','bold 22px sans-serif')+8, y);
+      y+=40;
+    };
+    put('Name', name, '#ffffff');
+    put('UID', uid, '#c0e0ff');
+    put('Wallet', wallet+' K-Cash', '#fff3b0');
+    put('Vault', vault+' K-Cash', '#00c8ff');
+    put('Net Worth', networth+' K-Cash', '#ffd700');
+    put('Tier', tier, '#ffd700');
+    put('Level', String(lvl), '#ffffff');
+    put('Interest/Day', interest+' K-Cash', '#00e676');
+    put('Joined', joined, '#ffffff');
     ctx.shadowBlur=0;
-    ctx.font='bold 32px sans-serif'; ctx.fillStyle='#00c8ff';
-    ctx.fillText(o.balance||'0', W/2, cy+r+60);
-    ctx.font='16px sans-serif'; ctx.fillStyle='#b4e8ff';
-    ctx.fillText('K-Cash ' + (o.interest? '+' + o.interest + ' interest' : ''), W/2, cy+r+80);
-    // footer
-    const fy=H-45;
-    const fdg=ctx.createLinearGradient(120,fy-16,680,fy-16);
+    ctx.textBaseline='middle';
+
+    // Footer
+    const fy=H-38;
+    const storyText=String(o.story||'A stray cat knocks over a bucket of coins. Do same to balance.');
+    const fdg=ctx.createLinearGradient(160,fy-16,840,fy-16);
     fdg.addColorStop(0,'transparent');fdg.addColorStop(0.5,'#00c8ff');fdg.addColorStop(1,'transparent');
-    ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(120,fy-16);ctx.lineTo(680,fy-16);ctx.stroke();
-    ctx.font='italic 16px serif'; ctx.fillStyle='#00c8ff';
-    ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=2;
-    ctx.fillText('Made with love by iKON BOT', W/2, fy); ctx.shadowBlur=0;
-    ctx.font='16px serif'; ctx.fillStyle='#00c8ff';
-    ctx.fillText('• ──  ── •', W/2, fy+18);
+    ctx.strokeStyle=fdg; ctx.lineWidth=2; ctx.beginPath();ctx.moveTo(160,fy-16);ctx.lineTo(840,fy-16);ctx.stroke();
+    ctx.font='italic 16px serif'; ctx.fillStyle='#00c8ff'; ctx.textAlign='center';
+    ctx.shadowColor='rgba(255,255,255,0.4)'; ctx.shadowBlur=2;
+    ctx.fillText('• ── $ Made with K by iKON BOT • Your Vault • ── •', W/2, fy); ctx.shadowBlur=0;
+    ctx.font='16px serif'; ctx.fillStyle='#fff3b0'; ctx.textAlign='center';
+    ctx.fillText(storyText, W/2, fy+26);
+    ctx.font='18px serif'; ctx.fillStyle='#00c8ff';
+    ctx.fillText('$ # $ # $', W/2, fy+52);
     return cv.canvas.toDataURL('image/png');
   } catch (err) {
     const { error } = require('./helpers');
@@ -2968,6 +3041,7 @@ async function bankCard(opts) {
     return null;
   }
 }
+
 
 async function farmCard(opts) {
   if (!canvasKit.available()) return null;
