@@ -2127,39 +2127,6 @@ const commands = [];
     }),
   });
 
-  commands.push({
-    name: 'say',
-    aliases: ['sayultra2', 'savage'],
-    category: 'downloader',
-    description: '🗣️ Groq rewrites your text into full iKON savage mode',
-    usage: '!say <text>',
-    hint: 'Fifty coins, and your own words come back nastier. It is a rewrite, not a quote.',
-    cooldown: 15,
-    permission: 'all',
-    execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.messageID, 'say', async () => {
-      await react('🗣️');
-      const text = args.join(' ').trim();
-      if (!text) {
-        await reply('❌ Usage: `!say <text to make savage>`', event.messageID);
-        return;
-      }
-
-      const savage = await aiPaid({
-        userDoc,
-        prompt: `Rewrite this in maximum iKON savage mode. Keep the original meaning, hit harder. `
-          + `Give 3 versions: savage, colder, and funny. Text: "${text}"`,
-        style: 'Style: brutal, harmless, no slurs, no real names.',
-        lang: userDoc.lang || 'en',
-        cost: FEES.say,
-        action: 'downloader:say',
-        reply,
-        messageID: event.messageID,
-      });
-      if (!answer) return;
-      const body = `🗣️ **REWRITTEN**\n· · · · · · ·\n${savage}\n💸 ${kc(FEES.say)}`;
-      await reply(body, event.messageID);
-    }),
-  });
 
   commands.push();
 
@@ -2279,44 +2246,6 @@ execute: async ({ args, userDoc, reply, react, event }) => guard(reply, event.me
 // pixel work. They differ only in scale factor and filter.
 // ───────────────────────────────────────────────────────────
 
-  commands.push({
-    name: 'alerts',
-    aliases: ['alertstatus', 'footbalalerts'],
-    category: 'football',
-    description: '🔔 What the football ticker is watching in this chat',
-    usage: '!alerts',
-    hint: 'What the football ticker is watching in this chat, and what it will say when it moves.',
-    cooldown: 5,
-    permission: 'all',
-    execute: async ({ args, event, reply, react, api }) => guard(reply, event.messageID, 'alerts', async () => {
-      await react('🔔');
-      const group = await footballGroup(event, api);
-      if (!group) {
-        await reply('❌ The city grid is offline. Try again shortly.', event.messageID);
-        return;
-      }
-      const sub = ensureFootball(group);
-      const list = sub.subscriptions || [];
-      const last = sub.lastScore || {};
-      const lastLine = last.team
-        ? `🔔 Last alert: **${last.team}** ${last.score || ''} in ${last.league || 'unknown league'}`
-        : '🔔 No alert has fired yet.';
-      if (!list.length) {
-        await reply(
-          `🔔 **NO ALERTS**\n· · · · · · ·\n${lastLine}\n📖 \`!follow <team>\` to start getting goal calls here.`,
-          event.messageID,
-        );
-        return;
-      }
-      await reply(
-        `🔔 **ALERTS ${sub.on ? 'ON' : 'OFF'}**\n· · · · · · ·\n`
-        + `${list.map((t, i) => `${i + 1}. ${t}`).join('\n')}\n`
-        + `${lastLine}\n`
-        + `📖 \`!follow off <team>\` stops one. To stop every alert here, remove the clubs.`,
-        event.messageID,
-      );
-    }),
-  });
 
   commands.push();
 
